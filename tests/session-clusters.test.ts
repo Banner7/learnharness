@@ -135,6 +135,7 @@ describe("notes files as birth sessions", () => {
 	});
 });
 
+
 // ─── the prober data seam ───────────────────────────────────────────────────
 
 describe("graphSessionIndex (the prober's session list)", () => {

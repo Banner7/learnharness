@@ -66,6 +66,7 @@ import type {
 } from "./contracts.ts";
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { tidySourceLabel } from "./source-label.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -537,13 +538,18 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 
 	// Graph page restored for desktop (2026-10-31): birth-session regions
 	// and their saved resting positions share the snapshot the phone reads.
+	// Notes files show a tidied filename (upstream, 2026-10-26); the raw
+	// path stays in fileSources for provenance.
 	const clusters: Cluster[] = birthSessionPartition(graph.nodes)
 		.filter((community) => community.members.length >= 3)
-		.map((community) => ({
-			id: community.id,
-			label: sessions[community.id] ?? fileSources[community.id] ?? null,
-			members: community.members,
-		}));
+		.map((community) => {
+			const file = fileSources[community.id];
+			return {
+				id: community.id,
+				label: sessions[community.id] ?? (file === undefined ? null : tidySourceLabel(file)),
+				members: community.members,
+			};
+		});
 	attachImpToCommunities(clusters, graph.nodes, graph.chains);
 	const positions = deps.graphStore.readPositions();
 

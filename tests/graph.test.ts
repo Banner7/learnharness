@@ -504,6 +504,7 @@ describe("the merger (mergeFindings)", () => {
 		assert.equal(merge.nodes, 3);
 		const snap = graphSnapshot(graphDeps);
 
+
 		// Chains-primary split (owner, 2026-09-30): `nodes` is the canvas
 		// image, `propositions` the stored truth alone (the chain table's
 		// input). The store is shared across this suite, so assert the
