@@ -7,7 +7,7 @@ import { useRouter } from "@/web/navigation";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { planCostLabel } from "@/components/usage-format";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
-import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { NotesImportControl, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
 import { ActivitySection } from "@/components/activity-dock";
 import { SessionList } from "@/components/sidebar";
 import { Hint } from "@/components/ui/hint";
@@ -205,7 +205,6 @@ export function MinimalHome({
 	useEffect(() => {
 		if (new URLSearchParams(window.location.search).get("chains") === "1") setChainsOpen(true);
 	}, []);
-	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const readState = useCallback(() => {
 		fetch("/api/graph")
@@ -252,18 +251,6 @@ export function MinimalHome({
 
 	return (
 		<div className="relative mx-auto max-w-[720px] px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] min-[1100px]:grid min-[1100px]:max-w-[1080px] min-[1100px]:grid-cols-[minmax(0,1.78fr)_minmax(0,1fr)] min-[1100px]:items-start min-[1100px]:gap-x-12 min-[1280px]:block min-[1280px]:max-w-[720px]">
-			<input
-				ref={fileInputRef}
-				type="file"
-				multiple
-				accept=".md,.markdown,.txt"
-				className="hidden"
-				onChange={(e) => {
-					onImportFiles(e.target.files);
-					e.target.value = ""; // allow re-picking the same file
-				}}
-			/>
-
 			<div className="min-w-0">
 			{children}
 			<section className="mt-9 border-t border-border pt-7">
@@ -294,7 +281,7 @@ export function MinimalHome({
 					<div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground min-[1100px]:mt-1 min-[1100px]:flex-col min-[1100px]:items-start min-[1100px]:gap-0">
 						<button type="button" data-testid="open-chain-table" onClick={() => setChainsOpen(true)} className="min-h-11 underline underline-offset-2 min-[1100px]:min-h-9 min-[1100px]:text-left">Chains</button>
 						<Link href="/graph" className="hidden min-h-9 items-center underline underline-offset-2 min-[1100px]:inline-flex">Graph</Link>
-						<button type="button" data-testid="import-notes" disabled={importing} onClick={() => fileInputRef.current?.click()} className="min-h-11 underline underline-offset-2 disabled:opacity-50 min-[1100px]:min-h-9 min-[1100px]:text-left">{importing ? "Importing…" : "Import notes"}</button>
+						<NotesImportControl variant="link" importing={importing} onImportFiles={onImportFiles} />
 						{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 					</div>
 				</div>
