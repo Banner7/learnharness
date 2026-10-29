@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CLAUDE_CODE_PROVIDER, subscriptionLabels, subscriptionLabel, type cliContextWindowOf, type SessionPricing, type TurnUsage } from "@/src/core";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CLAUDE_CODE_PROVIDER, type CliContextWindow, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 
@@ -13,7 +13,7 @@ export function formatContextMeasurement(tokens: number | null, limit: number | 
 /** CLI aliases have no global catalog limit: only this session's matching
  * response can supply a denominator. Other providers keep their catalog join. */
 export function contextLimitForModel(model: string | undefined, limits: ReadonlyMap<string, number> | undefined,
-	cliWindow: ReturnType<typeof cliContextWindowOf> = null): number | null {
+	cliWindow: CliContextWindow | null = null): number | null {
 	if (!model) return null;
 	if (model.startsWith(`${CLAUDE_CODE_PROVIDER}:`)) return cliWindow?.model === model ? cliWindow.tokens : null;
 	return limits?.get(model) ?? null;
@@ -28,7 +28,7 @@ export function contextLimitForModel(model: string | undefined, limits: Readonly
  *  Pre-chat views (home, /chat/new) render NO left side at all (owner,
  *  wave 7 sweep: the knowledge-context budget slider that used to live
  *  there died with the injection; a "— · —" summary over an empty
- *  popover is pure noise) — the dictation strip's middle simply widens.
+ *  popover is pure noise).
  *
  * Spending arrives already priced by the server through Pi's catalog and
  * calculator. Missing cost stays "—", never fake zero. Context is a separate
@@ -42,27 +42,18 @@ export function StatsBar({
 	contextTokens = null,
 	cliContextWindow = null,
 	pricing,
-	dictationSlot,
 	chatId,
 	leadingSlot,
-	onModelChange,
 }: {
 	turns: TurnUsage[];
 	contextTokens?: number | null;
-	cliContextWindow?: ReturnType<typeof cliContextWindowOf>;
+	cliContextWindow?: CliContextWindow | null;
 	pricing?: SessionPricing;
 	/** The bound session (per-session models, owner 2026-09-28): present
 	 *  on the in-session bar — the model control binds THE SESSION'S own
 	 *  record; absent on the draft surfaces, where it binds the strong
 	 *  slot (the new-session default). */
 	chatId?: string;
-	/** The same effective identity the visible model control owns. */
-	onModelChange?: (model: string | undefined) => void;
-	/** The dictation strip (STT wave, 2026-09-17): the row's middle is dead
-	 *  space between the session data and the model control — the mic
-	 *  button lives there, and while recording the meter unfurls to fill
-	 *  whatever width the row has (owner placement). */
-	dictationSlot?: ReactNode;
 	/** The row's LEFT edge (practice sessions, 2026-10-04): the home
 	 *  composer's teach | practice switch rides here — before the session
 	 *  data (which renders nothing pre-chat on that surface). */
@@ -70,32 +61,16 @@ export function StatsBar({
 }) {
 	const [open, setOpen] = useState(false);
 	const [selectedModel, setSelectedModel] = useState<string | undefined>();
-	const modelChanged = useCallback((model: string | undefined) => {
-		setSelectedModel(model);
-		onModelChange?.(model);
-	}, [onModelChange]);
-	// Same dropdown discipline as the model control (owner, df4433f treatment,
-	// stats round 1): close on any pointerdown outside the bar or on Escape.
+	// Close the popover on pointerdown outside the bar.
 	const barRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (!open) return;
 		const onPointerDown = (e: PointerEvent) => {
 			if (barRef.current && !barRef.current.contains(e.target as Node)) setOpen(false);
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim — the
-				// window chain must not also act under this popover.
-				e.preventDefault();
-				e.stopPropagation();
-				setOpen(false);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [open]);
 	// The picker reports its effective selection. CLI windows are session-
@@ -104,13 +79,13 @@ export function StatsBar({
 	const limits = useMemo(() => (catalog ? catalogLimits(catalog) : undefined), [catalog]);
 	const limit = contextLimitForModel(selectedModel, limits, cliContextWindow);
 	const contextLabel = formatContextMeasurement(contextTokens, limit);
-	const { cost = 0, unpriced = turns.length, subscription = 0 } = pricing ?? {};
+	const { cost = 0, unpriced = turns.length } = pricing ?? {};
 	// Honest cost: show dollars only when at least one turn priced;
 	// otherwise "—" (never a fake $0.0000).
-	const pricedCount = turns.length - unpriced - subscription;
-	const providers = pricing?.subscriptionProviders ?? subscriptionLabels(turns.map((turn) => turn.model));
+	const pricedCount = turns.length - unpriced;
 	const cliBilled = turns.some((turn) => turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`));
-	const costLabel = planCostLabel(pricedCount > 0 ? cost : null, cliBilled ? [...providers, "CLI"] : providers);
+	const dollars = planCostLabel(pricedCount > 0 ? cost : null);
+	const costLabel = cliBilled ? pricedCount > 0 ? `${dollars} + CLI` : "CLI" : dollars;
 
 	return (
 		<div
@@ -119,7 +94,7 @@ export function StatsBar({
 			// (so its transparent gradient area never blocks scrolling) — this row
 			// must re-enable events or every control on it is dead (the model-
 			// control wave caught this live: buttons rendered, clicks never landed).
-			className="pointer-events-auto relative flex items-center justify-between gap-3 px-3 pt-2 text-xs text-muted-foreground"
+			className="pointer-events-auto relative flex flex-wrap items-center justify-between gap-x-3 px-3 pt-1 text-xs text-muted-foreground"
 		>
 			{/* The summary button + its popover: the popover anchors to this
 			    wrapper, CENTERED over the button itself (owner, stats round 2)
@@ -133,7 +108,7 @@ export function StatsBar({
 			{/* The left side: the session-data summary — only once a session
 			    exists (turns). Pre-chat renders nothing (see the header). */}
 			{(chatId || turns.length > 0) && (
-			<div ref={barRef} className="relative">
+			<div ref={barRef} className="relative min-w-0">
 				{/* No tooltip — the numbers describe themselves and the popover
 			    speaks on click (owner, subtlety round 2026-09-25). */}
 			<button
@@ -141,20 +116,19 @@ export function StatsBar({
 				onClick={() => setOpen((o) => !o)}
 				aria-expanded={open}
 				data-testid="stats-summary"
-				className="flex items-center gap-1.5 tabular-nums transition-colors hover:text-foreground"
+				className="flex min-h-11 items-center gap-3 tabular-nums transition-colors hover:text-foreground"
 			>
 				<span data-testid="stats-context">
 					{contextLabel}
 				</span>
-				<span aria-hidden>·</span>
 				<span data-testid="stats-cost">{costLabel}</span>
 			</button>
 				{open && (
 					<div
 						data-testid="stats-detail"
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-xl border bg-card p-3 text-xs shadow-xl"
+						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-xs shadow-lg"
 					>
-						<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						<div className="mb-2 text-xs font-medium text-muted-foreground">
 							Session stats
 						</div>
 						<div className="flex flex-col gap-1 text-muted-foreground">
@@ -168,10 +142,9 @@ export function StatsBar({
 								<p>Window reported by Claude Code; may be lower for auto-compaction.</p>
 							)}
 							<div className="flex justify-between gap-2">
-								<span>{subscription ? "Usage" : "Total cost"}</span>
+								<span>Total cost</span>
 								<span className="tabular-nums text-card-foreground">{costLabel}</span>
 							</div>
-							{providers.includes("ChatGPT") && <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noreferrer" className="underline underline-offset-2">Manage ChatGPT usage</a>}
 							{unpriced > 0 && (
 								<div className="flex justify-between gap-2">
 									<span>Unpriced turns</span>
@@ -181,7 +154,7 @@ export function StatsBar({
 						</div>
 						{turns.length > 0 && (
 							<>
-								<div className="mb-1 mt-2.5 border-t pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								<div className="mb-1 mt-2.5 border-t pt-2 text-xs font-medium text-muted-foreground">
 									Turns
 								</div>
 								<ul className="flex max-h-56 flex-col gap-1 overflow-y-auto">
@@ -190,11 +163,11 @@ export function StatsBar({
 										return (
 											<li key={`${turn.messageId}-${i}`} className="flex items-center justify-between gap-2">
 												<span className="truncate text-muted-foreground">
-													#{i + 1} · {prettyModel(turn.model, true)}
+													#{i + 1} {prettyModel(turn.model, true)}
 												</span>
 												<span className="flex shrink-0 items-center gap-2 tabular-nums text-card-foreground">
 													<span className="text-muted-foreground">{turn.steps.length} steps</span>
-													<span>{turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`) ? "CLI" : subscriptionLabel(turn.model) ?? (c === null ? "—" : formatUsd(c))}</span>
+													<span>{turn.model.startsWith(`${CLAUDE_CODE_PROVIDER}:`) ? "CLI" : c === null ? "—" : formatUsd(c)}</span>
 												</span>
 											</li>
 										);
@@ -206,16 +179,10 @@ export function StatsBar({
 				)}
 			</div>
 			)}
-			{/* The middle slot: dictation (owner, 2026-09-17). flex-1 lets the
-			    meter expand into the row's free width; justify-center keeps the
-			    lone idle mic button visually centered. */}
-			{dictationSlot && (
-				<div className="flex min-w-0 flex-1 items-center justify-center">{dictationSlot}</div>
-			)}
 			{/* The model + thinking control — one controller for the conversation
 			    agents (prober/teacher); the record's `turns` above still folds
 			    the ACTUAL models billed, regardless of what the picker says. */}
-			<ModelControl chatId={chatId} onModelChange={modelChanged} />
+			<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
 		</div>
 	);
 }

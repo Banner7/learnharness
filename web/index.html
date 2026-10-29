@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+		<title>Learning Harness</title>
+		<meta name="description" content="A teacher agent with a memory — sessions, quizzes, and a knowledge graph of what you know." />
+		<meta name="theme-color" media="(prefers-color-scheme: light)" content="#e5d8be" />
+		<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#243330" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="LearnHarness" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+		<link rel="manifest" href="/manifest.webmanifest" />
+		<link rel="apple-touch-icon" href="/apple-icon.png" />
+		<!-- Fork rewrite (2026-10-29): apply the saved theme before CSS paints,
+		     keeping this pre-paint copy in step with lib/theme-mode.ts. -->
+		<script>
+			(function () {
+				var query = window.matchMedia('(prefers-color-scheme: dark)');
+				function apply() {
+					var mode;
+					try { mode = localStorage.getItem('lh-theme'); } catch {}
+					var dark = mode === 'dark' || (mode !== 'light' && query.matches);
+					document.documentElement.classList.toggle('dark', dark);
+					document.querySelectorAll('meta[name="theme-color"]').forEach(function (meta) {
+						meta.setAttribute('content', dark ? '#243330' : '#e5d8be');
+					});
+				}
+				apply();
+				query.addEventListener('change', apply);
+				document.addEventListener('DOMContentLoaded', apply, { once: true });
+			})();
+		</script>
+	</head>
+	<body class="min-h-dvh antialiased">
+		<div id="root"></div>
+		<script type="module" src="/main.tsx"></script>
+	</body>
+</html>

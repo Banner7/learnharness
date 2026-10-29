@@ -227,13 +227,8 @@ describe("render — mermaid", () => {
 });
 
 
-describe("render — bold is the real <strong> (the dead Bold-color fix)", () => {
-	// Streamdown's default `strong` renders <span class="font-semibold"
-	// data-streamdown="strong"> — and the app's ink token rule
-	// (.lh-prose :where(strong, b), globals.css) matches strong/b
-	// ELEMENTS, so bold never took the --lh-ink-strong color (neither the
-	// factory #ee928c nor a settings boldColor). The mdComponents override
-	// renders the semantic element.
+describe("render — bold is the real <strong>", () => {
+	// Semantic elements preserve accessibility and match the emphasis stylesheet.
 	it("bold renders a real <strong> element inside .lh-prose", () => {
 		const html = render("plain **bold** plain");
 		assert.ok(

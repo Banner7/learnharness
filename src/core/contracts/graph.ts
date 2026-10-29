@@ -104,20 +104,6 @@ export interface NotesSource {
 	extractions?: ExtractionRunUsage[];
 }
 
-/** What one cluster-naming refresh did — the namer's ClusterRefreshStats,
- *  contract-shaped so the agent layer needs no contracts import.
- *  Structural twins stay interchangeable. */
-export interface NamingRunStats {
-	/** Communities the current graph divides into (all sizes). */
-	detected: number;
-	/** Communities that kept a label via core-survival. */
-	claimed: number;
-	/** Communities sent to the namer (unnamed, size >= MIN_CLUSTER_SIZE). */
-	named: number;
-	/** Labeling records actually appended (idempotent dedupe may shrink). */
-	appended: number;
-}
-
 /** The graph-family format version this build writes and understands
  *  (the format.json sidecar — src/store/graph-format.ts). */
 export const CURRENT_GRAPH_FORMAT_VERSION = 1;
@@ -285,41 +271,22 @@ export interface AuditVerdicts {
 	links: IdentityLink[];
 }
 
-/** The GET /api/graph payload — everything the home view's PURE renderer needs. */
-
-/** One rendered cluster in the snapshot payload (vision §1). Members are
- * node ids; the renderer draws the hull from member positions at draw
- * time and gates the label inversely on the node-label zoom control. */
-export interface Cluster {
-	/** The labeling record id when claimed; unlabeled clusters still
-	 * appear (hull, no name) with a member-hash id. */
-	id: string;
-	/** null until the naming call has minted/claimed a labeling. */
-	label: string | null;
-	/** Node ids, sorted. Hull + centroid are renderer concerns. */
-	members: string[];
-}
+/** GET /api/graph payload: persisted evidence plus derived graph data. */
 
 export interface GraphSnapshot {
-	/** Proposition nodes + the DERIVED implication nodes (one per chain,
-	 *  id = chain id) — what the canvas renders. */
+	/** Proposition nodes plus derived implication nodes (one per
+	 *  multi-premise live chain, id = chain id). */
 	nodes: GraphNode[];
 	/** The STORED proposition nodes alone (no derived implication nodes)
-	 *  — the stored truth, like `chains`: consumers that read the world
-	 *  (the chain table) take this list, never the canvas image. */
+	 *  — the stored truth, like `chains`. */
 	propositions: GraphNode[];
 	/** DERIVED untyped arrows: premise → imp → conclusion. A lossy image
 	 *  of the stored chains — rebuilt after every change, never stored. */
 	edges: GraphEdge[];
 	/** DERIVED LOGICAL arrows: every chain contracted to direct premise→
-	 *  conclusion over PROPOSITION ids only (the imp hop collapsed). The
-	 *  depth pass consumes these — inference depth is a property of
-	 *  propositions, never of the geometry point (owner, 2026-09-30). */
+	 *  conclusion over proposition ids only. */
 	logicalEdges: GraphEdge[];
-	/** DERIVED imp linkage (one per MULTI-premise live chain): the depth
-	 *  pass anchors each junction at the average of the highest premise
-	 *  row and the conclusion's row (owner, 2026-09-30) — strictly
-	 *  above the premises, strictly below the conclusion. */
+	/** Derived linkage of implication nodes to their chain endpoints. */
 	impLinks: Array<{ id: string; premises: string[]; conclusion: string }>;
 	/** The STORED reasoning chains (merged by (premises, conclusion) at
 	 *  read): the chain table's and the practice pipeline's input — they
@@ -333,23 +300,6 @@ export interface GraphSnapshot {
 	fileSources: Record<string, string>;
 	/** nodeId → chatIds that touched the node (click-through provenance). */
 	nodeSessions: Record<string, string[]>;
-	/** Birth-session communities (core/session-clusters.ts: each
-	 * proposition joins the cluster of the session that birthed it —
-	 * session provenance, no Louvain, no embeddings), MIN_CLUSTER_SIZE
-	 * ≥ 3 as the hull presentation rule. Propositions only — implication
-	 * nodes are never partitioned. Purely provenance-derived — never
-	 * depends on layout. */
-	clusters: Cluster[];
-	/** Resting layout positions per node id, when a positions ledger
-	 *  exists (core/layout.ts settle writes it). Absent on a fresh graph —
-	 *  the view then falls back to its own one-shot forceAtlas2 pass. */
-	positions?: Record<string, Position>;
-}
-
-/** A node's resting position in layout space (the positions ledger). */
-export interface Position {
-	x: number;
-	y: number;
 }
 
 /** The auto-title's character cap (owner, 2026-10-06): long enough to

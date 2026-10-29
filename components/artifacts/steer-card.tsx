@@ -37,7 +37,7 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
 			| undefined;
 		if (aborted?.data) return <AbortedBadge kind={aborted.data.kind ?? "job"} />;
 		return (
-				<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+				<div className="rounded-lg border border-border p-4 font-ui text-sm text-muted-foreground">
 				A sub-agent finished, but its result could not be displayed.
 			</div>
 		);
@@ -67,9 +67,9 @@ export function SubagentSteerCard({ message }: { message: LhViewMessage }) {
  * this just marks what happened. */
 function AbortedBadge({ kind }: { kind: string }) {
 	return (
-		<div data-testid="job-aborted-badge" className="flex items-center gap-2 text-xs text-muted-foreground">
+		<div data-testid="job-aborted-badge" className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 font-ui text-xs text-muted-foreground">
 			<CircleX className="size-3.5" />
-			<span className="font-medium uppercase tracking-wide">{kind}</span>
+			<span className="font-medium">{kind}</span>
 			<span>aborted by the learner</span>
 		</div>
 	);
@@ -84,14 +84,14 @@ function PdfCompleteBadge({ result }: { result: PdfResult }) {
 	// the ?? is runtime tolerance for pre-split persisted steers.
 	const readPages = result.pagesRead ?? result.pagesConsulted;
 	return (
-		<details data-testid="pdf-complete-badge" className="group w-full text-xs text-muted-foreground">
-			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-				<CheckIcon className="size-3.5" />
-				<span className="font-medium uppercase tracking-wide">PDF</span>
+		<details data-testid="pdf-complete-badge" className="group w-full font-ui text-xs text-muted-foreground">
+			<summary className="flex min-h-11 cursor-pointer select-none list-none items-center gap-2 rounded-lg border border-border px-3 [&::-webkit-details-marker]:hidden">
+				<CheckIcon className="size-3.5 text-correct" />
+				<span className="font-medium">PDF</span>
 				<span>reading complete</span>
 				{readPages.length > 0 && (
 					<span>
-						· read {readPages.length} page{readPages.length === 1 ? "" : "s"}
+						read {readPages.length} page{readPages.length === 1 ? "" : "s"}
 					</span>
 				)}
 				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
@@ -111,12 +111,12 @@ function PdfCompleteBadge({ result }: { result: PdfResult }) {
  * the artifact part in the record is the single source of truth. */
 function ResearchCompleteBadge({ result }: { result: ResearchResult }) {
 	return (
-		<details data-testid="research-complete-badge" className="group w-full text-xs text-muted-foreground">
-			<summary className="flex cursor-pointer select-none list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-				<CheckIcon className="size-3.5" />
-				<span className="font-medium uppercase tracking-wide">Research</span>
+		<details data-testid="research-complete-badge" className="group w-full font-ui text-xs text-muted-foreground">
+			<summary className="flex min-h-11 cursor-pointer select-none list-none items-center gap-2 rounded-lg border border-border px-3 [&::-webkit-details-marker]:hidden">
+				<CheckIcon className="size-3.5 text-correct" />
+				<span className="font-medium">Research</span>
 				<span>complete</span>
-				{result.sources.length > 0 && <span>· {result.sources.length} sources</span>}
+				{result.sources.length > 0 && <span>{result.sources.length} sources</span>}
 				<span className="ml-1 text-xs text-muted-foreground/70 group-open:hidden">view brief</span>
 				<span className="ml-1 hidden text-xs text-muted-foreground/70 group-open:inline">hide brief</span>
 			</summary>

@@ -3,7 +3,7 @@ import React from "react";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { GraphCostControl } from "../components/graph-view.tsx";
+import { GraphCostControl } from "../components/minimal-home.tsx";
 import { graphCostSummary } from "../src/core/cost-summary.ts";
 import { callCost } from "../src/server/pricing.ts";
 import type { CallUsage, ExtractionRunUsage } from "../src/core/contracts.ts";
@@ -24,7 +24,7 @@ test("wholly unpriced historical graph costs render unknown, not known-zero doll
 	assert.doesNotMatch(html, /\$0\.00/);
 });
 
-test("known zero, mixed priced/unknown, and subscription headline semantics stay distinct", () => {
+test("known zero and mixed priced/unknown headline semantics stay distinct", () => {
 	const zero = run([usage({ inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0 })]);
 	assert.match(headline([zero]), />\$0\.00<\/button>/, "known zero is not unknown");
 	const priced = run([usage({ cacheWrite1hTokens: 0 })]);
@@ -33,9 +33,6 @@ test("known zero, mixed priced/unknown, and subscription headline semantics stay
 	assert.equal(mixed.unpricedRuns, 1);
 	assert.ok(mixed.totalDollars > 0);
 	assert.match(headline([priced, historical]), new RegExp(`>\\$${mixed.totalDollars.toFixed(2).replace(".", "\\.")}<\\/button>`));
-	const plan = run([usage()], "chatgpt:fixture");
-	assert.match(headline([plan]), />ChatGPT<\/button>/);
-	assert.match(headline([plan, zero]), />\$0\.00 \+ ChatGPT<\/button>/);
 });
 
 test("graph stage and recent-run aggregates preserve known one-hour cache writes", () => {

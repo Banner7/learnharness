@@ -103,7 +103,7 @@ export function DemoOutputCard({
 	const result = output as DemoResult | undefined;
 	if (!result || typeof result.html !== "string" || typeof result.title !== "string") {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div className="rounded-lg border border-border p-4 font-ui text-sm text-muted-foreground">
 				Demo completed, but the result could not be displayed.
 			</div>
 		);
@@ -111,10 +111,10 @@ export function DemoOutputCard({
 	const failed = result.html.length === 0;
 	if (failed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card-failed">
-				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="rounded-lg border border-border p-4 font-ui text-foreground" data-testid="demo-card-failed">
+				<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
 					Interactive demo
-					<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
+					<span className="text-destructive">Failed</span>
 				</div>
 				<p className="mt-2 text-sm text-muted-foreground">{result.notes ?? "The demo could not be built."}</p>
 			</div>
@@ -143,9 +143,7 @@ function DemoFrame({
 	// the steer record (details.ui.inverted) — seeded here, written through
 	// the silent artifact-ui route on toggle. Without a chat page (tests,
 	// previews) the toggle stays local-only. The filter rides the iframe
-	// element, which carries the card's white backing, so one filter flips
-	// page + content together while hue-rotate(180deg) undoes invert's hue
-	// flip.
+	// element, flipping its theme backing and content together.
 	const [inverted, setInverted] = useState(initialInverted);
 	const toggleInverted = (next: boolean) => {
 		setInverted(next);
@@ -170,16 +168,13 @@ function DemoFrame({
 	}, []);
 
 	return (
-		<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="demo-card">
-			{/* Caption header (owner, 2026-10-07): kind label + title in the
-			   label's size/tracking (title normal-case, foreground) — the
-			   figure card's grammar plus a name. Switch + download far right. */}
+		<div className="rounded-lg border border-border p-4 font-ui text-foreground" data-testid="demo-card">
 			<div className="flex items-center justify-between gap-2">
 				<div className="flex min-w-0 items-baseline gap-2">
-					<span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-						interactive demo
+					<span className="shrink-0 text-xs font-medium text-muted-foreground">
+						Interactive demo
 					</span>
-					<span className="truncate text-xs font-medium tracking-wide text-foreground">{title}</span>
+					<span className="truncate font-ui text-sm text-foreground">{title}</span>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
 					<Toggle
@@ -195,7 +190,7 @@ function DemoFrame({
 						title="Download as HTML"
 						onClick={() => downloadFile(`${slugFilename(title)}.html`, html, "text/html")}
 						data-testid="demo-download"
-						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
@@ -221,7 +216,7 @@ function DemoFrame({
 				// the wheel (session scrolling stalls over the demo). With
 				// scrolling disabled the wheel chains straight to the session.
 				scrolling="no"
-				className="mt-2 w-full rounded-lg border bg-white"
+				className="mt-2 w-full rounded-md border border-border bg-card"
 				// content-box: the bridge reports the CONTENT height — with the
 				// preflight's border-box the 2px border would eat into it and clip
 				// the bottom of the demo (smoke finding, 2026-10-07).
@@ -247,18 +242,18 @@ export function DemoErrorChip({
 }) {
 	return (
 		<div
-			className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500"
+			className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2 font-ui text-sm text-destructive"
 			data-testid="demo-error-chip"
 		>
 			<span className="font-medium">This demo threw an error</span>
-			<span className="min-w-0 flex-1 truncate font-mono text-xs" title={message}>
+			<span className="min-w-0 flex-1 truncate text-xs" title={message}>
 				{message}
 			</span>
 			{onSend && (
 				<button
 					type="button"
 					onClick={onSend}
-					className="rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium hover:bg-red-500/15"
+					className="min-h-11 rounded-md border border-destructive/40 px-3 text-xs font-medium hover:bg-destructive/15"
 					data-testid="demo-error-send"
 				>
 					Send to teacher

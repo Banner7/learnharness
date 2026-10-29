@@ -52,9 +52,6 @@ export const KEEP_RECENT_TOKENS = 20_000;
  * (not the user's threshold) is the binding constraint (pi's default). */
 export const COMPACTION_RESERVE_TOKENS = 16_384;
 
-/** Factory default for the settings threshold (owner ruling: 150k). */
-export const DEFAULT_COMPACTION_THRESHOLD_TOKENS = 150_000;
-
 /** Tool-result truncation when serializing the span for the summarizer
  * (pi's mirror: long job/research results don't need verbatim inclusion
  * in the SUMMARY INPUT — the kept tail carries them whole). */

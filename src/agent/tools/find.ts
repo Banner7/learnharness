@@ -15,7 +15,7 @@ import {
 /**
  * The find tool — sources v1 (2026-09-19): pi's dist/core/tools/find.js
  * ported to a pure-Node walker (pi shells out to fd; no binaries here —
- * Electron/Windows-safe, fs-shared.ts). Schemas, fd's glob semantics
+ * cross-platform, fs-shared.ts). Schemas, fd's glob semantics
  * (basename-mode without a slash, implied deep prefix with one), relativized output,
  * and the notice formats are pi-verbatim; the deltas: home-anchored
  * default, .gitignore replaced by hard noise exclusions, and a wall-clock

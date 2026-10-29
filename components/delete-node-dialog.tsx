@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { tap } from "@/lib/haptics";
+import { HapticLabel } from "@/components/ui/haptic";
 
 /** The 409 extraction_running line (owner phrasing, node interlude):
  *  the server's error names the extraction; the ACTIVITY DOCK is the
@@ -52,30 +54,21 @@ export function DeleteNodeBody({
 			aria-label="Delete node"
 			data-testid="delete-node-dialog"
 			onClick={(e) => e.stopPropagation()}
-			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl"
+			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-5 shadow-lg"
 		>
 			<h2 className="text-sm font-semibold text-destructive">
 				{nodes.length === 1 ? "Delete node?" : `Delete ${nodes.length} nodes?`}
 			</h2>
-			{/* The node name(s) below the title in JetBrains Mono (owner,
-			    2026-09-24): the name is the payload — mono suits it, and
-			    NO code-block chrome (the font already says code). Owner,
-			    2026-10-13 polish: title loses the serif display look for the
-			    abort-turn look (text-sm font-semibold mono, red kept), and
-			    the names drop the sized-up text-lg for normal text-sm —
-			    still white, still mono. Same shape as the session dialog.
-			    A multi-selection lists its names (capped at 8 + "and K
-			    more" — the count in the title carries the full number). */}
 			<div className="mt-1.5">
 				{nodes.length === 1 ? (
-					<code data-testid="node-name-code" className="font-mono text-sm text-foreground">
+					<span data-testid="node-name-code" className="font-prose text-base text-foreground">
 						{nodes[0]?.name}
-					</code>
+					</span>
 				) : (
-					<code data-testid="node-names-code" className="font-mono text-sm text-foreground">
+					<span data-testid="node-names-code" className="font-prose text-base text-foreground">
 						{nodes.slice(0, 8).map((n) => n.name).join(", ")}
 						{nodes.length > 8 ? `, and ${nodes.length - 8} more` : ""}
-					</code>
+					</span>
 				)}
 			</div>
 			<p className="mt-2 text-sm text-muted-foreground" data-testid="node-permanence-line">
@@ -95,7 +88,7 @@ export function DeleteNodeBody({
 					<button
 						type="button"
 						data-testid="node-delete-retry"
-						onClick={onRun}
+						onClick={() => { tap(); onRun(); }}
 						disabled={busy}
 						className="ml-3 text-xs text-foreground underline-offset-2 hover:underline disabled:opacity-40"
 					>
@@ -109,21 +102,21 @@ export function DeleteNodeBody({
 					data-testid="node-delete-cancel"
 					onClick={onClose}
 					disabled={busy}
-					className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+					className="min-h-11 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
 				>
 					Cancel
 				</button>
 				<button
 					type="button"
 					data-testid="node-delete-confirm"
-					onClick={onRun}
+					onClick={() => { tap(); onRun(); }}
 					disabled={busy}
-					// Destructive red (owner, polish round) — the
-					// app's established destructive pair (chat's
-					// refusal banner): border + text, fill on hover.
-					className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+					// Redesign (2026-10-29): the destructive action alone has color;
+					// no second border competes with the dialog's quiet surface.
+					className="relative min-h-11 rounded-md bg-destructive px-3 text-sm font-medium text-primary-foreground hover:bg-destructive/90 disabled:opacity-40"
 				>
 					{busy ? "Deleting…" : "Delete"}
+					<HapticLabel />
 				</button>
 			</div>
 		</div>
@@ -160,22 +153,6 @@ export function DeleteNodeDialog({
 		}
 	}, [nodes]);
 
-	// Esc closes (claimed — a dialog Esc must not also abort a turn).
-	useEffect(() => {
-		if (!nodes || nodes.length === 0) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [nodes, onClose]);
 
 	// Sequential full deaths — never parallel (the store's revision
 	// counter and the sweep must observe them in order). A failure STOPS

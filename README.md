@@ -8,13 +8,7 @@
 
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
-<p align="center">
-  <a href="https://learnharness.ai">Download</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="docs/development.md">Documentation</a> ·
-  <a href="https://github.com/amosblomqvist/learnharness/issues">Issues</a> ·
-  <a href="https://discord.gg/5tCHHQEB2e">Discord</a>
-</p>
+This is an unofficial, independently maintained fork of [LearnHarness](https://github.com/amosblomqvist/learnharness). It is not supported by the upstream project. For fork-specific issues, use this repository's Issues tab.
 
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 
@@ -29,53 +23,66 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 3. **Teach.** Each step builds on something you already understand. You predict, get an explanation, and check your understanding. Confusions are repaired before anything is built on them. The aim is for the goal to feel obviously true, not merely familiar.
 4. **Practice.** Separate sessions pose varied problems that require the right knowledge to come to mind without being named first. Problems and hints adapt to your reasoning.
 
-**Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers. You can type or use dictation.
+**Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers.
 
 The agent can also research questions in the background, create visual explanations, and build interactive demonstrations.
 
 ## Knowledge that carries forward
 
-What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The graph shows this structure, with links back to the source sessions. You can also import notes.
+What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The stored graph links ideas back to their source sessions and supports future teaching, practice, and note imports. It is knowledge data, not a visual graph page or a rating of your ability.
 
-Future teaching sessions can read the graph instead of starting from scratch. Practice sessions can draw their material from it. It stores the ideas and their connections, not ratings of your ability.
+## What differs from upstream
 
-![LearnHarness knowledge graph](docs/assets/knowledge-graph.png)
+- **Browser and server:** Vite + React SPA, served with a Hono API/static server (`node dist/server.js`). Docker deployment replaces Next.js and Electron/desktop installers; there is no in-app updater or setup dialog.
+- **Providers:** Claude uses the real Claude Code CLI (`claude -p`), pinned in the Dockerfile, with `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`. Server-managed OpenAI-compatible providers can be defined with `LH_CUSTOM_PROVIDERS`; the upstream [custom-endpoint guide](docs/custom-providers.md) describes a separate settings-backed endpoint and is not a guide to that environment variable. There is no ChatGPT/Copilot/Grok sign-in or in-app API-key editing.
+- **Interface:** A phone-first layout at every viewport width, with an overlay sidebar, transcript questions, and Settings sheets. On iOS, a label over a hidden native switch supplies touch haptics where supported.
+- **Image:** The Docker build is amd64-only. It prunes runtime `node_modules`, installs a version- and SHA-256-pinned Chrome for Testing headless shell for demo verification, and uses resvg for figures.
 
-## Download and get started
+This fork currently incorporates selected changes from upstream 0.4.0 by applying diffs rather than merging upstream releases.
 
-**[Download from learnharness.ai](https://learnharness.ai)** · [GitHub Releases](https://github.com/amosblomqvist/learnharness/releases)
+## Self-hosting with Docker Compose
 
-- **macOS (Apple Silicon):** signed and notarized DMG. Drag the app to Applications.
-- **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
-- **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
+The included [`compose.private.yml`](compose.private.yml) is a template for a single-owner deployment. Docker on an amd64 host, an HTTPS tailnet-only reverse proxy, and a Claude Code setup token (if using Claude) are prerequisites. From the repository root:
 
-Add your provider API key and choose your models, then start a session with what you want to understand. LearnHarness supports 30+ provider options, including OpenAI, Anthropic, Google, DeepSeek, and OpenRouter. Optional dictation and web search use separate service keys.
+1. Create `data/`, `claude/`, and `secrets/`. Give the container's `node` user (UID 1000) write access to `data/` and `claude/`; keep `secrets/` owner-only and readable by that container user. Keep these paths and their contents out of Git.
+2. Create `secrets/runtime.env` with your own values (placeholders below). The web token must be a fresh 64-character hexadecimal secret, for example from `openssl rand -hex 32`; do not use a provider key as the web token.
 
-All three platforms support in-app updates.
+   ```dotenv
+   LH_WEB_ORIGIN=https://your-host.example.ts.net
+   LH_WEB_ACCESS_TOKEN=<64-hex-character-random-secret>
+   CLAUDE_CODE_OAUTH_TOKEN=<token-from-claude-setup-token>
+   # Optional: comma-separated Tailscale login names admitted without Basic auth.
+   # LH_TAILSCALE_USERS=you@example.com
+   # Optional: JSON array of server-managed OpenAI-compatible provider definitions.
+   # LH_CUSTOM_PROVIDERS=[{"id":"example","baseUrl":"https://api.example.com/v1","apiKey":{"env":"EXAMPLE_API_KEY"},"models":[{"id":"model-id","contextWindow":8192,"maxTokens":4096}]}]
+   # EXAMPLE_API_KEY=<provider-key>
+   ```
 
-**Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+   Omit the Claude token if not using Claude. `LH_CUSTOM_PROVIDERS` accepts provider/model definitions, including optional header values sourced from environment variables; see [`src/agent/custom-providers.ts`](src/agent/custom-providers.ts) for its schema. Do not put real credentials directly in that JSON.
+3. Create `secrets/auth.json` containing `{}` for an empty server credential map; the Compose template mounts `secrets/` and sets `LH_AUTH_FILE=/secrets/auth.json`. Server credentials may alternatively be supplied through supported environment variables. No browser form edits provider credentials.
+4. Start the stack: `docker compose -f compose.private.yml up -d --build`. Compose publishes host loopback port 3000 by default; set `LH_HOST_PORT` in the shell (or a Compose `.env` file) to choose another host port. Configure Tailscale Serve to terminate HTTPS at `LH_WEB_ORIGIN` and proxy to that host-loopback port; preserve the public `Host` header. Grant access through your tailnet policy, not Funnel. The server listens on port 3000 inside the container.
+5. To use Claude, enable it in `data/settings.json` with `"claudeCode": {"enabled": true}` in the settings object and restart the service. Pick installed/configured models in the app's Settings. Keep the mounted `claude/` directory writable by UID 1000 for CLI state.
 
-## Your keys, your data
+## Security
 
-- **Your keys and models.** No LearnHarness subscription or markup. You pay your providers for usage; a live cost meter shows model costs.
-- **Local storage.** Your chats, graph, settings, and API keys live on your machine. Learning records are plain files you can inspect.
-- **External services.** Models run through your configured providers. Model requests send the context needed for the task; web research and dictation also contact external services. Local storage does not mean offline processing.
-- **Inspectable behavior.** System prompts are visible and editable. The app is open source under the AGPL-3.0 license.
+The server fails closed without `LH_WEB_ORIGIN` and `LH_WEB_ACCESS_TOKEN`. It checks the public Host and origin on requests; mutations require the matching `Origin`. An optional `LH_TAILSCALE_USERS` comma-separated allowlist admits matching `Tailscale-User-Login` identities from Tailscale Serve; otherwise use HTTP Basic username `learnharness` and the web token as password. The identity header is only trustworthy when the host port stays bound to loopback behind Serve. This is a single-owner gate, not multi-user authorization. Keep the service behind HTTPS, authentication, and restrictive tailnet policy; do not expose its container port or use Funnel.
 
-## Development and support
+Demo verification launches Chrome with `--no-sandbox` to run model-written HTML. Treat the host and the content as untrusted together: do not give the service access to host secrets beyond what it needs, and do not expose it to untrusted users. Keep provider credentials and conversation data private; model requests and optional web search contact external services.
+
+## Development
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
-npm test           # deterministic, no LLM, no network
+npm ci
+npm run dev        # Vite at localhost:5173; API at localhost:3000
+npm run build      # build client and server
+npm start          # serve dist/server.js (requires configured browser access)
+npm test           # node:test via tsx
+npm run lint       # ESLint
+npm run typecheck  # TypeScript
 ```
 
-See the [development guide](docs/development.md), [architecture](docs/architecture.md), and [desktop release guide](docs/desktop-release.md).
-
-Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
+For local development, set `LH_WEB_ORIGIN=http://localhost:5173` and a dedicated `LH_WEB_ACCESS_TOKEN` in `.env.local`; `npm run dev` loads that file. Vite is a development server, not the authenticated production static server.
 
 ## License
 
-[AGPL-3.0](LICENSE)
-
-The app is free and open forever. If we ever charge for anything, it will be for convenience — managed keys, hosting — never for features you can run locally.
+[AGPL-3.0-only](LICENSE), as in the upstream project. If you modify this software and let users interact with it over a network, the AGPL requires you to offer those users the corresponding source code of your modified version.

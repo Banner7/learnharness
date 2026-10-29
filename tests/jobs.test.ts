@@ -1473,7 +1473,6 @@ describe("prompt composition", () => {
 			["prober", prober],
 		] as const) {
 			assert.ok(prompt.includes("asymmetry"), `${name} carries the option craft (moved out of tool descriptions)`);
-			assert.ok(prompt.includes("TRANSCRIBED SPEECH"), `${name} reads dictated thinking leniently`);
 			assert.ok(prompt.includes("thinkingWhileReading"), `${name} knows the reading channel`);
 		}
 		// the cycle is teach-phase doctrine — it never composes into the prober
@@ -1844,7 +1843,7 @@ describe("provider-key job refusal (key-presence interlude)", () => {
 		assert.deepEqual(seen, [[engine.model.provider, "cheap"]], "the check saw the engine's provider + the researcher's tier");
 		assert.equal(delivery.steers.length, 1, "the refusal STEERED — the teacher is not stranded");
 		assert.ok(
-			delivery.steers[0]!.content.includes(`Research failed: No ${engine.model.provider} key is set`),
+			delivery.steers[0]!.content.includes(`Research failed: ${providerKeyMissing(engine.model.provider, ["cheap"]).error}`),
 			"the steer carries the kind's failure shape",
 		);
 		const result = done.result as ResearchResult;

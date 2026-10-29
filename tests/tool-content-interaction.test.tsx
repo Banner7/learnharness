@@ -22,8 +22,8 @@ test("actual select → submit → saved result → historical Why uses source d
 	const host = document.createElement("div"); document.body.append(host);
 	const root = createRoot(host);
 	try {
-		await act(async () => root.render(<QuestionDock toolName="probe" toolCallId="interactive_source" input={input} expanded
-			dictationClaim={false} onExpand={() => {}} onSubmit={a => { answer = a; }} />));
+		await act(async () => root.render(<QuestionDock toolName="probe" toolCallId="interactive_source" input={input}
+			onSubmit={a => { answer = a; }} />));
 		assert.equal(host.querySelectorAll("mtr").length, 2, "the live matrix retains two rows");
 		const choice = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(button => button.querySelector(".katex"))!;
 		assert.ok(choice);

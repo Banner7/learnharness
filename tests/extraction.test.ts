@@ -84,7 +84,6 @@ function memoryLedgers() {
 	const checkpoints: SessionCheckpoint[] = [];
 	const coverage: CoverageEntry[] = [];
 	const sources = new Map<string, NotesSource>();
-	const positions = new Map<string, { x: number; y: number }>();
 		return {
 		appendNode: (n: GraphNode) => void nodes.push(n),
 		readNodes: () => nodes.map((n) => ({ ...n })),
@@ -108,13 +107,6 @@ function memoryLedgers() {
 			if (!source.extractions?.some((r) => r.startedAt === entry.startedAt)) {
 				source.extractions = [...(source.extractions ?? []), entry];
 			}
-		},
-		// Cluster labelings — mirrors the real store: append dedupes by id.
-		// The layout ledger — settleGraphLayout writes it after each merge.
-		readPositions: () => Object.fromEntries([...positions].map(([id, p]) => [id, { ...p }])),
-		writePositions: (next) => {
-			positions.clear();
-			for (const [id, p] of Object.entries(next)) positions.set(id, { x: p.x, y: p.y });
 		},
 		// The destructive seam (wave 6 session deletion) — mirrors the real
 		// store: replace the provided ledgers' full contents.
@@ -2492,14 +2484,12 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
 	});
 
-	for (const seam of ["layout", "usage"] as const) it(`a post-merge ${seam} failure is not false success and reports committed stats`, async () => {
+	it("a post-merge usage failure is not false success and reports committed stats", async () => {
 		const ledgers = memoryLedgers();
 		const originalUsage = ledgers.appendSourceUsage;
 		let failed = false;
 		const broken: GraphStore = { ...ledgers,
-			...(seam === "layout" ? { writePositions: () => { throw new Error("synthetic layout failure"); } } : {
-				appendSourceUsage: (id, entry) => { if (!failed) { failed = true; throw new Error("synthetic usage failure"); } originalUsage(id, entry); },
-			}),
+			appendSourceUsage: (id, entry) => { if (!failed) { failed = true; throw new Error("synthetic usage failure"); } originalUsage(id, entry); },
 		};
 		await assert.rejects(make(broken).importNotes(input), incomplete("failed", 1));
 		assert.equal(ledgers.readNodes().length, 1);

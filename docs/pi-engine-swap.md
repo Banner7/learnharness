@@ -19,7 +19,7 @@ pi's, each fully understood.
 
 Verified package facts (all three scouts + npm registry):
 - `@earendil-works/pi-ai` + `pi-agent-core` latest **0.85.1**, MIT, ESM-only,
-  Node `>=22.19.0` (local dev runs 26.7 — fine; Electron wave must ship ≥22).
+  Node `>=22.19.0`; the browser-only server runs on Node.
   Plain registry installs, no vendoring. The old prototype
   (/Volumes/T7/code/learning-system) ran 0.84.2 cleanly with the same wiring.
 - pi-ai = providers/catalog/streaming only: `createModels()`,
@@ -29,6 +29,91 @@ Verified package facts (all three scouts + npm registry):
   `agentLoop`, `AgentTool` (execute + `terminate`), JSON-Schema validation
   that accepts plain JSON Schema (zod `z.toJSONSchema` output works, with
   coercion — verified in `validation.js:285`).
+
+## Server-side Claude and custom endpoints
+
+These additions use the installed pi-ai **1.4.0** provider contracts, not
+the historical SDK version described above. They are server-side configuration;
+the existing model picker, strong/cheap/vision slots and per-role overrides
+remain the model-selection surface. No provider is selected automatically.
+
+### Claude Code
+
+The `claude-code` provider drives the real `claude -p` CLI with LearnHarness
+tools exposed over MCP. It avoids presenting SDK OAuth traffic as Claude Code,
+which is not permitted for third-party tools under Anthropic's subscription
+policy.
+
+On the server the provider stays off until `settings.json` contains
+`"claudeCode": {"enabled": true}` (there is no Settings toggle in this fork).
+The runtime image installs a pinned `@anthropic-ai/claude-code`; the CLI owns
+authentication. Create a long-lived token on a trusted workstation with
+`claude setup-token` and supply it as `CLAUDE_CODE_OAUTH_TOKEN` in the
+server's private environment. `CLAUDE_CONFIG_DIR` must be a writable directory
+for the CLI's own state. Usage shows as "CLI", unpriced.
+
+An explicitly configured `ANTHROPIC_API_KEY` still enables the ordinary
+Anthropic API provider. No API keys, tokens, or header values are returned in
+the model catalog.
+
+### Custom OpenAI-compatible endpoints
+
+Set `LH_CUSTOM_PROVIDERS` to a JSON array in the server environment (or
+`.env.local` for local development). Restart after changing provider definitions.
+Secrets can be inline strings, but environment references are recommended:
+they resolve server-side for every request, never by executing shell commands.
+For example, after supplying the referenced variables privately:
+
+```sh
+export LH_CUSTOM_PROVIDERS='[{
+  "id": "example",
+  "name": "Example provider",
+  "baseUrl": "https://api.example.com/v1",
+  "apiKey": {"env": "EXAMPLE_API_KEY"},
+  "headers": {
+    "X-Example-Client-Id": {"env": "EXAMPLE_CLIENT_ID"},
+    "X-Example-Client-Secret": {"env": "EXAMPLE_CLIENT_SECRET"}
+  },
+  "models": [{
+    "id": "your-current-model-id",
+    "name": "Example model",
+    "contextWindow": 32768,
+    "maxTokens": 4096,
+    "input": ["text"],
+    "reasoning": false
+  }]
+}]'
+```
+
+Replace the host, model id and token limits with values provided by the endpoint
+owner. The numbers above are example configuration, not discovered limits.
+There is no automatic `/models` request and no pinned custom provider model id.
+Only declare image input or reasoning when the server/model actually supports
+it. Model costs are unpriced (represented as zero), not verified free.
+
+Each provider needs a unique non-builtin id; model ids must be unique within it.
+`baseUrl` must be HTTPS, or HTTP on localhost/loopback for a local server; URL
+credentials/query/fragment are rejected. `models` must contain explicit
+`id`, positive integer `contextWindow` and `maxTokens`. Optional `input` defaults
+to `["text"]`, `reasoning` to false, and `name` to the id. Unknown configuration
+fields are rejected rather than silently ignored.
+
+Arbitrary HTTP authentication headers are supported, including `Authorization`
+instead of `apiKey`; all referenced environment variables must be present before
+the provider appears in the picker. Header-only and keyless local servers do not
+receive an invented bearer token. Configured API keys use normal bearer auth.
+Custom models use `/chat/completions`, not the Responses API. The optional model
+`compat` object exposes `supportsStore`, `supportsDeveloperRole`,
+`supportsReasoningEffort`, `supportsUsageInStreaming` and `maxTokensField`
+(`max_tokens` or `max_completion_tokens`). Conservative defaults disable store,
+developer-role and reasoning-effort fields and use `max_tokens`.
+
+All calls to the same custom provider are serialized for the full stream,
+including foreground and background calls. Separate providers remain independent.
+Cancellation while queued produces an aborted response without dispatch. This
+is a process-local limit, not a fleet-wide quota: do not run multiple server
+processes against a light-use endpoint and expect global serialization. Only assign
+background roles when the endpoint owner has approved their load.
 
 ## 1. Engine architecture — stateless per-turn Agent, record is the truth
 

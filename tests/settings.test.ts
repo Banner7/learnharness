@@ -13,28 +13,22 @@ import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
 	BACKGROUND_MODEL_ROLES,
-	isHexColor,
 	sanitizeUserSettings,
 } from "../src/core/settings.ts";
 
 describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	it("pins the owner-decided defaults", () => {
 		assert.equal(CURRENT_SETTINGS_VERSION, 1);
-		assert.deepEqual(FACTORY_SETTINGS.general, { autoUpdate: true });
 		// wave 7 collapse: the master switch ONLY + the extraction-UX
 		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
 		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
 		// with the message anchors (owner, 2026-10-13)
-		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, rendering: true, extractionChunkTokens: 4096 });
+		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, extractionChunkTokens: 4096 });
 		const a = FACTORY_SETTINGS.appearance;
-		assert.equal(a.mode, "dark");
-		assert.equal(a.background, null); // the mode's own default, not a factory hex
-		assert.equal(a.fontFamily, null); // Source Sans 3
-		assert.equal(a.proseFontSize, 16);
+		assert.equal(a.fontFamily, null); // Computer Modern Serif (redesign 2026-10-27)
+		assert.equal(a.proseFontSize, 17);
 		assert.equal(a.sessionNameSerif, true);
-		assert.equal(a.mdRendering.headingWeight, 900);
-		assert.equal(a.mdRendering.boldColor, null); // white
-		assert.equal(a.mdRendering.italicColor, null);
+		assert.equal(a.mdRendering.headingWeight, 700);
 	});
 
 	it("has NO factory model pin — chat defaults and role overrides start absent", () => {
@@ -43,20 +37,11 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 	});
 });
 
-describe("isHexColor", () => {
-	it("accepts #rgb and #rrggbb (case-insensitive), rejects everything else", () => {
-		for (const good of ["#fff", "#FFF", "#141414", "#8B5CF6"]) assert.equal(isHexColor(good), true, good);
-		for (const bad of ["fff", "#ffff", "#gggggg", "141414", "#12345", "", "white"]) {
-			assert.equal(isHexColor(bad), false, bad);
-		}
-	});
-});
 
 describe("sanitizeUserSettings", () => {
 	it("round-trips a fully valid record field-for-field", () => {
 		const record = {
 			version: 1,
-			general: { autoUpdate: false },
 			agent: {
 				models: {
 					researcher: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" }, thinkingLevel: "high" },
@@ -71,12 +56,10 @@ describe("sanitizeUserSettings", () => {
 				cheap: { thinkingLevel: "medium" },
 			},
 			appearance: {
-				mode: "light",
-				background: "#ffffff",
 				fontFamily: "Some Font",
 				proseFontSize: 18,
 				sessionNameSerif: false,
-				mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
+				mdRendering: { headingWeight: 700 },
 			},
 			graph: { enabled: false },
 		};
@@ -90,22 +73,19 @@ describe("sanitizeUserSettings", () => {
 	});
 
 	it("absent version defaults to CURRENT; unknown keys ride along VERBATIM", () => {
-		const out = sanitizeUserSettings({ futureSection: { knob: 3 }, general: { autoUpdate: true } });
+		const out = sanitizeUserSettings({ futureSection: { knob: 3 } });
 		assert.ok(out);
 		assert.equal(out.version, CURRENT_SETTINGS_VERSION);
 		assert.deepEqual((out as Record<string, unknown>).futureSection, { knob: 3 });
-		assert.deepEqual(out.general, { autoUpdate: true });
 	});
 
 	it("wrong-typed fields DROP (resolve to factory), never crash", () => {
 		const out = sanitizeUserSettings({
-			general: { autoUpdate: "yes" },
 			agent: { tools: { research: "no" }, prompts: { "system-prompt.md": 1 }, models: { researcher: "fast" } },
-			appearance: { mode: "sepia", sessionNameSerif: "true" },
+			appearance: { sessionNameSerif: "true" },
 			graph: { enabled: 0 },
 		});
 		assert.ok(out);
-		assert.deepEqual(out.general, {});
 		assert.deepEqual(out.agent, {});
 		assert.deepEqual(out.appearance, {});
 		assert.deepEqual(out.graph, {});
@@ -139,15 +119,6 @@ describe("sanitizeUserSettings", () => {
 		assert.equal(low.appearance?.mdRendering?.headingWeight, 100);
 	});
 
-	it("invalid colors become null (the factory default), valid ones pass", () => {
-		const out = sanitizeUserSettings({
-			appearance: { background: "blue", mdRendering: { boldColor: "#f00", italicColor: 42 } },
-		});
-		assert.ok(out);
-		assert.equal(out.appearance?.background, null);
-		assert.equal(out.appearance?.mdRendering?.boldColor, "#f00");
-		assert.equal(out.appearance?.mdRendering?.italicColor, null);
-	});
 
 	it("empty strings/whitespace fontFamily → null (Source Sans 3); wrong-type → null too (the default)", () => {
 		for (const bad of ["", "   ", 12, { name: "x" }]) {

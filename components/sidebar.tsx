@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "wouter";
+import { usePathname, useRouter } from "@/web/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
@@ -11,7 +11,6 @@ import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
 import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
@@ -20,73 +19,20 @@ import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
-import { kbdEventForAction } from "@/src/core";
-import { notifySettingsSaved } from "@/components/settings-signal";
+import { useSwipeReveal } from "@/components/use-swipe-reveal";
 
-/**
- * Toggleable sidebar — NOT a modal drawer: no backdrop, no focus theft. It
- * sits inline next to the content and can stay open while working in a
- * session. Open state persists across pages (provider lives in the root
- * layout) and across reloads (localStorage).
- */
+/** Navigation always uses a dismissible drawer, regardless of window width. */
 
-const STORAGE_KEY = "lh:sidebar-open";
 
-/*
- * Narrow-window behavior (owner, 2026-09-17): below SIDEBAR_AUTOCLOSE the
- * sidebar would squeeze the page below the 640px window floor (the two
- * numbers compose: 640 + 288 sidebar = 928), so it auto-closes — and
- * auto-RESTORES when the window widens again (owner choice: the sidebar
- * pops back, not a manual re-open). The whole behavior is one expression:
- * rendered = pref && !narrow, where pref is the persisted user choice.
- * Manual closes persist and stay closed; auto-close does not touch the
- * preference. Opening the sidebar while narrow asks the Electron shell to
- * widen the window to the threshold (window.lh.expandWindow, IPC in
- * electron/main.cjs) — the resize listener flips `narrow` and the sidebar
- * appears. In the plain browser there is no window to widen and no
- * suppression — a narrow tab opens the sidebar if the user says so.
- *
- * Mirrors SIDEBAR_AUTOCLOSE in electron/main.cjs — keep in sync.
- */
-import type { ChatGPTControlBridge, NativeSubscriptionControlBridge } from "@/src/core";
-import type { UpdateState } from "@/components/settings/update-settings.tsx";
-import { FilePathDropZone } from "@/components/file-path-drop-zone";
-const SIDEBAR_AUTOCLOSE = 928;
 
-// Module scope, guarded for SSR (the server has no navigator).
-const IS_ELECTRON = typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
-
-declare global {
-	interface Window {
-		/** Preload bridge (electron/preload.cjs) — Electron only, absent in the browser. */
-		lh?: {
-			/** Read-only host OS; determines the native-control gutter. */
-			platform?: string;
-			/** Resolve an OS-backed File without copying/uploading its contents. */
-			getPathForFile?: (file: File) => string;
-			/** External Next desktop-dev uses the server's web connections. */
-			subscriptionTransport?: "desktop" | "web";
-			openSubscriptionBrowser?: (action: string) => Promise<void>;
-			chatgpt?: ChatGPTControlBridge;
-			subscriptions?: NativeSubscriptionControlBridge;
-			expandWindow: () => void;
-			/** The zoom truth (owner round 7): subscribes to "lh:zoom" pushes; returns unsubscribe. */
-			onZoom?: (cb: (factor: number) => void) => () => void;
-			getZoom?: () => Promise<number>;
-			/** Observational update events and a snapshot for late subscribers. */
-			onUpdateStatus?: (cb: (status: UpdateState) => void) => () => void;
-			getUpdateState?: () => Promise<UpdateState>;
-			/** Explicit manual check also downloads and stages available updates. */
-			checkForUpdates?: () => Promise<void>;
-			installUpdate?: () => void;
-			onOpenSettings?: (cb: (section: string) => void) => () => void;
-		};
-	}
-}
-
-const SidebarContext = createContext<{ open: boolean; toggle: () => void }>({
+const SidebarContext = createContext<{
+	open: boolean;
+	toggle: () => void;
+	close: () => void;
+}>({
 	open: false,
 	toggle: () => {},
+	close: () => {},
 });
 
 export function useSidebar() {
@@ -94,120 +40,39 @@ export function useSidebar() {
 }
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-	useEffect(() => {
-		const bridge = window.lh?.chatgpt;
-		if (!bridge) return;
-		const off = bridge.onChange(() => notifySettingsSaved("keys"));
-		notifySettingsSaved("keys"); // cover changes missed before this root-lifetime subscription
-		return off;
-	}, []);
-	// Start closed so server and client first-render agree (no hydration
-	// mismatch); the stored value is applied after mount.
 	const [open, setOpen] = useState(false);
-	const [narrow, setNarrow] = useState(false);
+	const pathname = usePathname();
+	const close = useCallback(() => setOpen(false), []);
+	useEffect(() => {
+		setOpen(false);
+	}, [pathname]);
 	const [mounted, setMounted] = useState(false);
 
 	useEffect(() => {
-		// Electron shell detection (merged chrome, 2026-09-17): keys the
-		// .lh-electron CSS (app/globals.css) that turns the header bands
-		// into the window's drag surface. Post-mount only — server HTML
-		// and first client render must agree (no hydration mismatch),
-		// and in the plain browser the class never appears.
-		if (IS_ELECTRON) {
-			document.documentElement.classList.add("lh-electron");
-			document.documentElement.dataset.lhPlatform = window.lh?.platform ?? "";
-		}
-
-		// THE ZOOM TRUTH (owner round 7, 2026-10-05): ⌘±/⌘0 zoom the UI
-		// (Electron zoomFactor) while the native traffic lights stay
-		// physical-fixed — the CSS gutter lengths divide by this factor so
-		// their RENDERED size never moves. getZoom covers the first-paint
-		// race; every later change arrives as an lh:zoom push.
-		const setZoomVar = (factor: number) =>
-			document.documentElement.style.setProperty("--lh-zoom", String(factor));
-		const off = window.lh?.onZoom?.(setZoomVar);
-		void window.lh?.getZoom?.().then(setZoomVar);
-
-		const stored = localStorage.getItem(STORAGE_KEY);
-		// Default: open (first run introduces the sidebar).
-		setOpen(stored === null ? true : stored === "1");
 		setMounted(true);
-		return () => off?.();
 	}, []);
 
-	// Narrow-window auto-close/auto-restore (see SIDEBAR_AUTOCLOSE note):
-	// fires only on actual resizes — a boolean compare, no layout work.
-	// Both this and the mount effect land before the first paint, so a
-	// narrow window never flashes the open sidebar on load.
-	useEffect(() => {
-		if (!IS_ELECTRON) return; // plain-browser tabs open freely
-		const onResize = () => setNarrow(window.innerWidth < SIDEBAR_AUTOCLOSE);
-		onResize();
-		window.addEventListener("resize", onResize);
-		return () => window.removeEventListener("resize", onResize);
-	}, []);
-
-	const toggle = useCallback(() => {
-		// Opening while narrow (auto-closed, or the user's own closed-at-
-		// narrow): ask the shell to widen to the threshold — the resize
-		// listener flips `narrow` and the sidebar appears. The preference
-		// persists like any other open, so a restart at a narrow width
-		// still auto-restores when widened.
-		if (narrow && !open) {
-			localStorage.setItem(STORAGE_KEY, "0");
-			setOpen(true);
-			window.lh?.expandWindow();
-			return;
-		}
-		setOpen((v) => {
-			localStorage.setItem(STORAGE_KEY, v ? "0" : "1");
-			return !v;
-		});
-	}, [narrow, open]);
-
-	// ⌘B: the global shortcut dispatches kbdEventForAction("toggle-sidebar")
-	// and the context answers on exactly that name — the shared spelling
-	// is the fix for the interlude bug (the listener sat on the pre-
-	// convention name "lh:toggle-sidebar" while the dispatcher sent
-	// "lh:kbd-toggle-sidebar", so ⌘B silently did nothing; owner
-	// 2026-09-25).
-	useEffect(() => {
-		const event = kbdEventForAction("toggle-sidebar");
-		const onToggle = () => toggle();
-		window.addEventListener(event, onToggle);
-		return () => window.removeEventListener(event, onToggle);
-	}, [toggle]);
+	const toggle = useCallback(() => setOpen((value) => !value), []);
 
 	return (
-		<SidebarContext.Provider value={{ open: open && !narrow, toggle }}>
-			{/* transitions gated on mount: no slide-in flash on page load */}
+		<SidebarContext.Provider value={{ open, toggle, close }}>
 			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
 
-/** Hamburger for page headers — only visible when the sidebar is closed.
- *
- *  Owner, round 6c: the toggle is ALWAYS MOUNTED, owning a slot whose
- *  width+margin animate in LOCKSTEP with the sidebar's own width
- *  transition (same duration-200, same easing, both gated on mount) —
- *  before, it mounted/unmounted in one frame, so its 48px footprint
- *  (button + gap) popped and dragged the title and chips sideways while
- *  the sidebar was still mid-slide. When open the slot is exactly zero
- *  (w-0 -mr-3: width 0, the negative margin cancels the header's gap-3),
- *  so resting layouts are pixel-identical to the old conditional render.
- *  The icon fades with the slot and is clipped by it as it collapses —
- *  no popping in either direction. */
+/** Drawer toggle keeps its layout slot mounted through open/close so
+ * the header does not jump while the drawer animates. */
 export function SidebarToggle() {
 	const { open, toggle } = useSidebar();
 	return (
 		<span
 			className={cn(
-				"sidebar-motion lh-no-drag relative flex h-9 shrink-0 overflow-hidden duration-200",
-				open ? "w-0 -mr-3" : "w-9 mr-0 lh-closed-toggle",
+				"sidebar-motion relative flex h-11 shrink-0 overflow-hidden duration-200",
+				open ? "w-0 -mr-3" : "w-11 mr-0",
 			)}
 		>
-			<Hint label="Open sidebar" action="toggle-sidebar">
+			<Hint label="Open sidebar">
 			<Button
 				variant="ghost"
 				size="icon"
@@ -215,7 +80,7 @@ export function SidebarToggle() {
 				aria-hidden={open}
 				tabIndex={open ? -1 : 0}
 				onClick={toggle}
-				className={cn("sidebar-motion duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
+				className={cn("sidebar-motion size-11 duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
 				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
 				    must not grow when the sidebar is closed (it did: size-5 here).
@@ -265,71 +130,205 @@ export function timeAgo(iso: string, now = new Date()): string {
 	return `${date.getFullYear()}-${mm}-${dd}`;
 }
 
-/** The row's second line: the state when a state exists (waiting/working),
- *  otherwise just how long ago. The message count is DROPPED (owner,
- *  typography round 5): it informed no decision — clutter. messageCount
- *  still rides the API payload, so this is a one-line flip back if it's
- *  ever wanted. */
-function sessionMeta(chat: ChatListItem): string {
-	if (chat.compacting) return `Compacting context · ${timeAgo(chat.updatedAt)}`;
-	if (chat.pendingQuestion) return `Waiting for input · ${timeAgo(chat.updatedAt)}`;
+/** The row's second line (redesign 2026-10-29): a state, when one exists,
+ *  always shows — it is the useful fact. The date only shows where the list
+ *  is not grouped by day (home); in the day-grouped sidebar it would repeat
+ *  the group heading, so an idle row there is just its title. */
+function sessionMeta(chat: ChatListItem, dated: boolean): string | null {
+	const when = dated ? `, ${timeAgo(chat.updatedAt)}` : "";
+	if (chat.compacting) return `Compacting context${when}`;
+	if (chat.pendingQuestion) return `Waiting for input${when}`;
 	if ((chat.kind ?? "teach") === "practice" && chat.pendingProblem) {
-		return `Problem waiting · ${timeAgo(chat.updatedAt)}`;
+		return `Problem waiting${when}`;
 	}
 	if (chat.busy) return "Working…";
-	return timeAgo(chat.updatedAt);
+	return dated ? timeAgo(chat.updatedAt) : null;
+}
+
+/** A day-group heading in words: Today, Yesterday, else "October 10"
+ *  (with the year once it is not this year). */
+function dayHeading(date: Date, now: Date): string {
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	if (date.toDateString() === now.toDateString()) return "Today";
+	if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+	return date.toLocaleDateString(undefined, {
+		month: "long",
+		day: "numeric",
+		...(date.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+	});
 }
 
 /**
  * One session row: the status spinner (only while working), then title +
- * state-aware meta. Exported for render tests — pure function of the
- * list item.
+ * state-aware meta, with a touch/pen reveal action behind the row.
+ * Exported for render tests.
  */
 export function SessionRow({
 	chat,
 	active,
 	onOpen,
-	kbdSelected = false,
 	onContextMenu,
+	swipeOpen = false,
+	onSwipeOpenChange,
+	onSwipeDelete,
+	dated = true,
 }: {
 	chat: ChatListItem;
 	active: boolean;
 	onOpen: () => void;
-	/** Keyboard-cycle highlight (shortcut wave A: Alt+↑/↓ + Alt+Enter) —
-	 *  visually distinct from the active session, which stays filled. */
-	kbdSelected?: boolean;
-	/** Right-click opens the context menu (wave 6: Rename / Delete). */
-	onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+	/** Right-click or touch/pen long-press opens the same context menu. */
+	onContextMenu?: (anchor: HTMLButtonElement) => void;
+	swipeOpen?: boolean;
+	onSwipeOpenChange?: (open: boolean) => void;
+	onSwipeDelete?: () => void;
+	/** False inside a day-grouped list: the heading already says when. */
+	dated?: boolean;
 }) {
+	const meta = sessionMeta(chat, dated);
+	const swipe = useSwipeReveal(swipeOpen, (next) => onSwipeOpenChange?.(next));
+	const hold = useRef<{ pointerId: number; x: number; y: number; timer: number; opened: boolean } | null>(null);
+	const suppressHoldClick = useRef(false);
+	const suppressionTimer = useRef<number | undefined>(undefined);
+	const touchContextUntil = useRef(0);
+	useEffect(() => () => {
+		if (hold.current) clearTimeout(hold.current.timer);
+		clearTimeout(suppressionTimer.current);
+	}, []);
+	const cancelHold = () => {
+		if (hold.current) clearTimeout(hold.current.timer);
+		hold.current = null;
+	};
+	const onRowPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+		if (!onContextMenu || !event.isPrimary || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
+		cancelHold();
+		clearTimeout(suppressionTimer.current);
+		suppressHoldClick.current = false;
+		touchContextUntil.current = Date.now() + 1200;
+		const anchor = event.currentTarget;
+		const pending = {
+			pointerId: event.pointerId,
+			x: event.clientX,
+			y: event.clientY,
+			timer: 0,
+			opened: false,
+		};
+		pending.timer = window.setTimeout(() => {
+			if (hold.current !== pending) return;
+			pending.opened = true;
+			suppressHoldClick.current = true;
+			onContextMenu?.(anchor);
+			navigator.vibrate?.(10);
+		}, 500);
+		hold.current = pending;
+	};
+	const onRowPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+		const pending = hold.current;
+		if (!pending || pending.pointerId !== event.pointerId) return;
+		if (Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > 8 || swipe.dragging) {
+			cancelHold();
+		}
+	};
+	const onRowPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+		if (hold.current?.pointerId !== event.pointerId) return;
+		const opened = hold.current.opened;
+		cancelHold();
+		if (opened) {
+			// A long-press click may target the button or the wrapper after capture.
+			// Discard the flag if the browser never synthesizes one.
+			suppressionTimer.current = window.setTimeout(() => {
+				suppressHoldClick.current = false;
+			}, 700);
+		}
+	};
+	const handleContentClick = (event: React.MouseEvent<HTMLElement>) => {
+		if (suppressHoldClick.current && event.detail !== 0) {
+			suppressHoldClick.current = false;
+			event.preventDefault();
+			return;
+		}
+		if (swipe.consumeSwipeClick(event)) return;
+		if (swipeOpen) onSwipeOpenChange?.(false);
+		else onOpen();
+	};
+	const handleContextMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+		if (!onContextMenu) return;
+		event.preventDefault();
+		// Android can emit a native contextmenu after our touch timer. It is
+		// not another request to open (or re-anchor) the menu.
+		const pointerType = "pointerType" in event.nativeEvent ? event.nativeEvent.pointerType : undefined;
+		if (pointerType === "touch" || pointerType === "pen" || (pointerType !== "mouse" && Date.now() < touchContextUntil.current)) return;
+		onContextMenu(event.currentTarget);
+	};
 	return (
-		<button
-			type="button"
-			onClick={onOpen}
-			onContextMenu={onContextMenu}
-			data-testid={kbdSelected ? "session-row-kbd" : "session-row"}
-			className={cn(
-				"relative mb-0.5 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent",
-				active && "bg-accent",
-				kbdSelected && !active && "bg-accent/60 ring-1 ring-border",
-			)}
+		<div
+			className={cn("relative overflow-hidden border-b border-border touch-pan-y", onSwipeDelete && swipe.offset !== 0 && "bg-destructive")}
+			onPointerDown={swipe.onPointerDown}
+			onPointerMove={(event) => {
+				onRowPointerMove(event);
+				swipe.onPointerMove(event);
+			}}
+			onPointerUp={(event) => {
+				onRowPointerEnd(event);
+				swipe.onPointerUp(event);
+			}}
+			onPointerCancel={(event) => {
+				onRowPointerEnd(event);
+				swipe.onPointerCancel(event);
+			}}
+			onClick={(event) => {
+				// Pointer capture may deliver a touch-generated click to the wrapper
+				// after the content button has narrowed or changed width.
+				if (event.target === event.currentTarget) handleContentClick(event);
+			}}
 		>
-			<SessionStatus busy={chat.busy || chat.compacting} />
-			<span className="min-w-0 flex-1">
-				{/* Titles are the learner's/teacher's WORDS — Source Sans 3, the
-				    same voice the words were typed in (every input is lh-prose);
-				    the meta line below stays JetBrains Mono (machine data). One
-				    rule, finally applied to the picker too (owner, typography
-				    round): mono = chrome, Source Sans = human words. */}
-				<span className="block truncate font-prose text-(length:--lh-prose-size)">{chat.title}</span>
-				<span className="block text-xs text-muted-foreground">{sessionMeta(chat)}</span>
-			</span>
-			{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
-			    was left of the name; right-aligned keeps the titles flush with
-			    the teaching rows and reads cleaner. */}
-			{(chat.kind ?? "teach") === "practice" && (
-				<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
+			{onSwipeDelete && (
+				<button
+					type="button"
+					data-testid="session-swipe-delete"
+					aria-label={`Delete session ${chat.title}`}
+					aria-hidden={!swipe.revealed}
+					tabIndex={swipe.revealed ? 0 : -1}
+					onClick={(event) => {
+						if (!swipe.consumeSwipeClick(event)) onSwipeDelete();
+					}}
+					className={cn(
+						"absolute inset-y-0 right-0 flex w-20 items-center justify-center text-xs text-primary-foreground",
+						!swipe.revealed && "invisible",
+					)}
+				>
+					Delete
+				</button>
 			)}
-		</button>
+			<button
+				type="button"
+				onPointerDown={onRowPointerDown}
+				onClick={handleContentClick}
+				onContextMenu={handleContextMenu}
+				data-testid="session-row"
+				className={cn(
+					"relative flex min-h-14 touch-pan-y select-none items-center gap-2 bg-background px-3 py-2 text-left [-webkit-touch-callout:none] hover:bg-muted",
+					!swipe.dragging && "transition-[width,background-color] duration-200 motion-reduce:transition-none",
+				)}
+				style={{ width: `calc(100% - ${-swipe.offset}px)` }}
+			>
+				<SessionStatus busy={chat.busy || chat.compacting} />
+				<span className="min-w-0 flex-1">
+					{/* Redesign (2026-10-29): the title is the row; the meta line
+					    renders only when it says something (see sessionMeta). The
+					    current session is marked by color alone: no weight change
+					    (owner, round 5), so a truncated title never reflows. */}
+					<span className={cn("block truncate font-title text-base", active && "text-primary")}>{chat.title}</span>
+					{meta && <span className="block font-ui text-xs text-muted-foreground tabular-nums">{meta}</span>}
+				</span>
+				{/* The dumbbell rides the FAR RIGHT (owner round 6, 2026-10-05) —
+				    was left of the name; right-aligned keeps the titles flush with
+				    the teaching rows and reads cleaner. */}
+				{(chat.kind ?? "teach") === "practice" && (
+					<DumbbellIcon className="size-3.5 shrink-0 text-muted-foreground/70" aria-label="Practice session" />
+				)}
+			</button>
+		</div>
 	);
 }
 
@@ -337,7 +336,8 @@ export function SessionRow({
  *  title line becomes a text input — select-all on entry (the click means
  *  "replace", the header rename's rule), Enter/blur commits, Esc discards.
  *  The meta line stays so the row never changes height mid-edit. */
-export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void }) {
+export function RenameRow({ chat, onCommit, onCancel, dated = true }: { chat: ChatListItem; onCommit: (next: string) => void; onCancel: () => void; dated?: boolean }) {
+	const meta = sessionMeta(chat, dated);
 	const [draft, setDraft] = useState(chat.title);
 	const inputRef = useRef<HTMLInputElement | null>(null);
 	useEffect(() => {
@@ -350,7 +350,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 	return (
 		<div
 			data-testid="session-rename-row"
-			className="relative mb-0.5 flex w-full items-center rounded-lg bg-accent px-3 py-2"
+			className="relative flex min-h-14 w-full items-center border-b border-border px-3 py-2"
 		>
 			{/* NOTHING MOVES (owner, polish round): an idle row renders no
 			    status spacer (SessionStatus is null when not busy), so the
@@ -369,7 +369,7 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 					onKeyDown={(e) => {
 						if (e.key === "Enter") e.currentTarget.blur();
 						if (e.key === "Escape") {
-							e.stopPropagation(); // discard, not also the sidebar/chat chains
+							e.stopPropagation(); // cancel only this rename
 							onCancel();
 						}
 					}}
@@ -377,9 +377,221 @@ export function RenameRow({ chat, onCommit, onCancel }: { chat: ChatListItem; on
 					data-testid="session-rename-input"
 					className="lh-input w-full min-w-0 truncate border-0 border-b border-border bg-transparent px-0 text-foreground outline-none"
 				/>
-				<span className="block truncate text-xs text-muted-foreground">{sessionMeta(chat)}</span>
+				{meta && <span className="block truncate font-ui text-xs text-muted-foreground tabular-nums">{meta}</span>}
 			</span>
 		</div>
+	);
+}
+
+/** Continue = sidebar rows (owner, 2026-10-27): one interaction surface
+ * for session management, regardless of where the list is shown. */
+export function SessionList({
+	chats,
+	activeId,
+	onOpen,
+	onRemoved,
+	className,
+	empty,
+	grouped = false,
+}: {
+	chats: ChatListItem[];
+	activeId: string | null;
+	onOpen: (chat: ChatListItem) => void;
+	onRemoved: (id: string) => void;
+	className?: string;
+	empty?: React.ReactNode;
+	/** Day headings above the rows (the sidebar); home lists stay flat. */
+	grouped?: boolean;
+}) {
+	const pathname = usePathname();
+	const router = useRouter();
+	const [swipedChatId, setSwipedChatId] = useState<string | null>(null);
+	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
+	const ctxAnchorRef = useRef<HTMLElement | null>(null);
+	const [renamingId, setRenamingId] = useState<string | null>(null);
+	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
+	const openDelete = (chat: ChatListItem) => {
+		setDeleting(chat);
+		setSwipedChatId(null);
+	};
+	const openContext = (anchor: HTMLButtonElement, chat: ChatListItem) => {
+		ctxAnchorRef.current = anchor;
+		setSwipedChatId(null);
+		setCtxChatId(chat.id);
+	};
+
+	// Pointerdown outside the menu or its row dismisses it.
+	useEffect(() => {
+		if (ctxChatId === null) return;
+		const onPointerDown = (e: PointerEvent) => {
+			const target = e.target as Node;
+			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
+			if (ctxAnchorRef.current?.contains(target)) return;
+			setCtxChatId(null);
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		return () => document.removeEventListener("pointerdown", onPointerDown);
+	}, [ctxChatId]);
+
+	// Inline rename shares the chat header's persistence and broadcasts
+	// lh:chat-renamed so other mounted views update immediately.
+	const commitRename = useCallback(async (id: string, next: string) => {
+		setRenamingId(null);
+		const t = next.trim();
+		if (t === "") return;
+		try {
+			const res = await fetch(`/api/chats/${id}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title: t }),
+			});
+			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
+			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
+		} catch (err) {
+			console.error("rename failed:", err); // keep the old title
+		}
+	}, []);
+
+	// Patch the owning list immediately, return home when deleting the open
+	// chat, and notify the home knowledge summary to refresh graph data.
+	const onDeleted = (id: string, _mode: ChatDeleteMode, graphRevision: number) => {
+		setDeleting(null);
+		onRemoved(id);
+		if (pathname === `/chat/${id}`) router.push("/");
+		window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
+	};
+	// Export: a direct attachment link can open outside the installed app
+	// in a markdown viewer with no route back.
+	// Share a file when possible; otherwise download a blob in-place.
+	const exportMarkdown = async (chat: ChatListItem) => {
+		try {
+			const res = await fetch(`/api/chats/${chat.id}/markdown`, { credentials: "same-origin" });
+			if (!res.ok) throw new Error(`export failed: ${res.status}`);
+			const filename = res.headers.get("content-disposition")?.match(/filename="([^"]+)"/i)?.[1] ?? `${chat.title}.md`;
+			const blob = await res.blob();
+			const file = new File([blob], filename, { type: "text/markdown" });
+			if (navigator.canShare?.({ files: [file] })) {
+				try {
+					await navigator.share({ files: [file] });
+					return;
+				} catch (err) {
+					if (err instanceof DOMException && err.name === "AbortError") return;
+					// Share can lose transient activation during fetch on iOS;
+					// use the in-page blob download for every other failure.
+				}
+			}
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = filename;
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+		} catch (err) {
+			console.error("export failed:", err);
+		}
+	};
+	const now = new Date();
+
+	return (
+		<>
+			<div className={className} onScroll={() => setSwipedChatId(null)}>
+				{chats.length === 0 ? empty : chats.map((c, index) => {
+					const date = new Date(c.updatedAt);
+					const day = date.toDateString();
+					const previousDay = index > 0 ? new Date(chats[index - 1]!.updatedAt).toDateString() : null;
+					return (
+						<Fragment key={c.id}>
+							{grouped && day !== previousDay && (
+								<div className="px-3 pb-1 pt-4 font-ui text-xs text-muted-foreground">{dayHeading(date, now)}</div>
+							)}
+							{renamingId === c.id ? (
+								<RenameRow
+									chat={c}
+									dated={!grouped}
+									onCommit={(next) => void commitRename(c.id, next)}
+									onCancel={() => setRenamingId(null)}
+								/>
+							) : (
+								<SessionRow
+									chat={c}
+									dated={!grouped}
+									active={activeId === c.id}
+									swipeOpen={swipedChatId === c.id}
+									onSwipeOpenChange={(next) => setSwipedChatId(next ? c.id : null)}
+									onSwipeDelete={() => openDelete(c)}
+									onOpen={() => {
+										setSwipedChatId(null);
+										onOpen(c);
+									}}
+									onContextMenu={(anchor) => openContext(anchor, c)}
+								/>
+							)}
+						</Fragment>
+					);
+				})}
+			</div>
+			{ctxChatId !== null && (
+				<MenuShell
+					anchorRef={ctxAnchorRef}
+					testid="session-context-menu"
+					preferredSide="down"
+					menuClass="flex w-52 flex-col gap-0.5 rounded-xl border border-border bg-popover p-2 text-sm shadow-lg"
+				>
+					{/* The two management actions first, then the extraction block
+					    (owner refinement round, 2026-09-24): Rename/Delete stay at the
+					    top, the coverage numbers + Extract affordance sit below the
+					    hairline — the block is info + a stateful affordance, the
+					    actions above it. Fetched on menu open (the block mounts WITH
+					    the menu); 409 = benign. Renders nothing on a failed read. */}
+					<button
+						type="button"
+						data-testid="ctx-rename"
+						onClick={() => {
+							setRenamingId(ctxChatId);
+							setCtxChatId(null);
+						}}
+						className="flex min-h-11 items-center rounded-md px-2.5 text-left text-foreground hover:bg-muted"
+					>
+						Rename
+					</button>
+					{/* Export (owner, 2026-10-27): share or download without
+					    navigating away from the standalone phone app. */}
+					<button
+						type="button"
+						data-testid="ctx-export-md"
+						onClick={() => {
+							const target = chats.find((c) => c.id === ctxChatId);
+							setCtxChatId(null);
+							if (target) void exportMarkdown(target);
+						}}
+						className="flex min-h-11 items-center rounded-md px-2.5 text-left text-foreground hover:bg-muted"
+					>
+						Export as Markdown…
+					</button>
+					<button
+						type="button"
+						data-testid="ctx-delete"
+						onClick={() => {
+							const target = chats.find((c) => c.id === ctxChatId);
+							if (target) openDelete(target);
+							setCtxChatId(null);
+						}}
+						className="flex min-h-11 items-center rounded-md px-2.5 text-left text-destructive hover:bg-muted"
+					>
+						Delete…
+					</button>
+					<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
+					<CoverageMenuBlock chatId={ctxChatId} />
+				</MenuShell>
+			)}
+			<DeleteSessionDialog
+				chat={deleting}
+				onClose={() => setDeleting(null)}
+				onDeleted={onDeleted}
+			/>
+		</>
 	);
 }
 
@@ -390,7 +602,16 @@ export type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle } = useSidebar();
+	const { open, toggle, close } = useSidebar();
+	const drawerRef = useRef<HTMLElement>(null);
+	useEffect(() => {
+		if (!open) return;
+		const previous = document.activeElement as HTMLElement | null;
+		drawerRef.current?.querySelector<HTMLButtonElement>('[aria-label="Close sidebar"]')?.focus();
+		return () => {
+			if (previous?.isConnected) previous.focus();
+		};
+	}, [open]);
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -411,8 +632,9 @@ function SessionsSidebar() {
 	   message is sent (and that message becomes its title). Search: a
 	   client-side filter over the poll snapshot — no server round trip. */
 	const newSession = useCallback(() => {
+		close();
 		router.push("/chat/new");
-	}, [router]);
+	}, [close, router]);
 
 	/* FUZZY (owner round 8, 2026-10-05): subsequence match ranked by
 	 * fuzzyScore — prefix beats word-boundary beats scattered. Empty query
@@ -524,119 +746,7 @@ function SessionsSidebar() {
 		[],
 	);
 
-	/* ── Keyboard seams (shortcut wave A, 2026-09-17; search-walk round
-	   2026-10-10) ── ⌘⇧F focuses the search field — and THE SEARCH OWNS THE
-	   WALK: ↑/↓ cycle the filtered list (wrap — "cycle"), Enter opens the
-	   walked row, or the FIRST match when nothing is walked (owner,
-	   2026-10-10 — the quick-open pattern: ⌘⇧F, type, Enter, done). The
-	   Alt+↑/↓/↵ global cycle was RETIRED the same round: barely used,
-	   felt laggy. The selection is a row index into `shown`, so the walk
-	   follows whatever the query + kind filter leave. Mouse and keyboard
-	   coexist: hovering doesn't claim, a click or an open clears the
-	   selection. */
-	const [kbdIndex, setKbdIndex] = useState<number | null>(null);
-	const searchRef = useRef<HTMLInputElement>(null);
-	const listRef = useRef<HTMLDivElement>(null);
 
-	/* ── Wave 6 chunk A: context menu + inline rename + deletion ──
-	   Right-click a session row → MenuShell: the two management actions
-	   first (owner ruling), then — below a hairline — the extraction
-	   coverage block (owner-locked redesign 2026-09-24, order refined
-	   2026-09-24: Rename/Delete on top, the numbers + manual Extract
-	   affordance at the bottom). The anchor is the row that was
-	   right-clicked — assigned into a ref before the state flip so the
-	   shell measures it on its first (hidden) pass. */
-	const [ctxChatId, setCtxChatId] = useState<string | null>(null);
-	const ctxAnchorRef = useRef<HTMLElement | null>(null);
-	const [renamingId, setRenamingId] = useState<string | null>(null);
-	const [deleting, setDeleting] = useState<ChatListItem | null>(null);
-
-	const openContext = (e: React.MouseEvent<HTMLButtonElement>, chat: ChatListItem) => {
-		e.preventDefault(); // suppress the native menu
-		ctxAnchorRef.current = e.currentTarget;
-		setCtxChatId(chat.id);
-	};
-
-	// The menu contract (agent-section's): any pointerdown outside the menu
-	// or its row closes it; Esc is CLAIMED so it never also aborts a turn
-	// or folds the sidebar. Right-clicking another row re-anchors: its
-	// pointerdown closes this menu, its contextmenu opens the next.
-	useEffect(() => {
-		if (ctxChatId === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const target = e.target as Node;
-			if (target instanceof Element && target.closest("[data-lh-menu]")) return;
-			if (ctxAnchorRef.current?.contains(target)) return;
-			setCtxChatId(null);
-		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setCtxChatId(null);
-			}
-		};
-		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
-	}, [ctxChatId]);
-
-	// Inline rename (owner ruling, wave 6): the row swaps to a text input;
-	// commit rides the SAME plumbing as the header rename — PUT the title,
-	// then lh:chat-renamed patches every listener (this sidebar's own
-	// listener patches the snapshot instantly; an open chat header hears
-	// it too). Esc discards; empty commit discards (the header's rules).
-	const commitRename = useCallback(async (id: string, next: string) => {
-		setRenamingId(null);
-		const t = next.trim();
-		if (t === "") return;
-		try {
-			const res = await fetch(`/api/chats/${id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title: t }),
-			});
-			if (!res.ok) throw new Error(`rename failed: ${res.status}`);
-			window.dispatchEvent(new CustomEvent("lh:chat-renamed", { detail: { id, title: t } }));
-		} catch (err) {
-			console.error("rename failed:", err); // keep the old title
-		}
-	}, []);
-
-	// Delete success: patch the list instantly (the poll is the backstop),
-	// navigate home if the open session died (the chat view unmounts —
-	// drafts die with it, no orphan bubbles), and announce the graph
-	// revision so the graph view refetches (deletion is the one writer
-	// the status poll can't see — no run ever transitions some→none).
-	const onDeleted = useCallback(
-		(id: string, _mode: ChatDeleteMode, graphRevision: number) => {
-			setDeleting(null);
-			setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev));
-			if (pathname === `/chat/${id}`) router.push("/");
-			window.dispatchEvent(new CustomEvent("lh:graph-revision", { detail: { revision: graphRevision } }));
-		},
-		[pathname, router],
-	);
-
-	useEffect(() => {
-		const onFocusSearch = () => {
-			if (!open) toggle();
-			// A clipped (overflow-hidden) input still focuses — the sidebar's
-			// slide-in doesn't gate the keystroke.
-			requestAnimationFrame(() => searchRef.current?.focus());
-		};
-		window.addEventListener("lh:kbd-sessions-search", onFocusSearch);
-		return () => window.removeEventListener("lh:kbd-sessions-search", onFocusSearch);
-	}, [open, toggle]);
-
-	// Keep the kbd-selected row in view (the rows are the container's only
-	// buttons, so the index matches).
-	useEffect(() => {
-		if (kbdIndex === null) return;
-		listRef.current?.querySelectorAll("button")[kbdIndex]?.scrollIntoView({ block: "nearest" });
-	}, [kbdIndex]);
 
 	useEffect(() => {
 		if (!open) return;
@@ -646,46 +756,53 @@ function SessionsSidebar() {
 	}, [open, pathname, refresh]);
 
 	return (
+		<>
+		{open && (
+			<button
+				type="button"
+				aria-label="Close sidebar backdrop"
+				tabIndex={-1}
+				onClick={close}
+				className="fixed inset-0 z-40 bg-background/70"
+			/>
+		)}
 		<aside
-			className={cn("sidebar-motion shrink-0 overflow-hidden duration-200", open ? "w-72" : "w-0")}
+			ref={drawerRef}
+			className={cn(
+				"sidebar-motion fixed inset-y-0 left-0 z-50 shrink-0 overflow-hidden duration-200",
+				open ? "w-72 max-w-[calc(100vw-2rem)]" : "w-0",
+			)}
+			role="dialog"
+			aria-modal={open ? true : undefined}
+			aria-label="Navigation"
 			aria-hidden={!open}
+			inert={!open}
 		>
-			<div className="flex h-full w-72 flex-col border-r bg-background">
-				{/* LH wordmark — the owner's header; close toggle sits at the edge.
-				    Merged chrome (2026-09-17): in Electron this band is the
-				    window's drag surface and starts after the traffic lights
-				    (.lh-lights-gutter); in the browser those classes are inert. */}
-				<div className="lh-drag lh-lights-gutter flex items-center justify-between px-4 py-3">
-					{/* The owner's mark (2026-09-17) replaces the "LH" text — still the
-					    home link, still vertically centered by the band's items-center.
-					    The 92px .lh-lights-gutter keeps it clear of the traffic lights
-					    with the lights' own edge-inset as the gap. */}
+			<div className="flex h-full w-72 max-w-full flex-col border-r bg-background">
+				{/* Wordmark and drawer close toggle. */}
+				<div
+					className="flex items-center justify-between px-4 py-3"
+					style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
+				>
+					{/* The wordmark remains the home link. */}
 					{/* Hover mirrors the ghost toggle buttons (owner ask, 2026-09-17):
 					    same size-9 chip geometry, same hover:bg-accent treatment. */}
-					<Hint
-						// Kept (owner, subtlety round 2026-09-25) but to the RIGHT
-						// of the logo, carrying its real shortcut: ⌘G jumps to
-						// the graph view (keyboard-shortcuts routes it to "/",
-						// the same destination as this logo).
-						label="Home"
-						action="jump-graph"
-						side="right"
-					>
+					<Hint label="Home" side="right">
 						<Link
 							href="/"
+							onClick={close}
 							aria-label="Home"
-							className="lh-no-drag flex size-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50"
+							className="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-muted"
 						>
 							<LhMark className="size-6" />
 						</Link>
 					</Hint>
-					<Hint label="Close sidebar" action="toggle-sidebar">
+					<Hint label="Close sidebar">
 						<Button
 							variant="ghost"
 							size="icon"
 							aria-label="Close sidebar"
 							onClick={toggle}
-							className="lh-no-drag"
 						>
 							<PanelLeftCloseIcon className="size-4" />
 						</Button>
@@ -701,7 +818,7 @@ function SessionsSidebar() {
 						type="button"
 						data-testid="new-session"
 						onClick={() => void newSession()}
-						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<PlusIcon className="size-3" />
 						Teaching
@@ -710,8 +827,11 @@ function SessionsSidebar() {
 					<button
 						type="button"
 						data-testid="new-session-practice"
-						onClick={() => router.push("/chat/new?mode=practice")}
-						className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						onClick={() => {
+							close();
+							router.push("/chat/new?mode=practice");
+						}}
+						className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DumbbellIcon className="size-3" />
 						Practice
@@ -720,60 +840,16 @@ function SessionsSidebar() {
 				</div>
 
 				<div className="mx-3 mb-2 flex items-center gap-2">
-					<span className="text-xs uppercase tracking-widest text-muted-foreground/70">Sessions</span>
-					<Hint label="Search sessions" action="sessions-search" side="bottom">
+					<span className="text-sm text-muted-foreground">Sessions</span>
+					<Hint label="Search sessions" side="bottom">
 					<span className="relative flex-1">
 						<Input
-							ref={searchRef}
 							data-testid="session-search"
 							value={query}
-							onChange={(e) => {
-								setQuery(e.target.value);
-								// The list reorders under the query every keystroke —
-								// a stale walk index would point at the wrong row.
-								setKbdIndex(null);
-							}}
-							// THE SEARCH OWNS THE WALK (owner, 2026-10-10 — the
-							// retired Alt+↑/↓/↵ cycle's successor): ↑/↓ cycle the
-							// filtered rows (wrap), Enter opens the walked row —
-							// or the FIRST match when nothing is walked (the
-							// quick-open pattern) — then blurs (focus returns to
-							// the app per the Enter law; the query stays for
-							// re-searching). Esc leaves the search (owner,
-							// keyboard wave): blur back to normal, and claim the
-							// key so the window Esc chain (dictation / abort)
-							// doesn't also fire.
-							onKeyDown={(e) => {
-								if (e.key === "Escape") {
-									e.stopPropagation();
-									e.currentTarget.blur();
-									return;
-								}
-								// Modified keys belong to the surface (⇧↵ etc.).
-								if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-								const n = shown?.length ?? 0;
-								if (n === 0) return;
-								if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-									// The rows move, not the caret.
-									e.preventDefault();
-									const dir = e.key === "ArrowDown" ? 1 : -1;
-									setKbdIndex((i) =>
-										i === null || i >= n ? (dir === 1 ? 0 : n - 1) : (i + dir + n) % n,
-										);
-									return;
-								}
-								if (e.key === "Enter") {
-									const target = shown![kbdIndex !== null && kbdIndex < n ? kbdIndex : 0];
-									if (!target) return;
-									e.preventDefault();
-									router.push(`/chat/${target.id}`);
-									setKbdIndex(null);
-									e.currentTarget.blur();
-								}
-							}}
+							onChange={(e) => setQuery(e.target.value)}
 							placeholder="Search…"
 							aria-label="Search sessions"
-							className="h-6 rounded-sm border-border bg-background pl-6 text-xs placeholder:text-muted-foreground/60"
+							className="h-11 rounded-md border-border bg-background pl-8 text-sm placeholder:text-muted-foreground/60"
 						/>
 						<SearchIcon className="pointer-events-none absolute left-1.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground/70" />
 					</span>
@@ -787,7 +863,7 @@ function SessionsSidebar() {
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5" data-testid="session-kind-filter">
+				<div className="mx-3 flex items-center gap-0.5 rounded-md bg-muted p-0.5" data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
 							key={f}
@@ -795,9 +871,9 @@ function SessionsSidebar() {
 							data-testid={`kind-filter-${f}`}
 							onClick={() => setFilter(f)}
 							className={cn(
-								"flex-1 rounded-sm px-2 py-1 text-[11px] uppercase tracking-wider transition-colors",
+								"min-h-11 flex-1 rounded-md px-2 text-xs",
 								kindFilter === f
-									? "bg-accent text-foreground"
+									? "bg-card font-medium text-foreground"
 									: "text-muted-foreground hover:text-foreground",
 							)}
 						>
@@ -806,39 +882,30 @@ function SessionsSidebar() {
 					))}
 				</div>
 
-				<div ref={listRef} className="flex-1 overflow-y-auto p-2">
-					{shown === null ? (
+				{shown === null ? (
+					<div className="flex-1 overflow-y-auto p-2">
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
-					) : shown.length === 0 ? (
-						<div className="px-2 py-4 text-xs text-muted-foreground">
-							{query.trim() ? "No sessions match." : "No sessions yet."}
-						</div>
-					) : (
-						shown.map((c, i) =>
-							renamingId === c.id ? (
-								<RenameRow
-									key={c.id}
-									chat={c}
-									onCommit={(next) => void commitRename(c.id, next)}
-									onCancel={() => setRenamingId(null)}
-								/>
-							) : (
-								<SessionRow
-									key={c.id}
-									chat={c}
-									active={pathname === `/chat/${c.id}`}
-									kbdSelected={i === kbdIndex}
-									onOpen={() => {
-										setKbdIndex(null);
-										router.push(`/chat/${c.id}`);
-									}}
-									onContextMenu={(e) => openContext(e, c)}
-								/>
-							),
-						)
-					)}
-				</div>
+					</div>
+				) : (
+					<SessionList
+						chats={shown}
+						activeId={pathname.startsWith("/chat/") ? pathname.slice("/chat/".length) : null}
+						className="flex-1 overflow-y-auto px-3 py-2"
+						grouped
+						empty={
+							<div className="px-2 py-4 text-xs text-muted-foreground">
+								{query.trim() ? "No sessions match." : "No sessions yet."}
+							</div>
+						}
+						onOpen={(chat) => {
+							close();
+							router.push(`/chat/${chat.id}`);
+						}}
+						onRemoved={(id) => setChats((prev) => (prev ? prev.filter((c) => c.id !== id) : prev))}
+					/>
+				)}
 
+				<div className="shrink-0" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
 					{/* Background agents (owner, sidebar round): the section is
 					    ALWAYS here — empty means empty (the header sits alone); it
 					    populates and grows when processes run. The session list is
@@ -846,16 +913,17 @@ function SessionsSidebar() {
 					    learner opted out (no ambient signal, user decision). */}
 					<ActivitySection />
 
-					{/* Settings entry (settings-app wave): same row language as
-					    New session — quiet, bottom-pinned, opens the centered
-					    dialog (also mod+, in the keyboard registry). */}
-					<div className="px-3 pb-3 pt-1">
-						<Hint label="Settings" action="open-settings" side="right">
+					{/* Settings opens the phone section sheet. */}
+					<div className="px-3 pt-1">
+						<Hint label="Settings" side="right">
 							<button
 								type="button"
-								onClick={() => openSettings()}
+								onClick={() => {
+									close();
+									openSettings();
+								}}
 								data-testid="settings-entry"
-								className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 							>
 								<SettingsIcon className="size-3" />
 								Settings
@@ -863,95 +931,20 @@ function SessionsSidebar() {
 						</Hint>
 					</div>
 				</div>
+				</div>
 
-				{/* The context menu (wave 6 + the extraction-UX redesign): the
-				    coverage block above, then exactly two management actions
-				    (owner ruling — no more). MenuShell owns placement/focus/arrow
-				    cycling; the dismissal effect above owns the contract. */}
-				{ctxChatId !== null && (
-					<MenuShell
-						anchorRef={ctxAnchorRef}
-						testid="session-context-menu"
-						preferredSide="down"
-						menuClass="flex w-52 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
-					>
-						{/* The two management actions first, then the extraction block
-						    (owner refinement round, 2026-09-24): Rename/Delete stay at the
-						    top, the coverage numbers + Extract affordance sit below the
-						    hairline — the block is info + a stateful affordance, the
-						    actions above it. Fetched on menu open (the block mounts WITH
-						    the menu); 409 = benign. Renders nothing on a failed read. */}
-						<button
-							type="button"
-							data-testid="ctx-rename"
-							onClick={() => {
-								setRenamingId(ctxChatId);
-								setCtxChatId(null);
-							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
-						>
-							Rename
-						</button>
-						{/* Export as Markdown (owner, release polish 2026-10-06): the
-					    session-markdown engine's user-facing debut — same-origin
-						    anchor download; the route's Content-Disposition names the
-						    file. Sits with the management actions, above Delete (the
-						    destructive action stays last — the danger-fence law). */}
-						<button
-							type="button"
-							data-testid="ctx-export-md"
-							onClick={() => {
-								const chatId = ctxChatId;
-								setCtxChatId(null);
-								const a = document.createElement("a");
-								a.href = `/api/chats/${chatId}/markdown`;
-								a.download = ""; // the route's filename wins
-								document.body.appendChild(a);
-								a.click();
-								a.remove();
-							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-foreground transition-colors hover:bg-accent"
-						>
-							Export as Markdown…
-						</button>
-						<button
-							type="button"
-							data-testid="ctx-delete"
-							onClick={() => {
-								const target = chats?.find((c) => c.id === ctxChatId);
-								if (target) setDeleting(target);
-								setCtxChatId(null);
-							}}
-							className="flex items-center rounded-lg px-2.5 py-1.5 text-left text-muted-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-						>
-							Delete…
-						</button>
-						<div className="my-0.5 border-t border-border/60" aria-hidden="true" />
-						<CoverageMenuBlock chatId={ctxChatId} />
-					</MenuShell>
-				)}
-
-				{/* The two-option delete dialog (wave 6) — portaled to body
-				    by the component itself, lives here for state locality. */}
-				<DeleteSessionDialog
-					chat={deleting}
-					onClose={() => setDeleting(null)}
-					onDeleted={onDeleted}
-				/>
 			</aside>
+		</>
 	);
 }
 
-/** The app frame: sidebar inline + content. Rendered once in the root layout. */
+/** The app frame: overlay drawer and full-width content. */
 export function AppShell({ children }: { children: React.ReactNode }) {
+	const { open } = useSidebar();
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
-			<FilePathDropZone className="relative min-w-0 flex-1">{children}</FilePathDropZone>
-			{/* The single document-level keydown listener (keyboard wave A) —
-			    after the content in the tree, but it's window-level so order only
-			    matters for the events it dispatches, never for DOM priority. */}
-			<KeyboardShortcuts />
+			<main className="min-w-0 flex-1" inert={open}>{children}</main>
 		</SettingsDialogProvider>
 	);
 }

@@ -196,7 +196,7 @@ describe("practice flow (scripted model)", () => {
 		await drainTurn(post(chat.id, { type: "text", text: "go" }), factory);
 
 		// The silent dismissal route (the same POST the client's Esc takes).
-		const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
+		const dismissRoute = await import("../server/routes/chats/[id]/dismiss/route.ts");
 		const dismissRes = await dismissRoute.POST(
 			new Request(`http://test/api/chats/${chat.id}/dismiss`, {
 				method: "POST",

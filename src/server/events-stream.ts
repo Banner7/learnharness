@@ -8,10 +8,8 @@
  * event type + a tiny payload; consumers respond by fetching truth
  * (/api/chats/:id, /api/jobs, /api/activity). No payload versioning, no
  * replay protocol — a reconnect resyncs with one ordinary fetch per
- * consumer. This is a DESKTOP app talking to localhost: holding N≈1-3
- * connections costs one socket pair each and zero traffic while idle
- * (owner ruling 2026-10-02 — polling's cloud economics don't exist at
- * loopback; the poll lattice it left behind is what this replaces).
+ * consumer. Each open SSE connection uses one socket and carries no
+ * traffic while idle.
  *
  * Wire dialect mirrors the turn stream (pi/ui-stream.ts): text/event-stream,
  * no-cache/no-transform, X-Accel-Buffering off — plus a `: ping` comment

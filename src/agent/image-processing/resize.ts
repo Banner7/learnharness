@@ -47,9 +47,9 @@ async function resizeImageInWorker(workerPath: string, inputBytes: Uint8Array, m
 }
 
 export async function resizeImage(inputBytes: Uint8Array, mimeType: string, options?: ModelImageResizeOptions): Promise<ResizedImage | null> {
-	// Source-vs-runtime adaptation: Next bundles the TS orchestration, but traces
-	// unbundled .mjs worker/core/EXIF/Photon resources at this cwd-relative path.
-	// The packaged server's cwd is the standalone root. No Bun path is needed.
+	// Fork rewrite (2026-10-29): the server bundle keeps orchestration in
+	// process, but ships the worker/core/EXIF/Photon files at this path.
+	// npm start and the container both use the application root as cwd.
 	const workerPath = path.join(process.cwd(), "src/agent/image-processing/resize-worker.mjs");
 	try {
 		return await resizeImageInWorker(workerPath, inputBytes, mimeType, options);

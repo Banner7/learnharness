@@ -1,9 +1,15 @@
 # First Release (0.3.0) — polish list + lock question
 
 > **Historical planning notes (2026-10-06), not the current release checklist.**
-> Several items below have since shipped, including signing/notarization and
-> automatic updates. See [Desktop builds and releases](desktop-release.md) for
-> the current build, verification, and release procedure.
+> Desktop packaging, signing and automatic updates described below are historical upstream work, not this browser-only fork's release procedure. See [development.md](development.md) for the server workflow.
+
+> **Private-fork UI supersession (2026-10-26):** Items 1–2 and 6–8 below
+> record historical proposals, not work to implement: the graph visualization
+> and rendering toggle, keyboard shortcuts/keybindings, and desktop layout were
+> removed. The phone UI is used at every width; questions are inline in the
+> transcript, Settings uses sheets, and the sidebar is an overlay. The home page
+> has a topic composer. Knowledge graph storage, extraction, APIs and practice
+> node pages remain. Electron packaging has been removed.
 
 Started 2026-10-06, owner brain-dump round. Priority 1 — everything else (assessment levels → docs/vision-assessment.md) comes after. Items are captured as spoken; design decisions inside them are **unruled** unless marked.
 
@@ -26,9 +32,9 @@ Started 2026-10-06, owner brain-dump round. Priority 1 — everything else (asse
    is always long). Owner dislikes LLM-generated names. A naming popup after
    first send was considered — possibly annoying; unruled. (Fact: the top-bar
    title is already click-to-rename; whatever lands should agree with it.)
-4. **Export sessions as markdown** — likely a right-click action on a session
-   in the sidebar. (Fact: core/session-markdown.ts already renders whole
-   sessions to markdown for extraction — the serialization exists.)
+4. **Export sessions as markdown** — now available from the sidebar context
+   menu by desktop right-click or touch/pen long-press. The export uses the
+   session-markdown serialization already used for extraction.
 5. **Export the reasoning chains / graph** — format unruled (JSON is the
    obvious candidate: serve the graph snapshot). Placement unruled.
 6. **Graph default settings refinement** — current defaults not ideal; minor.
@@ -51,9 +57,11 @@ Persistent surfaces (the obligation set):
   and coupled to the pi-ai library's serialization (a pi-ai bump becomes a
   migration event post-release).
 - `data/graph/` — nodes.jsonl, chains.jsonl, coverage.jsonl, sources.json,
-  sessions.jsonl (append-only ledgers), positions.json, render-settings.json.
-- `data/settings.json` (models, toggles, compaction…), `auth.json` (BYOK keys).
-- Client localStorage (camera, filters, zoom, kind filter).
+  sessions.jsonl (append-only ledgers). The retired visualization's
+  `positions.json` and `render-settings.json` are not current obligations.
+- `data/settings.json` (models, extraction, compaction…), `auth.json` (BYOK keys).
+- Client localStorage still in use by the phone UI; retired graph camera,
+  zoom, filters and kind controls are not persistent obligations.
 - `data/jobs/` — treat as scratch/transient, no obligation.
 
 Known gaps to close *before* release (proposals, unruled):

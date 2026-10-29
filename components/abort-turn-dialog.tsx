@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { tap } from "@/lib/haptics";
+import { HapticLabel } from "@/components/ui/haptic";
 
 /**
  * The ESC-abort guard (owner, 2026-10-02): the global Esc → abort chain
@@ -73,10 +74,10 @@ export function AbortTurnBody({
 			{...backdropDismiss}
 		>
 			<div
-				className="mx-4 w-full max-w-sm rounded-xl border bg-card p-5 shadow-lg"
+				className="mx-4 w-full max-w-sm rounded-xl border border-border bg-popover p-5 shadow-lg"
 				onClick={(e) => e.stopPropagation()}
 			>
-				<h2 className="text-sm font-semibold text-card-foreground" data-testid="abort-turn-title">
+				<h2 className="font-title text-lg text-card-foreground" data-testid="abort-turn-title">
 					{copy.title}
 				</h2>
 				<p className="mt-1.5 text-xs text-muted-foreground" data-testid="abort-turn-line">
@@ -88,18 +89,19 @@ export function AbortTurnBody({
 						type="button"
 						data-testid="abort-turn-cancel"
 						onClick={onClose}
-						className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+						className="min-h-11 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						Cancel
 					</button>
 					<button
 						type="button"
 						data-testid="abort-turn-confirm"
-						onClick={onConfirm}
-						// Destructive red — the app's established destructive pair.
-						className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20"
+						onClick={() => { tap(); onConfirm(); }}
+						// Redesign (2026-10-29): destructive confirmation has one clear fill.
+						className="relative min-h-11 rounded-md bg-destructive px-3 text-sm font-medium text-primary-foreground hover:bg-destructive/90"
 					>
 						{copy.action}
+						<HapticLabel />
 					</button>
 				</div>
 			</div>
@@ -113,28 +115,12 @@ export function AbortTurnDialog({
 	onConfirm,
 	busy = false,
 }: {
-	/** What Esc is aborting; null = closed (nothing rendered). */
+	/** Action awaiting the learner's confirmation; null closes the dialog. */
 	mode: AbortMode | null;
 	onClose: () => void;
 	onConfirm: (mode: AbortMode) => void;
 	busy?: boolean;
 }) {
-	// Esc cancels the popup (claimed — never a chained abort).
-	useEffect(() => {
-		if (mode === null) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [mode, onClose]);
 
 	if (mode === null || typeof document === "undefined") return null;
 	return createPortal(

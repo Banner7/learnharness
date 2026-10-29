@@ -20,7 +20,6 @@ import type {
 	JobRecord,
 	ExtractionRunUsage,
 	PlanTree,
-	Position,
 	CoverageEntry,
 	SessionCheckpoint,
 	TurnUsage,
@@ -104,13 +103,6 @@ export interface GraphStore {
 	/** Append one run's usage to a source record — idempotent per
 	 *  startedAt, mirroring ChatRecord.extractions. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void;
-
-	/** The layout ledger (config.POSITIONS_FILE): nodeId → resting {x,y}.
-	 *  WRITTEN ONLY by the incremental settle after a merge (core/layout.ts
-	 *  settleGraphLayout) — read-only for everything else. */
-	readPositions(): Record<string, Position>;
-	/** Replace the whole ledger (the settle is a full-graph computation). */
-	writePositions(positions: Record<string, Position>): void;
 
 	/** THE DESTRUCTIVE SEAM (session-deletion wave 6, owner 2026-09-22 —
 	 *  the first non-append operation on these ledgers): atomically
@@ -204,21 +196,11 @@ export interface PromptOverrideStore {
 
 // ─── AuthStore — BYOK provider keys (auth-keys wave, 2026-09-19) ────────────
 
-/**
- * The long-standing flat {VAR: value} auth.json map (config.AUTH_FILE) —
- * the same file the Electron app has always hand-edited, now first-class
- * server-managed. Values are opaque strings: shape validation is a
- * server-band concern (core/auth-keys.ts validateKeyShape — the store
- * persists what it is given); env precedence is a server-band concern
- * too (src/server/keys.ts). Unknown vars ride along verbatim.
- */
+/** Read-only access to externally managed auth.json credentials.
+ * Env precedence is applied by src/server/keys.ts. */
 export interface AuthStore {
 	/** The whole map — absent or corrupt file = {} ("no keys yet", the
 	 *  documented first-boot state). Never throws. */
 	authVars(): Record<string, string>;
-	/** Set one VAR (atomic write, mode 0600 always, other vars preserved). */
-	setAuthVar(name: string, value: string): void;
-	/** Remove one VAR if present (absent = no-op, still a silent success). */
-	deleteAuthVar(name: string): void;
 }
 

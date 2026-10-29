@@ -34,14 +34,13 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
+import { LEDGER_FILES, SOURCES_FILE } from "../../config.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
 import type {
 	GraphChain,
 	GraphNode,
 	ExtractionRunUsage,
 	NotesSource,
-	Position,
 	ProvenancePoint,
 	CoverageEntry,
 	SessionCheckpoint,
@@ -185,14 +184,6 @@ export const graphStore: GraphStore = {
 		writeSourceMap(all);
 	},
 
-	// ── the layout ledger (config.POSITIONS_FILE — a JSON map) ──
-	readPositions(): Record<string, Position> {
-		return readPositionMap();
-	},
-	writePositions(positions: Record<string, Position>): void {
-		writePositionMap(positions);
-	},
-
 	/** THE DESTRUCTIVE SEAM (wave 6 session deletion): atomic full-content
 	 *  replacement per provided ledger — write a uniquely-named temp file
 	 *  beside the ledger, then rename over it (POSIX-atomic: a crash mid-
@@ -232,53 +223,6 @@ export const graphStore: GraphStore = {
 		}
 	},
 };
-
-/** positions.json — { positions, updatedAt }. Read-modify-write, NOT
- *  append-only: the settle is a full-graph computation, so it replaces the
- *  whole map. The updatedAt stamp exists for future live-physics conflict
- *  handling (a browser commit must be able to detect "the graph changed
- *  underneath me"); reads just return the map. */
-function readPositionMap(): Record<string, Position> {
-	let raw: string;
-	try {
-		raw = fs.readFileSync(POSITIONS_FILE, "utf-8");
-	} catch {
-		return {}; // no ledger yet — nothing has ever settled
-	}
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (!isRecord(parsed) || !isRecord(parsed.positions)) return {};
-		const out: Record<string, Position> = {};
-		for (const [id, value] of Object.entries(parsed.positions)) {
-			if (isPosition(value)) out[id] = { x: value.x, y: value.y };
-		}
-		return out;
-	} catch {
-		return {};
-	}
-}
-
-function writePositionMap(positions: Record<string, Position>): void {
-	fs.mkdirSync(path.dirname(POSITIONS_FILE), { recursive: true });
-	// Tmp + rename — the same crash-safety rewriteLedgers uses two blocks
-	// up (a9339b3 UI flag): a torn write must never replace the ledger
-	// with a half-written file the reader parses as empty.
-	const tmp = `${POSITIONS_FILE}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-	try {
-		fs.writeFileSync(tmp, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"), "utf-8");
-		fs.renameSync(tmp, POSITIONS_FILE);
-	} catch (err) {
-		try {
-			fs.unlinkSync(tmp);
-		} catch {
-			/* the rename either already happened or the tmp never existed */
-		}
-		throw err;
-	}
-}
-
-const isPosition = (v: unknown): v is Position =>
-	isRecord(v) && typeof v.x === "number" && Number.isFinite(v.x) && typeof v.y === "number" && Number.isFinite(v.y);
 
 /** sources.json — { id: NotesSource }. Read-modify-write, NOT append-only:
  *  the usage log lives inside the record (like a chat's JSON file). */

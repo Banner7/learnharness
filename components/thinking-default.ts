@@ -17,9 +17,8 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
 /** Display labels for the levels (shared by every trigger that shows
  *  one). Lowercase, always (owner refinement round, 2026-09-24): the
- *  level strings ARE the display form — the settings menus render them
- *  raw, so the composer pill and setup dialog must match, never Title
- *  Case. */
+ *  level strings ARE the display form — the settings menus and composer
+ *  pill render them raw, never Title Case. */
 export const THINKING_LABEL: Record<string, string> = {
 	off: "off",
 	minimal: "minimal",

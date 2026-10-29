@@ -26,7 +26,6 @@ import type {
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
-import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
 import { auditorGraphTools } from "../tools/graph.ts";
@@ -1196,9 +1195,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 										.filter((slot) => slot.tokens > 0)
 										.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
 								});
-								// The layout ledger evolves with the merge (sync — the
-								// next snapshot fetch must already reflect the new nodes).
-								settleGraphLayout(graphStore);
 								console.info(
 									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
 								);
@@ -1361,14 +1357,11 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 									{ chatStore, graphStore },
 									{ foldedAt: input.importedAt },
 								);
-								// Capture the committed merge BEFORE layout/usage can fail.
+								// Capture the committed merge before usage can fail.
 								mergedStats.nodes += merged.nodes;
 								mergedStats.chains! += merged.chains ?? 0;
 								if (merged.droppedChains)
 									mergedStats.droppedChains = (mergedStats.droppedChains ?? 0) + merged.droppedChains;
-								// The layout ledger evolves with each merge — the next
-								// snapshot fetch reflects every finished chunk.
-								settleGraphLayout(graphStore);
 								console.info(`[extraction ${jobKey}] merged: ${merged.nodes} nodes, ${merged.chains ?? 0} chains`);
 								return merged;
 							});

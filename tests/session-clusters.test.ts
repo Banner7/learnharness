@@ -19,19 +19,11 @@ import {
 	graphSnapshot,
 	type GraphDeps,
 } from "../src/core/graph.ts";
-import {
-	attachImpToCommunities,
-	birthSessionOf,
-	birthSessionPartition,
-	impClusterKey,
-} from "../src/core/session-clusters.ts";
+import { birthSessionOf, birthSessionPartition } from "../src/core/session-clusters.ts";
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
 
 const pt = (chatId: string, messageId = "m1") => ({ chatId, messageId });
-/** attachImpToCommunities takes a structural Pick; full chains are
- *  assignable but literals need the widening. */
-const attachable = (c: GraphChain): Pick<GraphChain, "id" | "premises" | "conclusion" | "provenance"> => c;
 const node = (id: string, name: string, provenance: Array<{ chatId: string; messageId: string }>): GraphNode => ({
 	id,
 	name,
@@ -57,8 +49,6 @@ function fakeStores(
 		readCoverage: () => [],
 		readSources: () =>
 			(over.sources ?? []).map((s) => ({ ...s, extractions: [] }) as unknown as NotesSource),
-		readPositions: () => ({}),
-		writePositions: () => {},
 	} as unknown as GraphStore;
 	const chatStore: ChatStore = {
 		listChats: () =>
@@ -145,51 +135,6 @@ describe("notes files as birth sessions", () => {
 	});
 });
 
-// ─── the snapshot join ──────────────────────────────────────────────────────
-
-describe("graphSnapshot birth-session clusters", () => {
-	it("labels clusters with session names (chat title / file path), keeps the ≥3 hull rule", () => {
-		const nodes = [
-			node("a", "A", [pt("chat1")]),
-			node("b", "B", [pt("chat1")]),
-			node("c", "C", [pt("chat1")]),
-			node("d", "D", [pt("src_notes")]),
-			node("e", "E", [pt("src_notes")]),
-			node("f", "F", [pt("src_notes")]),
-		];
-		const deps = fakeStores(nodes, {
-			chats: [{ id: "chat1", title: "Learning session", createdAt: "2026-09-20T00:00:00.000Z", updatedAt: "2026-09-21T00:00:00.000Z" }],
-			sources: [{ id: "src_notes", filePath: "/vault/notes.md", importedAt: "2026-09-22T00:00:00.000Z" }],
-		});
-		const snap = graphSnapshot(deps);
-		assert.equal(snap.clusters.length, 2);
-		const byLabel = new Map(snap.clusters.map((c) => [c.label, c]));
-		assert.deepEqual(byLabel.get("Learning session"), {
-			id: "chat1",
-			label: "Learning session",
-			members: ["a", "b", "c"],
-		});
-		assert.deepEqual(byLabel.get("/vault/notes.md"), {
-			id: "src_notes",
-			label: "/vault/notes.md",
-			members: ["d", "e", "f"],
-		}, "a notes file is a birth-session too (owner ruling)");
-		// A 2-proposition session renders no hull (the presentation rule).
-		const two = fakeStores([node("x", "X", [pt("chat1")]), node("y", "Y", [pt("chat1")])], {
-			chats: [{ id: "chat1", title: "tiny", createdAt: "", updatedAt: "" }],
-		});
-		assert.equal(graphSnapshot(two).clusters.length, 0);
-	});
-
-	it("a birth session whose record is gone keeps its members but renders unlabeled", () => {
-		const nodes = [node("a", "A", [pt("gone")]), node("b", "B", [pt("gone")]), node("c", "C", [pt("gone")])];
-		const snap = graphSnapshot(fakeStores(nodes));
-		assert.equal(snap.clusters.length, 1);
-		assert.equal(snap.clusters[0]!.label, null);
-		assert.equal(snap.clusters[0]!.id, "gone");
-	});
-});
-
 // ─── the prober data seam ───────────────────────────────────────────────────
 
 describe("graphSessionIndex (the prober's session list)", () => {
@@ -249,107 +194,5 @@ describe("graphSessionPropositions (the per-session view)", () => {
 			{ nodeId: "a", name: "Alpha" },
 			{ nodeId: "b", name: "Beta" },
 		]);
-	});
-});
-
-// ─── imp-node cluster assignment (physics arc, owner 2026-09-30) ─────────────
-
-describe("impClusterKey (majority among PREMISES' births)", () => {
-	const chainOf = (premises: string[], provenance: Array<{ chatId: string; messageId: string }> = []) =>
-		({ id: "arg_t", premises, conclusion: "c", provenance, createdAt: "2026-09-30T00:00:00.000Z" }) as GraphChain;
-
-	it("unanimous premises → that session", () => {
-		const key = impClusterKey(chainOf(["p1", "p2", "p3"]), () => "chatA");
-		assert.equal(key, "chatA");
-	});
-
-	it("cross-session majority wins (2 of 3 premises born in chatA)", () => {
-		const births: Record<string, string | null> = { p1: "chatA", p2: "chatA", p3: "chatB" };
-		const key = impClusterKey(chainOf(["p1", "p2", "p3"]), (id) => births[id] ?? null);
-		assert.equal(key, "chatA");
-	});
-
-	it("tie → the chain's OWN birth (the asserting session), not the conclusion's", () => {
-		const births: Record<string, string | null> = { p1: "chatA", p2: "chatB", c: "chatC" };
-		const key = impClusterKey(chainOf(["p1", "p2"], [pt("chatT")]), (id) => births[id] ?? null);
-		assert.equal(key, "chatT", "the chain's first provenance point breaks the tie");
-	});
-
-	it("no birth info at all → null is honest", () => {
-		assert.equal(impClusterKey(chainOf(["p1", "p2"]), () => null), null);
-	});
-});
-
-describe("attachImpToCommunities (the shared seam for pull + hulls)", () => {
-	it("a multi-premise live chain's imp id joins its home community, members stay sorted", () => {
-		const props = [node("p1", "P1", [pt("chatA")]), node("p2", "P2", [pt("chatA")]), node("p3", "P3", [pt("chatA")])];
-		const communities = birthSessionPartition(props);
-		attachImpToCommunities(communities, props, [
-			attachable({ id: "arg_t", premises: ["p1", "p2"], conclusion: "p3", provenance: [pt("chatA")], createdAt: "2026-09-30T00:00:00.000Z" }),
-		]);
-		assert.deepEqual(communities[0]!.members, ["arg_t", "p1", "p2", "p3"]);
-	});
-
-	it("single-premise chains attach NOTHING (no imp node exists — the collapse)", () => {
-		const props = [node("p1", "P1", [pt("chatA")]), node("p2", "P2", [pt("chatA")])];
-		const communities = birthSessionPartition(props);
-		attachImpToCommunities(communities, props, [
-			attachable({ id: "arg_t", premises: ["p1"], conclusion: "p2", provenance: [pt("chatA")], createdAt: "2026-09-30T00:00:00.000Z" }),
-		]);
-		assert.deepEqual(communities[0]!.members, ["p1", "p2"]);
-	});
-
-	it("dangling chains mint nothing; a home community ABSENT from the list stays unattached", () => {
-		const props = [
-			node("p1", "P1", [pt("chatA")]),
-			node("p1b", "P1b", [pt("chatA")]),
-			node("p1c", "P1c", [pt("chatA")]),
-		];
-		const elsewhere = [{ id: "chatB", members: ["q1"] }];
-		attachImpToCommunities(
-			elsewhere,
-			props,
-			[
-				// dangling conclusion — no imp node is minted, nothing to attach
-				attachable({ id: "arg_gone", premises: ["p1", "p1b"], conclusion: "ghost", provenance: [pt("chatA")], createdAt: "2026-09-30T00:00:00.000Z" }),
-				// fully live, but its home community (chatA) is not in the
-				// list — the post-hull-filter case: stays unclustered
-				attachable({ id: "arg_home", premises: ["p1", "p1b"], conclusion: "p1c", provenance: [pt("chatA")], createdAt: "2026-09-30T00:00:00.000Z" }),
-			],
-		);
-		assert.deepEqual(elsewhere[0]!.members, ["q1"]);
-	});
-});
-
-// ─── the snapshot seam: imp ids ride cluster members to BOTH consumers ──────
-
-describe("graphSnapshot imp-node cluster assignment (physics arc, 2026-09-30)", () => {
-	const chats = [{ id: "chatA", title: "Session A", createdAt: "2026-09-30T00:00:00.000Z", updatedAt: "2026-09-30T00:00:00.000Z" }];
-	const multi = (id: string, premises: string[], conclusion: string, chatId = "chatA"): GraphChain => ({
-		id, premises, conclusion, provenance: [pt(chatId)], createdAt: "2026-09-30T00:00:00.000Z",
-	});
-
-	it("a live multi-premise chain's imp id JOINS the cluster's members (pull + hull read this list)", () => {
-		const snap = graphSnapshot(
-			fakeStores(
-				[node("p1", "P1", [pt("chatA")]), node("p2", "P2", [pt("chatA")]), node("p3", "P3", [pt("chatA")])],
-				{ chats, chains: [multi("arg_t", ["p1", "p2"], "p3")] },
-			),
-		);
-		assert.equal(snap.clusters.length, 1);
-		assert.ok(snap.clusters[0]!.members.includes("arg_t"), "the imp node is a member — centroid pull AND hull rasterization consume members");
-	});
-
-	it("the hull filter counts PROPOSITIONS — attaching an imp never resurrects a 2-member hull", () => {
-		// p1,p2 born chatA; the conclusion born chatB. The chain is fully
-		// live, its premises-majority home is chatA — a 2-proposition
-		// community the hull filter drops; the imp id must NOT tip it to 3.
-		const snap = graphSnapshot(
-			fakeStores(
-				[node("p1", "P1", [pt("chatA")]), node("p2", "P2", [pt("chatA")]), node("p3b", "P3b", [pt("chatB")])],
-				{ chats, chains: [multi("arg_t", ["p1", "p2"], "p3b")] },
-			),
-		);
-		assert.equal(snap.clusters.length, 0, "two propositions + a bundle is still not a hull");
 	});
 });

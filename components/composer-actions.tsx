@@ -3,23 +3,20 @@
 import type { ReactNode } from "react";
 import { DumbbellIcon } from "lucide-react";
 
-/** Home and the draft share one wrapping action row. Picker controls lead;
- * setup is centered only when it is the sole action. */
-export function ComposerActions({ picker, setup }: { picker?: ReactNode; setup?: ReactNode }) {
-	if (!picker && !setup) return null;
+/** Home and the draft share one wrapping node-picker action row. */
+export function ComposerActions({ picker }: { picker?: ReactNode }) {
+	if (!picker) return null;
 	return (
 		<div
 			data-testid="composer-actions"
-			className={`pointer-events-auto mb-2 flex flex-wrap items-center gap-2 ${picker ? "justify-start" : "justify-center"}`}
+			className="pointer-events-auto mb-2 flex flex-wrap items-center justify-start gap-2"
 		>
 			{picker}
-			{setup}
 		</div>
 	);
 }
 
-/** Count and Clear stay together if the setup action wraps onto another line.
- * These are node counts, even when a whole chain supplied the selection. */
+/** These are node counts, even when a whole chain supplied the selection. */
 export function NodePickerControl({ count, onOpen, onClear }: {
 	count: number;
 	onOpen?: () => void;
@@ -32,10 +29,10 @@ export function NodePickerControl({ count, onOpen, onClear }: {
 				data-testid="practice-props-chip"
 				onClick={onOpen}
 				className={
-					"flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-xs transition-colors " +
+					"flex min-h-11 cursor-pointer items-center gap-1.5 rounded-md px-3 text-xs transition-colors " +
 					(count > 0
-						? "border-border bg-card text-foreground hover:bg-accent"
-						: "border-dashed border-border/80 bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground")
+						? "bg-muted text-foreground hover:bg-accent"
+						: "text-muted-foreground hover:bg-accent hover:text-foreground")
 				}
 			>
 				<DumbbellIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
@@ -46,7 +43,7 @@ export function NodePickerControl({ count, onOpen, onClear }: {
 					type="button"
 					data-testid="practice-props-clear"
 					onClick={onClear}
-					className="cursor-pointer rounded-full px-2 py-1 font-ui text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					className="min-h-11 cursor-pointer rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
 					Clear
 				</button>

@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ActivityIcon, BotIcon, FileTextIcon, PenToolIcon, PlayIcon, SearchIcon, SquareIcon, WaypointsIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
-import { isModelsRefusal, isProviderKeyRefusal, subscriptionLabel, subscriptionLabels } from "@/src/core";
+import { isModelsRefusal, isProviderKeyRefusal } from "@/src/core";
 import { formatTokens, planCostLabel } from "@/components/usage-format";
 import { useServerEvent, useServerResync } from "@/components/server-events";
 
@@ -154,10 +154,9 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 	return <ActivityContext.Provider value={{ feed, refresh }}>{children}</ActivityContext.Provider>;
 }
 
-/** The activity feed seam for the rest of the shell: the dock's data +
- *  its refresh nudge. The remaining nudgers are client-visible causes
- *  (the extract/import buttons — extraction-coverage, graph-view); every
- *  server-side cause announces itself on the events channel now. */
+/** The activity feed seam for the shell: dock data and a refresh nudge
+ *  for client-initiated extraction/import; server changes arrive through
+ *  the events channel. */
 export function useActivity(): { feed: ActivityFeed; refresh: () => void } {
 	return useContext(ActivityContext);
 }
@@ -345,17 +344,17 @@ export function ActivitySection({ feed: feedProp }: { feed?: ActivityFeed }) {
 	// alone (the cost span is population, not decoration).
 	return (
 		<section data-testid="activity-section" className="border-t border-border px-3 pb-3 pt-2">
-			<div className="mb-1 flex items-center gap-1.5 text-xs uppercase tracking-widest text-muted-foreground/70">
+			<div className="mb-1 flex min-h-11 w-full items-center gap-1.5 px-2 text-sm text-muted-foreground">
 				<ActivityIcon className="size-3" />
 				Background agents
 				{blobs.length > 0 && (
-					<span className="ml-auto tabular-nums" data-testid="activity-total-cost" title="Total running cost (inferred)">
-						{planCostLabel(totalCost, subscriptionLabels(blobs.map((blob) => blob.model)))}
+					<span className="ml-auto font-ui tabular-nums" data-testid="activity-total-cost" title="Total running cost (inferred)">
+						{planCostLabel(totalCost)}
 				</span>
 				)}
 			</div>
 			{blobs.length > 0 && (
-				<div className="flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
+				<div className="flex max-h-[40dvh] flex-col overflow-y-auto">
 					{blobs.map((blob) => (
 						<ActivityBlobRow
 							key={blob.id}
@@ -405,13 +404,13 @@ function ActivityBlobRow({
 	return (
 		<div
 			data-testid={`activity-blob-${blob.process}`}
-			className="relative rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-accent"
+			className="relative border-b border-border py-1.5 text-xs hover:bg-muted"
 		>
 			<button
 				type="button"
 				onClick={onToggleDetail}
 				aria-expanded={detailOpen}
-				className="flex w-full items-center gap-2 pr-7 text-left"
+				className="flex min-h-11 w-full items-center gap-2 px-2 pr-11 text-left"
 			>
 				<Icon className="size-3.5 shrink-0 text-muted-foreground" />
 				<span className="min-w-0 flex-1">
@@ -424,8 +423,8 @@ function ActivityBlobRow({
 						<span className="block truncate text-muted-foreground/80">{label}</span>
 					)}
 				</span>
-				<span className="flex shrink-0 items-center gap-2 tabular-nums text-muted-foreground">
-					<span data-testid="activity-blob-cost">{planCostLabel(blob.cost, subscriptionLabel(blob.model))}</span>
+				<span className="flex shrink-0 items-center gap-2 font-ui tabular-nums text-muted-foreground">
+					<span data-testid="activity-blob-cost">{planCostLabel(blob.cost)}</span>
 					<span data-testid="activity-blob-elapsed">{formatElapsed(now - blob.startedAt)}</span>
 				</span>
 			</button>
@@ -439,7 +438,7 @@ function ActivityBlobRow({
 				disabled={abortState !== undefined}
 				title={abortState === "failed" ? "Abort failed — try again" : "End this background process"}
 				aria-label={`End ${label} in ${blob.title}`}
-				className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+				className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
 			>
 				<SquareIcon className="size-3" />
 			</button>
@@ -447,12 +446,12 @@ function ActivityBlobRow({
 			{detailOpen && (
 				<div
 					data-testid="activity-blob-detail"
-					className="mt-1 flex flex-col gap-1 rounded-lg bg-accent/40 p-2 text-muted-foreground"
+					className="mx-2 mt-1 flex flex-col gap-1 border-t border-border p-2 text-muted-foreground"
 				>
 					<div className="mb-1.5 flex items-center gap-2">
 						<Icon className="size-3.5 text-muted-foreground" />
 						<span className="font-medium">{label}</span>
-						<span className="ml-auto tabular-nums text-muted-foreground">
+						<span className="ml-auto font-ui tabular-nums text-muted-foreground">
 							{formatElapsed(now - blob.startedAt)}
 						</span>
 					</div>
@@ -463,13 +462,13 @@ function ActivityBlobRow({
 						{blob.activity && <div className="break-words">{blob.activity}</div>}
 						<div className="flex justify-between gap-2">
 							<span>Cost</span>
-							<span className="tabular-nums text-card-foreground">
-								{planCostLabel(blob.cost, subscriptionLabel(blob.model))}
+							<span className="font-ui tabular-nums text-card-foreground">
+								{planCostLabel(blob.cost)}
 							</span>
 						</div>
 						<div className="flex justify-between gap-2">
 							<span>Context</span>
-							<span className="tabular-nums text-card-foreground" data-testid="activity-blob-context">
+							<span className="font-ui tabular-nums text-card-foreground" data-testid="activity-blob-context">
 								{blob.context === null
 									? "—"
 									: `${formatTokens(blob.context.used)} / ${formatTokens(blob.context.limit)}`}
@@ -484,11 +483,11 @@ function ActivityBlobRow({
 						{blob.steps !== undefined && (
 							<div className="flex justify-between gap-2">
 								<span>Steps</span>
-								<span className="tabular-nums text-card-foreground">{blob.steps}</span>
+								<span className="font-ui tabular-nums text-card-foreground">{blob.steps}</span>
 							</div>
 						)}
 						<a href={`/chat/${blob.chatId}`} className="text-primary hover:underline">
-							Open session →
+							Open session
 						</a>
 					</div>
 					<div className="mt-2 text-muted-foreground/80">

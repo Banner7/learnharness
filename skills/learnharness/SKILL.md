@@ -19,7 +19,7 @@ between them. Teaching builds understanding one reasoning step at a time, checki
 and repairing gaps along the way. The aim is for the goal to feel obviously true,
 not merely familiar. Separate practice sessions exercise retrieval and application.
 
-The learner can think out loud—by typing or dictation—while reading and answering.
+The learner can think out loud in the text fields while reading and answering.
 The record therefore contains more than right and wrong answers: explanations of
 reasoning, uncertainty, reactions, questions, confidence, and attempts that changed
 as the lesson progressed. These are often the most informative parts of the data.
@@ -28,6 +28,14 @@ Across sessions, a knowledge graph accumulates propositions and reasoning chains
 extracted from teaching and imported notes. Chains record premises that **jointly**
 imply a conclusion. Provenance connects these ideas back to source sessions and,
 where available, exact messages.
+
+The private fork uses a phone interface at all viewport widths: home starts a
+topic, questions appear in the transcript, Settings opens in sheets, and the
+sidebar overlays the page. It has no app shortcuts, desktop layout, graph
+visualization or graph-rendering toggle. These read-only scripts still examine
+the graph's persisted data; removing its visualization does not remove the
+graph, its APIs, or the practice node pages. This is a fork UI description,
+not a claim that native Electron packaging has been removed.
 
 ## Two different kinds of evidence
 

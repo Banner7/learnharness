@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { LEDGER_FILES, POSITIONS_FILE } from "../../config.ts";
+import { LEDGER_FILES } from "../../config.ts";
 import type { GraphSnapshot } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
@@ -13,22 +13,14 @@ import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { callCost } from "./pricing.ts";
 
-/**
- * Server-side graph entry for the home view (GET /api/graph). A PURE READ:
- * the extraction pipeline (the sole graph writer) is triggered by quiz
- * answers in sessions (turn-service), never from here — the home view
- * reflects whatever the pipeline has merged so far.
- */
+/** Read-only graph snapshot for GET /api/graph: home and practice use it
+ * while agent tools read the same graph store. Extraction writes separately. */
 export function graphView(): GraphSnapshot {
 	return graphSnapshot(stores);
 }
 
-/** The graph view's cost surface (GET /api/graph/costs — the 2026-09 cost
- *  pill): fold every usage channel into stage totals + recent runs. A pure
- *  read over the chat records (chat-front-door runs), the notes sources
- *  (notes-front-door runs), and the naming ledger (graph-global runs);
- *  dollars are inferred by the pure core fold (core/cost-summary.ts +
- *  prices.ts) — nothing here stores or caches money. */
+/** Cost data for the home knowledge summary, folded from extraction runs
+ * in chats and notes. Model prices are applied at read time. */
 export function graphCosts(): GraphCostSummary {
 	const chats = stores.chatStore
 		.listChats()
@@ -45,13 +37,8 @@ export function graphCosts(): GraphCostSummary {
 	return graphCostSummary({ chats, sources }, callCost);
 }
 
-/** The graph's version stamp (session-deletion wave 6): the max mtime
- * across every graph data file — ledgers, positions. Moves on ANY
- * graph write (merge append, settle, or a deletion's atomic rewrite),
- * never moves on reads, and needs no bookkeeping of its own: the fs
- * IS the counter. Consumers poll it (the activity feed
- *  carries it; the DELETE response returns it) to know clusters/layout
- *  must refetch — the "graph changed underneath me" signal. */
+/** The graph's version stamp: the max mtime across its ledgers. Moves on
+ * graph writes, never on reads; consumers poll it to detect changes. */
 export function graphRevision(): number {
 	let revision = 0;
 	for (const file of [
@@ -59,7 +46,6 @@ export function graphRevision(): number {
 		LEDGER_FILES.chains,
 		LEDGER_FILES.sessions,
 		LEDGER_FILES.coverage,
-		POSITIONS_FILE,
 	]) {
 		try {
 			revision = Math.max(revision, fs.statSync(file).mtimeMs);

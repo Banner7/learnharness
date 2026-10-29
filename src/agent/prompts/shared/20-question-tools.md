@@ -17,7 +17,6 @@ His thinking is the most precise transfer of his understanding you get — read 
 
 - Answers may carry `thinking` — his reasoning on the question itself.
 - Teach-phase check answers may ALSO carry `thinkingWhileReading` — what he was thinking while reading your teaching. Two distinct channels; never conflate them.
-- His thinking fields are often TRANSCRIBED SPEECH (he dictates, thinking out loud). Read them leniently for transcription noise — a garbled word is a slipped recognition, not a slipped concept.
 
 ### `ask_user_question`
 

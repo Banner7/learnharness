@@ -1,6 +1,6 @@
 import { inspectClaudeInstallation } from "../agent/claude-code/installation.ts";
 import { initAuthEnv } from "./keys.ts";
-import { subscriptionRequestOrigin } from "./web-subscription-http.ts";
+import { requestOrigin } from "./request-origin.ts";
 import { claudeCodeEnabled } from "./claude-code-config.ts";
 
 /** The Settings status seam: initialize provenance before any child env is copied. */
@@ -16,7 +16,7 @@ export async function claudeCodeInstallationResponse(
 	inspect = claudeCodeInstallationStatus,
 	enabled = claudeCodeEnabled,
 ): Promise<Response> {
-	const origin = subscriptionRequestOrigin(request);
+	const origin = requestOrigin(request);
 	const supplied = request.headers.get("origin");
 	const headers = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 	if (request.method !== "GET" || !origin

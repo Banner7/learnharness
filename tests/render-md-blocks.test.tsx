@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../components/ai-elements/message.tsx";
-import { ThinkingBlock, setAllUserThinkingOpen } from "@/components/thinking-block";
+import { ThinkingBlock } from "@/components/thinking-block";
 import { MermaidOverlay, SessionMermaidContext, chartSize } from "../components/session-overlay.tsx";
 import { PlanPopup } from "../components/plan-block.tsx";
 import { MarkdownCode, codeSource } from "../components/md-blocks.tsx";
@@ -30,17 +30,13 @@ describe("md-blocks — code", () => {
 		assert.match(html, /bg-muted/);
 	});
 
-	it("code fences delegate to streamdown's CodeBlock with a hover copy corner", () => {
+	it("code fences delegate to streamdown's CodeBlock with an always-visible copy corner (touch)", () => {
 		const html = render("```js\nconst x = 1;\n```");
 		assert.ok(html.includes('data-testid="md-code"'), "the md-blocks wrapper mounts");
 		assert.ok(html.includes('data-streamdown="code-block"'), "the delegated CodeBlock path is kept");
 		assert.ok(html.includes('data-streamdown="code-block-body"'), "shiki body renders");
 		assert.match(html, /aria-label="Copy code"/, "the corner copy affordance is present");
-		// NAMED group (group/md) — the message container is also a `group`,
-		// and an unnamed group-hover would light every corner in the message at
-		// once (owner report, 2026-09-19); only the hovered block reveals.
-		assert.ok(html.includes("group/md"), "the block uses the named md group");
-		assert.match(html, /group-hover\/md:opacity-100/, "the corner reveals via the named group only");
+		assert.ok(!/<button[^>]*aria-label="Copy code"[^>]*opacity-0/.test(html), "the copy corner never hides behind hover (no hover on touch)");
 		// No "Copied" pill — the icon flip alone conveys the copy (owner ask,
 		// 2026-09-19; the pill was tried and removed same day).
 		assert.ok(!html.includes('data-testid="md-copy-pill"'), "no Copied pill anywhere — icon flip is the feedback");
@@ -176,18 +172,12 @@ describe("mermaid expand — the context seam", () => {
 });
 
 describe("md-blocks — key-idea callouts (GitHub alerts, owner round 2026-10-07)", () => {
-	it("an [!IMPORTANT] callout renders as the sharp white-outline box, marker never leaks", () => {
+	it("an [!IMPORTANT] callout renders as a box, marker never leaks", () => {
 		const html = render("> [!IMPORTANT]\n> ALL X is done through Y.");
 		assert.ok(html.includes('data-testid="md-callout"'), "the callout box mounts");
 		assert.ok(html.includes('data-alert-kind="important"'), "the kind is recorded");
 		assert.match(html, /ALL X is done through Y\./, "the prose survives");
 		assert.ok(!html.includes("[!IMPORTANT]"), "the marker line never leaks as text");
-		// The owner's minimal law: sharp corners (no rounded), white stroke,
-		// no background, no label, no icon — and the box hugs its text.
-		assert.match(html, /border-white/, "white stroke");
-		assert.match(html, /w-fit/, "width: fit-content — the hug");
-		assert.ok(!html.includes("rounded"), "sharp corners — no rounding anywhere");
-		assert.ok(!html.includes("bg-card") && !html.includes("bg-background"), "transparent — no background");
 	});
 
 	it("all five GitHub markers box identically — one device, one meaning", () => {
@@ -243,32 +233,10 @@ describe("md-blocks — the restored plain blockquote (owner round, 2026-10-07)"
 });
 
 describe("ThinkingBlock — the document band + ⌘T sync (owner rounds, 2026-10-07)", () => {
-	it("the row is the document band — round four geometry (owner, 2026-10-07)", () => {
+	it("a default-open row shows its text on arrival", () => {
 		const html = renderToStaticMarkup(<ThinkingBlock text="banded" defaultOpen />);
-		assert.ok(html.includes("bg-card"), "the card-color band");
-		assert.ok(html.includes("border-l-[calc(3ch-14px)]"), "narrow rail — 14px gap inside the 3ch inset");
-		assert.ok(html.includes("py-1") && html.includes("pl-[14px]"), "4px band padding");
-		assert.ok(html.includes("pr-4"), "the text wraps early — air at the band's right edge");
-		assert.ok(html.includes("w-full"), "full width — no chat side");
 		assert.match(html, /aria-expanded="true"/);
 		assert.ok(html.includes("banded"), "text visible on arrival");
 	});
 
-	it("in-card rows take no band — the accent step read too light (owner round five)", () => {
-		const html = renderToStaticMarkup(<ThinkingBlock text="in card" inCard />);
-		assert.ok(!html.includes("bg-accent") && !html.includes("bg-card"), "transparent on the card");
-		assert.ok(html.includes("border-l-[calc(3ch-14px)]"), "rail only, same geometry");
-	});
-
-	it("⌘T sets every row — explicit sets stomp individual state, late mounts honor the last set", () => {
-		setAllUserThinkingOpen(false);
-		const collapsed = renderToStaticMarkup(<ThinkingBlock text="synced" defaultOpen />);
-		assert.match(collapsed, /aria-expanded="false"/);
-		assert.ok(!collapsed.includes(">synced<"), "the open default was stomped");
-		setAllUserThinkingOpen(true);
-		const reopened = renderToStaticMarkup(<ThinkingBlock text="synced" />);
-		assert.match(reopened, /aria-expanded="true"/);
-		// restore the null default for other tests in this file
-		setAllUserThinkingOpen(true);
-	});
 });

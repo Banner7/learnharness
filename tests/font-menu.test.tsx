@@ -2,13 +2,11 @@
  * The appearance wave's font dropdown (2026-09-26): the pure row-set
  * (fontMenuResults — the DEFAULT row is a fuzzy candidate, so Enter can
  * never pick a row that isn't on screen), the pick composer (null = the
- * factory Source Sans 3), the curated dev-browser fallback roster, the
- * FontMenuList SSR shape, and the emphasis-ink factory ruling (globals.css
- * no longer ships #ee928c/#6fa9d6 — unset inks are the text color).
+ * factory Computer Modern Serif since the 2026-10-27 redesign), the curated
+ * dev-browser fallback roster, and the FontMenuList SSR shape.
  */
 
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it } from "node:test";
 import { FontMenuList, customFamilyFor, fontMenuResults } from "../components/settings/model-menu";
@@ -26,11 +24,11 @@ describe("fontMenuResults — the DEFAULT row is a candidate, never a ghost pick
 		assert.deepEqual(fontMenuResults("", families), [null, "Arial", "CMU Serif", "Georgia", "Helvetica Neue", "Menlo"]);
 	});
 
-	it("the default row matches its own identity (source/sans/default), not everything", () => {
+	it("the default row matches its own identity (Computer Modern/default), not everything", () => {
 		assert.deepEqual(fontMenuResults("georgia", families), ["Georgia"]);
 		assert.deepEqual(fontMenuResults("menlo", families), ["Menlo"]);
 		// the default row is reachable by search…
-		assert.deepEqual(fontMenuResults("source", families)[0], null);
+		assert.deepEqual(fontMenuResults("computer", families)[0], null);
 		assert.ok(fontMenuResults("default", families).includes(null));
 		// …and drops out of unrelated queries
 		assert.ok(!fontMenuResults("georgia", families).includes(null));
@@ -42,8 +40,8 @@ describe("fontMenuResults — the DEFAULT row is a candidate, never a ghost pick
 });
 
 describe("composeFontFamily — null/blank = the factory family, otherwise verbatim", () => {
-	it("null → fontFamily null (Source Sans 3 semantics preserved)", () => {
-		assert.equal(composeFontFamily({ background: "#101010" }, null).fontFamily, null);
+	it("null → fontFamily null (the factory family)", () => {
+		assert.equal(composeFontFamily({ proseFontSize: 18 }, null).fontFamily, null);
 	});
 	it("blank/whitespace → null too", () => {
 		assert.equal(composeFontFamily(undefined, "  ").fontFamily, null);
@@ -52,8 +50,8 @@ describe("composeFontFamily — null/blank = the factory family, otherwise verba
 		assert.equal(composeFontFamily(undefined, " Georgia ").fontFamily, "Georgia");
 	});
 	it("the rest of the section rides along", () => {
-		const next = composeFontFamily({ background: "#101010" }, "Menlo");
-		assert.equal(next.background, "#101010");
+		const next = composeFontFamily({ proseFontSize: 18 }, "Menlo");
+		assert.equal(next.proseFontSize, 18);
 	});
 });
 
@@ -73,7 +71,6 @@ describe("FontMenuList (thin SSR)", () => {
 			<FontMenuList families={["Georgia", "Menlo"]} effectiveFamily={null} onPick={() => {}} />,
 		);
 		assert.ok(html.includes('data-testid="font-option-default"'), "the default row");
-		assert.ok(html.includes("default</span>"), "the default row carries its mark");
 		assert.ok(html.includes('data-testid="font-option-Georgia"'), "a family row");
 		assert.ok(html.includes('data-testid="font-option-Menlo"'), "another family row");
 		assert.ok(html.includes('data-testid="font-search"'), "the search field");
@@ -84,22 +81,6 @@ describe("FontMenuList (thin SSR)", () => {
 		assert.ok(!html.includes('data-testid="font-custom-set"'), "no Set button");
 		assert.ok(!html.includes("Type a family name"), "no second field placeholder");
 		assert.ok(html.includes("Search fonts…"), "the search placeholder");
-	});
-
-	it("the effective family's row carries the quiet highlight; the default row does when unset", () => {
-		const unset = renderToStaticMarkup(
-			<FontMenuList families={["Georgia", "Menlo"]} effectiveFamily={null} onPick={() => {}} />,
-		);
-		const defaultRow = unset.split('data-testid="font-option-default"')[1]?.split("</button>")[0] ?? "";
-		assert.ok(defaultRow.includes("bg-muted/60"), "unset → the default row is the effective one");
-
-		const menlo = renderToStaticMarkup(
-			<FontMenuList families={["Georgia", "Menlo"]} effectiveFamily="Menlo" onPick={() => {}} />,
-		);
-		const menloRow = menlo.split('data-testid="font-option-Menlo"')[1]?.split("</button>")[0] ?? "";
-		const georgiaRow = menlo.split('data-testid="font-option-Georgia"')[1]?.split("</button>")[0] ?? "";
-		assert.ok(menloRow.includes("bg-muted/60"), "the stored family highlights");
-		assert.ok(!georgiaRow.includes("bg-muted/60"), "others do not");
 	});
 
 	it("undefined families = the enumerating state (Loading fonts…), not an empty picker", () => {
@@ -131,29 +112,6 @@ describe("the appearance section's font control (thin SSR)", () => {
 	});
 });
 
-describe("the emphasis-ink factory ruling (globals.css)", () => {
-	it("the old emphasis hexes are GONE from the ink token declarations", () => {
-		const css = fs.readFileSync("app/globals.css", "utf-8");
-		assert.ok(!css.includes("--lh-ink-strong: #ee928c"), "bold factory is not the old orange");
-		assert.ok(!css.includes("--lh-ink-italic: #6fa9d6"), "italic factory is not the old blue");
-	});
-
-	it("both blocks default the inks to the regular text color", () => {
-		const css = fs.readFileSync("app/globals.css", "utf-8");
-		assert.equal((css.match(/--lh-ink-strong: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
-		assert.equal((css.match(/--lh-ink-italic: var\(--foreground\)/g) ?? []).length, 2, "both theme blocks");
-	});
-
-	it("the appearance rows' empty-state labels say 'same as text'", () => {
-		const html = renderToStaticMarkup(
-			<AppearanceSection appearance={undefined} onSectionChange={() => {}} />,
-		);
-		assert.equal((html.match(/Empty = same as text/g) ?? []).length, 2, "bold + italic rows");
-		assert.ok(!html.includes("#ee928c"));
-		assert.ok(!html.includes("#6fa9d6"));
-	});
-});
-
 describe("customFamilyFor — the single-field custom escape (2026-09-26)", () => {
 	const families = ["Arial", "CMU Serif", "Georgia", "Menlo"];
 
@@ -164,8 +122,8 @@ describe("customFamilyFor — the single-field custom escape (2026-09-26)", () =
 
 	it("a matching family is the better pick — no action row", () => {
 		assert.equal(customFamilyFor("georgia", families), null);
-		// the default row matches too — "source"/"sans"/"default" queries pick it
-		assert.equal(customFamilyFor("source", families), null);
+		// the default row matches too — "computer"/"modern"/"default" queries pick it
+		assert.equal(customFamilyFor("computer", families), null);
 	});
 
 	it("an empty query is never a custom pick", () => {

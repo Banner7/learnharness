@@ -34,7 +34,7 @@ describe("plain-text file path tokens", () => {
 			"/tmp/notes.pdf", "/", "/does not exist/α ∂ 🧠.pdf", "//volume/file",
 			"C:\\Users\\Learner\\My notes.pdf", "d:/notes/測度.md", "C:\\",
 			"\\\\server\\share\\nested folder\\notes.pdf", "\\\\server\\share", "\\\\server/share/file.txt",
-			"~/Documents/notes.pdf", "~/", "/tmp/a\\b.txt", "/tmp/<>&\"'[]()#?!;:$*=|.txt",
+			"~/notes.pdf", "~/", "/tmp/a\\b.txt", "/tmp/<>&\"'[]()#?!;:$*=|.txt",
 		]) {
 			const quoted = quoteFilePath(path);
 			assert.deepEqual(paths(quoted), [path]);

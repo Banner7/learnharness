@@ -26,7 +26,6 @@ import {
 	probeQuizInputSchema,
 	quizDisplayInputSchema,
 	normalizeQuizType,
-	questionNeedsReveal,
 	resolveCorrect,
 	toggleOption,
 	toggleOther,
@@ -757,25 +756,6 @@ describe("the quiz role field (predict | check)", () => {
 		assert.equal(normalizeQuizType(undefined), undefined);
 		assert.equal(normalizeQuizType("prediction"), undefined);
 		assert.equal(normalizeQuizType(42), undefined);
-	});
-
-	it("questionNeedsReveal: checks collapse, predictions never do — both teach tools", () => {
-		assert.equal(questionNeedsReveal("quiz", { type: "check" }, "teach"), true);
-		assert.equal(questionNeedsReveal("quiz", { type: "predict" }, "teach"), false, "predictions arrive OPEN");
-		assert.equal(
-			questionNeedsReveal("quiz", undefined, "teach"),
-			true,
-			"old records (no type) render check-style",
-		);
-		assert.equal(questionNeedsReveal("quiz", { type: "predict" }, "probe"), false);
-		assert.equal(questionNeedsReveal("quiz", { type: "check" }, "probe"), false);
-		assert.equal(questionNeedsReveal("ask_user_question", {}, "teach"), false);
-		// Explain joined the law 2026-10-09: teach checks collapse, predictions
-		// don't, old no-type records render check-style — mirroring quiz exactly.
-		assert.equal(questionNeedsReveal("explain", { type: "check" }, "teach"), true);
-		assert.equal(questionNeedsReveal("explain", { type: "predict" }, "teach"), false);
-		assert.equal(questionNeedsReveal("explain", undefined, "teach"), true, "pre-type explain records render check-style");
-		assert.equal(questionNeedsReveal("explain", { type: "check" }, "probe"), false);
 	});
 
 	function quizQd(): QuestionData {

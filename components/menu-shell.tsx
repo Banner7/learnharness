@@ -7,30 +7,24 @@ import { createPortal } from "react-dom";
  * THE shared menu shell (menu standardization, fix wave chunk B): one
  * placement body for the app's dropdown menus — portaled to document.body
  * (never clipped by an ancestor's overflow), fixed-anchored to the trigger's
- * rect, viewport-capped. PLACEMENT-ONLY by design: every site keeps its own
- * open/close/Esc contract (the layered-dismissal machinery differs
- * legitimately by surface — settings sections, the keys editor, the setup
- * dialog each own their Escape).
+ * rect, viewport-capped. Placement-only: each surface owns opening and
+ * pointer dismissal.
  *
  *  - Side: each site declares its preferred side — the composer opens UP
  *    (its control sits at screen bottom), the settings rows open DOWN;
  *    the shell flips when the preferred side cannot show the menu's
- *    content and the other side is roomier (the graph popovers'
- *    honest-fitting behavior, generalized).
- *  - Cap: max-height = min(60vh, the chosen side's available room); the
- *    menu scrolls internally instead of stretching the page or escaping
- *    the viewport (graph-view's max-h-[60vh] pattern).
+ *    content and the other side is roomier.
+ *  - Cap: max-height = min(60vh, the chosen side's available room);
+ *    the menu scrolls internally instead of escaping the viewport.
  *  - Re-placement: capture-phase scroll + window resize — the settings
  *    menus' discipline (the settings dialog's inner content scroll
  *    included).
  *
- * Sites (model menus first, owner 2026-09-22; the graph popovers and the
- * stats-bar summary popover stay bespoke — seams stay open for later
- * adoption): the settings Agent section's slot + search-engine menus, the
- * Keys section's Add-provider menu, the composer's model/thinking menus
- * (model-picker.tsx), and the SetupDialog's slot pickers — portaling THOSE
- * out of the dialog's overflow-hidden frame so they extend beyond the
- * dialog exactly like the settings menus (owner, chunk B item 7).
+ * Sites (model menus first, owner 2026-09-22; the stats-bar summary
+ * popover stays bespoke): the settings Models section's slot and
+ * search-engine menus,
+ * the composer's model/thinking menus (model-picker.tsx), portaling them
+ * beyond overflow frames just like the settings menus.
  *
  * SSR: menus only mount client-side while open; the hidden measuring pass
  * below is the only pre-placement render, so a server render never emits
@@ -66,16 +60,24 @@ export interface MenuPlacement {
 
 /** Pure: the placement decision — anchored rect + viewport + the menu's
  *  UNCAPPED content height (scrollHeight, so re-placements after a search
- *  filter re-measure honestly) → side, fixed style, cap. Flip rule: stay
- *  on the preferred side unless it cannot show the full content AND the
- *  other side is roomier. The cap always keeps the menu inside its side's
- *  room when there is room; the floor keeps it usable when there isn't. */
+ *  filter re-measure honestly) and its rendered width → side, fixed style,
+ *  cap. Flip rule: stay on the preferred side unless it cannot show the
+ *  full content AND the other side is roomier. The cap always keeps the
+ *  menu inside its side's room when there is room; the floor keeps it
+ *  usable when there isn't.
+ *
+ *  Horizontal clamp (owner, 2026-10-28, phone popup off-screen): the
+ *  aligned edge is a preference, not a promise. A 22rem model menu
+ *  right-aligned to the composer's buttons started at -127px on a 390px
+ *  phone. The menu now slides to stay EDGE inside both viewport sides, and
+ *  a menu wider than the viewport is capped to it. */
 export function computeMenuPlacement(
 	rect: { top: number; bottom: number; left: number; right: number },
 	viewport: { width: number; height: number },
 	contentHeight: number,
 	preferredSide: MenuSide,
 	align: MenuAlign,
+	menuWidth: number,
 ): MenuPlacement {
 	const availDown = viewport.height - EDGE - (rect.bottom + GAP);
 	const availUp = rect.top - GAP - EDGE;
@@ -91,11 +93,13 @@ export function computeMenuPlacement(
 	}
 	const avail = side === "down" ? availDown : availUp;
 	const maxHeight = Math.max(MIN_USABLE, Math.min(CAP_VH * viewport.height, avail));
-	const horizontal: Record<string, number> =
-		align === "right" ? { right: viewport.width - rect.right } : { left: rect.left };
+	const maxWidth = Math.max(0, viewport.width - 2 * EDGE);
+	const width = Math.min(menuWidth, maxWidth);
+	const preferredLeft = align === "right" ? rect.right - width : rect.left;
+	const left = Math.min(Math.max(preferredLeft, EDGE), viewport.width - EDGE - width);
 	const vertical: Record<string, number> =
 		side === "down" ? { top: rect.bottom + GAP } : { bottom: viewport.height - rect.top + GAP };
-	return { side, style: { ...horizontal, ...vertical }, maxHeight };
+	return { side, style: { left, maxWidth, ...vertical }, maxHeight };
 }
 
 /** The shared shell. Exactly one anchor seam: pass `anchorRef` (a live
@@ -124,8 +128,8 @@ export function MenuShell({
 	children: ReactNode;
 }) {
 	const menuRef = useRef<HTMLDivElement>(null);
+	const naturalWidth = useRef(0);
 	const [placed, setPlaced] = useState<MenuPlacement | null>(null);
-	const focusedOnceRef = useRef(false);
 
 	// Announce open↔close for lockable surfaces (see MENU_OPEN_EVENT).
 	useEffect(() => {
@@ -135,54 +139,6 @@ export function MenuShell({
 		};
 	}, []);
 
-	// Focus on open (owner, fix wave): the search menus land focus IN the
-	// search; menus without one land it on the body (tabIndex -1 below) so
-	// the arrow machine has a home. Once only — re-placements (scroll/
-	// resize) must never steal focus back mid-walk. The lists' own mount
-	// focus runs during the hidden measuring pass, where focus() silently
-	// fails (visibility: hidden subtrees are not focusable) — this seam is
-	// the one that actually lands.
-	useEffect(() => {
-		if (placed === null || focusedOnceRef.current) return;
-		focusedOnceRef.current = true;
-		const el = menuRef.current;
-		if (!el) return;
-		const input = el.querySelector<HTMLElement>("input");
-		(input ?? el).focus();
-	}, [placed]);
-
-	// The standard arrow machine for menus WITHOUT a search (owner: when a
-	// dropdown is expanded, the arrow keys cycle the options and never
-	// scroll the screen): ArrowDown/Up move DOM focus among the option
-	// buttons with WRAP, Home/End hit the ends; Enter activates the
-	// focused button natively. Search menus own their arrows inside the
-	// input (their clamped-walk machine, 2026-09-17) — those events never
-	// bubble here, and the input/textarea guard is belt-and-braces.
-	const onBodyKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-		if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-		const { key } = e;
-		if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
-		const buttons = Array.from(
-			menuRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [],
-		);
-		if (buttons.length === 0) return;
-		e.preventDefault();
-		if (key === "Home") {
-			buttons[0]?.focus();
-			return;
-		}
-		if (key === "End") {
-			buttons[buttons.length - 1]?.focus();
-			return;
-		}
-		const delta = key === "ArrowDown" ? 1 : -1;
-		const idx = buttons.findIndex((b) => b === document.activeElement);
-		// From the body (nothing focused yet): ArrowDown enters at the FIRST
-		// option, ArrowUp at the last — the native-select convention.
-		const base = idx === -1 ? (delta > 0 ? -1 : 0) : idx;
-		const next = (base + delta + buttons.length) % buttons.length;
-		buttons[next]?.focus();
-	};
 
 	const anchor = () => {
 		if (anchorRef) return anchorRef.current;
@@ -197,13 +153,21 @@ export function MenuShell({
 		let raf = 0;
 		const place = () => {
 			const el = anchor();
-			if (!el || !menuRef.current) return;
+			const menu = menuRef.current;
+			if (!el || !menu) return;
+			// The width the menu wants, not the width the last cap allowed
+			// (review, 2026-10-28): a menu capped on a narrow screen measures
+			// at its cap, so widening the viewport (rotating the phone) must
+			// place it by the uncapped width remembered before the cap bit.
+			const cap = Number.parseFloat(menu.style.maxWidth);
+			if (Number.isNaN(cap) || menu.offsetWidth < cap) naturalWidth.current = menu.offsetWidth;
 			const p = computeMenuPlacement(
 				el.getBoundingClientRect(),
 				{ width: window.innerWidth, height: window.innerHeight },
-				menuRef.current.scrollHeight,
+				menu.scrollHeight,
 				preferredSide,
 				align,
+				naturalWidth.current || menu.offsetWidth,
 			);
 			setPlaced(p);
 		};
@@ -243,14 +207,7 @@ export function MenuShell({
 			ref={menuRef}
 			data-testid={testid}
 			data-lh-menu=""
-			tabIndex={-1}
-			onKeyDown={onBodyKeyDown}
 			style={{ position: "fixed", zIndex: 60, ...placed.style, maxHeight: placed.maxHeight, overflowY: "auto" }}
-			// The body is the arrow machine's focus home (input-less menus
-			// land focus here on open) — the focus STAYS, but the browser's
-			// default blue ring around it must not draw (owner, polish
-			// round). Arrow cycling moves DOM focus to the buttons, which
-			// carry their own hover/highlight; the ring is pure noise.
 			className={`${menuClass} outline-none`}
 		>
 			{children}

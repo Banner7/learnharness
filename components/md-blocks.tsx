@@ -41,17 +41,13 @@ import { MERMAID_FONT_SIZE, renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { chartSize, useSessionMermaid } from "@/components/session-overlay";
+import { useIsDarkTheme } from "@/lib/theme-mode";
 import { Hint } from "@/components/ui/hint";
 
 // ─── The one affordance: the hover-reveal corner copy ────────────────────────
 
-/** Clipboard write with a fallback: navigator.clipboard needs the
- *  `clipboard-sanitized-write` permission, which Electron's deny-by-default
- *  handler (electron/main.cjs) must grant from the loopback origin — and
- *  browsers with a stale/absent API reject too. The hidden-textarea
- *  execCommand path is the belt under that: a failed write would otherwise
- *  be a silent no-op, which is exactly what the owner saw. Returns whether
- *  the copy landed (drives the Copied pill). */
+/** Clipboard write with a hidden-textarea fallback for browsers where the
+ * Clipboard API is unavailable or rejects the write. Returns whether it landed. */
 async function copyText(text: string): Promise<boolean> {
 	try {
 		await navigator.clipboard.writeText(text);
@@ -75,14 +71,8 @@ async function copyText(text: string): Promise<boolean> {
 	}
 }
 
-/** A small muted copy icon for a block's top-right corner. The CONSUMER'S
- *  wrapper carries `group/md relative` (a NAMED group — the message container
- *  is also a `group`, and an unnamed group-hover would light EVERY corner in
- *  the message at once, the all-at-once the owner saw) and positions this
- *  via className; the icon self-hides until hover (opacity-0 →
- *  group-hover/md:opacity-100). Copies getText() on click; the icon flips
- *  to a check for a beat — enough feedback on its own (a "Copied" pill was
- *  tried and removed by owner ask, 2026-09-19). */
+/** Small copy icon in a Markdown block's top-right corner. Keep it visible
+ * for touch as well as pointer use; the icon briefly changes after copying. */
 export function CopyCorner({
 	getText,
 	label,
@@ -101,7 +91,7 @@ export function CopyCorner({
 				type="button"
 				aria-label={label}
 				data-testid="md-copy"
-				className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/md:opacity-100"
+				className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				onClick={(e) => {
 					blurAfterPointerClick(e);
 					void copyText(getText()).then((ok) => {
@@ -132,18 +122,17 @@ export function codeSource(children: ReactNode): string {
 	return "";
 }
 
-/** Mermaid, in the message flow: the bare chart (dark theme, rendered via
- *  the app's own plugin — components/mermaid-render.ts), the hover corner
- *  with copy + expand, the house error fallback. No container chrome, no
- *  zoom pill — the zoom/pan home is the session overlay. While the fence is
- *  still streaming (the trailing open fence), a quiet skeleton instead of a
- *  doomed parse. */
+/** Mermaid in the message flow: the bare chart rendered by the app's
+ * theme-aware renderer (components/mermaid-render.ts), with copy and expand.
+ * The fallback handles parse errors; a streaming unfinished fence displays
+ * a quiet loading indicator rather than a premature parse failure. */
 function MermaidInline({ chart }: { chart: string }) {
 	const [svg, setSvg] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
 	const overlay = useSessionMermaid();
 	const incomplete = useIsCodeFenceIncomplete();
+	const dark = useIsDarkTheme();
 	// The font-parity cap (owner rule, 2026-09-19): the house CSS
 	// (`max-width: 100% !important`) overrides mermaid's own natural-size cap,
 	// so a chart would otherwise stretch to the full column and render its
@@ -176,7 +165,7 @@ function MermaidInline({ chart }: { chart: string }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [chart, attempt, incomplete]);
+	}, [chart, attempt, incomplete, dark]);
 
 	if (incomplete || (svg === null && error === null)) {
 		return (
@@ -211,7 +200,7 @@ function MermaidInline({ chart }: { chart: string }) {
 						type="button"
 						aria-label="Expand diagram"
 						data-testid="md-mermaid-expand"
-												className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/md:opacity-100"
+												className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						onClick={(e) => {
 							blurAfterPointerClick(e);
 							overlay.openMermaid(chart);
@@ -333,10 +322,8 @@ export function parseAlertMarker(children: ReactNode): ParsedAlert | null {
 	return { kind, children: restChildren };
 }
 
-/** The key-idea callout (owner rulings, 2026-10-07): SHARP corners, a white
- *  stroke, NO background, NO label, NO icon — just the outline. The box
- *  hugs its text (width: fit-content, capped at the column) instead of
- *  stretching full-width into empty space. */
+/** Redesign (owner, 2026-10-27): highlighted ideas get a quiet card
+ * outline in either theme rather than a fixed white stroke. */
 export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraProps) {
 	const { children, node, ...rest } = props;
 	const alert = parseAlertMarker(children);
@@ -359,7 +346,7 @@ export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraPr
 		<div
 			data-testid="md-callout"
 			data-alert-kind={alert.kind}
-			className="my-4 w-fit max-w-full border border-white px-4 py-3 [&> :first-child]:mt-0 [&> :last-child]:mb-0"
+			className="my-4 w-fit max-w-full rounded-lg border border-border px-4 py-3 [&> :first-child]:mt-0 [&> :last-child]:mb-0"
 		>
 			{alert.children}
 		</div>
@@ -446,14 +433,8 @@ export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
 
 // ─── The stable override set (module identity: Streamdown is memoized) ────────
 
-/** Bold as the REAL element (appearance fix, 2026-09-23): streamdown's
- *  default `strong` renders `<span class="font-semibold" data-streamdown=
- *  "strong">` — and `.lh-prose :where(strong, b)` matches strong/b
- *  ELEMENTS, so neither the factory ink (#ee928c) nor a settings
- *  boldColor ever landed on bold text (italic worked: streamdown leaves
- *  `em` native). Rendering the semantic element restores screen-reader
- *  emphasis AND lets the designed token rule apply unmodified — color
- *  --lh-ink-strong, weight 700 (beating the old 600 utility). */
+/** Render semantic bold so screen-reader emphasis and the stylesheet's
+ * emphasis token and font weight apply. */
 export function MarkdownStrong(props: ComponentProps<"strong"> & ExtraProps) {
 	const { children, className, node, ...rest } = props;
 	return (

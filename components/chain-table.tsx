@@ -4,10 +4,9 @@
  * THE CHAIN TABLE (chains overlay; owner refinements round 2, 2026-09-29):
  * every reasoning chain of the graph in one FULL-BLEED surface — the blur
  * + translucent background IS the surface, no inner card. The top bar is
- * THE shared TopBar (standardization ruling: one element, every surface —
- * h-15, lh-drag with carve-outs, select-none, sidebar reopen, traffic-
- * light gutter; born from this overlay's hand-rolled bar breaking every
- * rule at once). The overlay (z-40) covers home's floating header while
+ * THE shared TopBar, with safe-area padding, select-none, and the sidebar
+ * reopen control.
+ * The overlay (z-40) covers home's floating header while
  * open, so the TopBar's own SidebarToggle is the reopen path.
  *
  * HIERARCHY (three levels, one click each): CLUSTER (the birth session —
@@ -54,7 +53,7 @@
  * Read-only toward the graph.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
 	ChevronDownIcon,
 	ChevronRightIcon,
@@ -237,16 +236,14 @@ export function ChainTableBody({
 
 	return (
 		<div data-testid="chain-table" className="relative flex h-full min-h-0 flex-col">
-			{/* THE shared top bar (standardization ruling): drag mechanics,
-			    sidebar reopen, traffic-light gutter — the same element as every
-			    chat surface. NO TITLE (owner round 11, 2026-10-05): the serif
+			{/* The shared top bar keeps the sidebar reopen control.
+			    NO TITLE (owner round 11, 2026-10-05): the serif
 			    title register is RESERVED — it always names a session; the
 			    chain table names nothing, so its bar carries counts + search +
-			    close only. Search + close carve out with lh-no-drag (the mask
-			    law: later in the DOM). */}
+			    close only. */}
 			<TopBar>
 				<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-					{chains.length} {chains.length === 1 ? "chain" : "chains"} · {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
+					{chains.length} {chains.length === 1 ? "chain" : "chains"}, {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
 				</span>
 				<div className="relative shrink-0">
 					<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -257,7 +254,7 @@ export function ChainTableBody({
 						placeholder="Search nodes…"
 						aria-label="Search nodes"
 						spellCheck={false}
-						className="lh-no-drag h-8 w-56 rounded-lg border bg-background pl-8 pr-3 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+						className="h-11 w-56 rounded-lg border border-border bg-background pl-8 pr-3 font-ui text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
 					/>
 				</div>
 			<button
@@ -265,7 +262,7 @@ export function ChainTableBody({
 					data-testid="chain-table-close"
 					onClick={onClose}
 					aria-label="Close chains"
-					className="lh-no-drag flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-card/80 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
 				>
 					<XIcon className="size-4" />
 				</button>
@@ -280,7 +277,7 @@ export function ChainTableBody({
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				{/* The TOP rule (owner round 5: the table is framed — a line under
 			    the header, a line under the last group, lines between groups). */}
-				<div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border/60 bg-background/80 px-3 py-1.5 text-[11px] uppercase tracking-widest text-muted-foreground/70 backdrop-blur">
+				<div className="sticky top-0 z-10 flex items-center gap-1 border-b border-border bg-background px-3 py-1.5 font-ui text-xs text-muted-foreground">
 					<button
 						type="button"
 						data-testid="sort-name"
@@ -326,7 +323,7 @@ export function ChainTableBody({
 							// The horizontal rules (owner rulings, rounds 2 + 5): between
 							// cluster groups AND under the last one — the table is framed
 							// top (header) and bottom. Never on individual rows.
-							className="relative border-b border-border/60"
+							className="relative border-b border-border"
 						>
 							{/* The TREE THREAD (owner rounds 5–6): a vertical guide at the
 							    expander arrow's column (center 37px: pl-3 + checkbox 14 +
@@ -356,7 +353,7 @@ export function ChainTableBody({
 								</span>
 								<span className="min-w-0 flex-1 truncate text-sm font-medium">
 									{group.label ?? <span className="text-muted-foreground/60">unlabeled</span>}
-									{group.kind === "notes" && <span className="ml-2 text-[11px] uppercase tracking-widest text-muted-foreground/60">notes</span>}
+									{group.kind === "notes" && <span className="ml-2 text-xs text-muted-foreground">notes</span>}
 								</span>
 								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 									{group.nodeIds.length}
@@ -400,17 +397,10 @@ export function ChainTableBody({
 													label={`Select chain ${nameOf(chain.conclusion)}`}
 												/>
 												<Expander open={chainOpen} onClick={() => onToggleChain(chain.id)} testid={`chain-toggle-${chain.id}`} label={`Expand chain ${nameOf(chain.conclusion)}`} />
-												{/* The chain line: proposition names as faint-outlined
-												    chips. THE LOGIC IS THE PAYLOAD (owner rulings,
-												    2026-09-30): premises join with the LaTeX LAND (∧),
-												    the conclusion separates by the LaTeX IMPLICATION
-												    (⟹) — `A ∧ B ⟹ C`, never the misleading `A → B →
-												    C` — the glyphs render through KaTeX (the app's
-												    math engine), PROMINENT in the theme foreground
-												    (white), not the old dim gray. A lonely chip reads
-												    as a standalone proposition (no glyphs at all);
-												    the row's aria-label keeps the plain-text form. */}
-												<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0.5 gap-y-1 text-[13px] leading-tight">
+												{/* Redesign (2026-10-29): the derivation reads as a line of names
+												    and connective glyphs, without a separate box per node.
+												    The existing KaTeX connectives and test hooks stay intact. */}
+												<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-0.5 gap-y-1 text-sm leading-tight">
 													{memberIds.map((id, i) => {
 														const isConclusion = i === memberIds.length - 1;
 														return (
@@ -430,7 +420,7 @@ export function ChainTableBody({
 																))}
 																<span
 																	data-testid={`prop-chip-${id}`}
-																	className="rounded border border-border/70 bg-muted/30 px-1.5 py-0.5"
+																	className="px-1 text-foreground"
 																>
 																	{nameOf(id)}
 																</span>
@@ -490,7 +480,7 @@ export function ChainTableBody({
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-4">
 					<div
 						data-testid="chain-selection-bar"
-						className="pointer-events-auto flex items-center gap-3 rounded-full border bg-card px-4 py-2 shadow-lg"
+						className="pointer-events-auto flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 font-ui"
 					>
 						<span data-testid="chain-selected-summary" className="text-xs font-medium">
 							{selection.size} {selection.size === 1 ? "node" : "nodes"} →{" "}
@@ -588,11 +578,9 @@ function RowCheckbox({
 	);
 }
 
-/** The graph view's overlay wrapper: owns query + sort + selection +
- *  expansion; mounts ABSOLUTE INSIDE the
- *  graph area, full-bleed (owner ruling: the translucent blurred surface
- *  IS the overlay — no inner card). Esc + the top-bar X dismiss (there
- *  is no backdrop margin to click anymore). Read-only toward the graph. */
+/** Full-page proposition and chain picker: owns query, sort, selection and
+ * expansion. It overlays the home or draft column; close via its top-bar
+ * button. Selection and deletion operate on graph data, not a graph canvas. */
 export function ChainTableOverlay({
 	open,
 	nodes,
@@ -635,23 +623,6 @@ export function ChainTableOverlay({
 		else setInternalSelection(next);
 	};
 
-	// Esc dismisses (unless a dialog has focus — each dialog's own Esc
-	// owns its layer; all listen on window, so the guards are explicit).
-	useEffect(() => {
-		if (!open || deleteOpen) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (owner, keyboard round 2026-10-06): claim
-				// at the document level — the window chain (dictation →
-				// abort) must not also act. One Esc, one action.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [open, deleteOpen, onClose]);
 
 	if (!open) return null;
 
@@ -679,7 +650,7 @@ export function ChainTableOverlay({
 		<>
 			<div
 				data-testid="chain-table-overlay"
-				className="absolute inset-0 z-40 flex flex-col bg-background/80 backdrop-blur-sm"
+				className="fixed inset-0 z-40 flex flex-col bg-background"
 			>
 				<ChainTableBody
 					nodes={nodes}
@@ -714,10 +685,8 @@ export function ChainTableOverlay({
 					nodes={selectedNodes.map((n) => ({ id: n.id, name: n.name }))}
 					onClose={() => setDeleteOpen(false)}
 					onDeleted={(deadIds, graphRevision) => {
-						// Close the dialog; prune the dead ids from the
-						// selection (the rest of a big selection survives);
-						// announce the revision so GraphView refetches the
-						// snapshot — fresh nodes/edges flow back in as props.
+						// Close the dialog, prune deleted selections, then
+						// notify graph consumers to refetch their snapshots.
 						setDeleteOpen(false);
 						const dead = new Set(deadIds);
 						applySelection(new Set([...selection].filter((id) => !dead.has(id))));

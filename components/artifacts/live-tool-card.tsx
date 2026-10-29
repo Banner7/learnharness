@@ -2,7 +2,6 @@
 
 import { ChevronRight } from "lucide-react";
 import { BrailleSpinner } from "@/components/braille-spinner";
-import { Shimmer } from "@/components/ai-elements/shimmer";
 import { toolActivityLabel } from "@/src/core";
 import type { ArtifactPartProps } from "@/src/core";
 
@@ -11,14 +10,12 @@ import type { ArtifactPartProps } from "@/src/core";
  * tool call looks like while the agent WRITES it. A tool part sits in
  * `input-streaming` for its whole execution (the bridge defers
  * input-available to tool_execution_end), so this card IS the working
- * state — spinner + shimmered activity label in the header (the retired
- * transcript bottom line's text, same recipe as the thinking row), and
- * the streaming input itself watchable on expand. The moment the call
- * settles, the part re-renders through the artifact registry and the
- * quiet settled card replaces this one.
+ * state — a spinner and a plain activity label in the header, with
+ * streaming input available on expand. When the call settles, the
+ * artifact registry replaces this with the result card.
  *
- * The one working-state grammar everywhere (owner): Braille spinner +
- * Shimmer(duration 1) — the thinking row, this card, the sidebar row.
+ * Redesign (owner, 2026-10-27): the braille cell is the working
+ * indicator; additional animated text would only impair reading.
  */
 interface StreamingToolPart {
 	type: string;
@@ -46,16 +43,14 @@ export function LiveToolCard({ part }: ArtifactPartProps) {
 			data-tool={tool}
 			className="group my-1 w-full max-w-2xl select-none"
 		>
-			<summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
+			<summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-border px-3 font-ui text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
 				<BrailleSpinner label={`${toolActivityLabel(tool)} — live`} />
-				<Shimmer duration={1} className="text-xs">
-					{toolActivityLabel(tool)}
-				</Shimmer>
+				<span>{toolActivityLabel(tool)}</span>
 				{arg && <span className="truncate">{arg}</span>}
 				<ChevronRight className="size-3 shrink-0 opacity-50 transition-transform group-open:rotate-90" />
 			</summary>
-			<div className="mt-2 rounded-xl border bg-card p-3 text-xs">
-				<div className="mb-1 font-medium uppercase tracking-wide text-muted-foreground">Input (streaming)</div>
+			<div className="mt-1 rounded-lg border border-border p-3 font-ui text-xs">
+				<div className="mb-1 font-medium text-muted-foreground">Input (streaming)</div>
 				<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed">
 					{hasInput ? JSON.stringify(p.input, null, 2) : "…"}
 				</pre>

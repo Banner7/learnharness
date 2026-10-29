@@ -12,22 +12,19 @@
  */
 
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { isHexColor, type ChatSettings } from "../core";
+import type { ChatSettings } from "../core";
 import type {
 	AgentSettings,
 	AppearanceSettings,
 	BackgroundModelRole,
 	CompactionSettings,
 	CustomModelOverride,
-	GeneralSettings,
-	DictationSettings,
 	GraphSettings,
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
-import { isDictationLanguage } from "../core/dictation.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -76,20 +73,6 @@ export function parseSettingsBody(body: unknown): SettingsBodyResult<ChatSetting
 function asRecord(body: unknown): Record<string, unknown> | null {
 	if (!body || typeof body !== "object" || Array.isArray(body)) return null;
 	return body as Record<string, unknown>;
-}
-
-/** general: { autoUpdate?: boolean } */
-export function parseGeneralSettingsBody(body: unknown): SettingsBodyResult<GeneralSettings> {
-	const raw = asRecord(body);
-	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	const settings: GeneralSettings = {};
-	if (raw.autoUpdate !== undefined) {
-		if (typeof raw.autoUpdate !== "boolean") {
-			return { ok: false, error: "autoUpdate must be a boolean" };
-		}
-		settings.autoUpdate = raw.autoUpdate;
-	}
-	return { ok: true, settings };
 }
 
 /** claudeCode: explicit app-wide opt-in. Empty section resets to off. */
@@ -210,32 +193,11 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	return { ok: true, settings };
 }
 
-/** A hex-or-null color field (appearance colors): null = default. */
-function parseHexOrNull(value: unknown, field: string): { color?: string | null; error?: string } {
-	if (value === null) return { color: null };
-	if (typeof value !== "string" || !isHexColor(value)) {
-		return { error: `${field} must be a #hex color or null` };
-	}
-	return { color: value };
-}
-
-/** appearance: { mode?, background?, fontFamily?, proseFontSize?,
- *  sessionNameSerif?, mdRendering? } */
+/** appearance: { fontFamily?, proseFontSize?, sessionNameSerif?, mdRendering? } */
 export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<AppearanceSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
-	if (raw.mode !== undefined) {
-		if (raw.mode !== "dark" && raw.mode !== "light") {
-			return { ok: false, error: "mode must be \"dark\" or \"light\"" };
-		}
-		settings.mode = raw.mode;
-	}
-	if (raw.background !== undefined) {
-		const parsed = parseHexOrNull(raw.background, "background");
-		if (parsed.error) return { ok: false, error: parsed.error };
-		settings.background = parsed.color ?? null;
-	}
 	if (raw.fontFamily !== undefined) {
 		if (raw.fontFamily !== null && (typeof raw.fontFamily !== "string" || !raw.fontFamily.trim())) {
 			return { ok: false, error: "fontFamily must be a non-empty string or null" };
@@ -274,26 +236,13 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			}
 			rendering.headingWeight = md.headingWeight;
 		}
-		if (md.boldColor !== undefined) {
-			const parsed = parseHexOrNull(md.boldColor, "mdRendering.boldColor");
-			if (parsed.error) return { ok: false, error: parsed.error };
-			rendering.boldColor = parsed.color ?? null;
-		}
-		if (md.italicColor !== undefined) {
-			const parsed = parseHexOrNull(md.italicColor, "mdRendering.italicColor");
-			if (parsed.error) return { ok: false, error: parsed.error };
-			rendering.italicColor = parsed.color ?? null;
-		}
 		if (Object.keys(rendering).length) settings.mdRendering = rendering;
 	}
 	return { ok: true, settings };
 }
 
-/** graph: the collapsed section { enabled? } (wave 7, owner ruling
- *  2026-09-23): the master switch ONLY — the embedding/clustering/labeling
- *  rungs and the BYOK embeddingModel died with the provider embedder
- *  (clustering is the free birth-session partition, labels are session
- *  names). Old-shape keys in a body are ignored, not rejected. */
+/** graph: extraction master switch and chunk budget. Deprecated view-only
+ * keys in older records or request bodies are ignored. */
 export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
@@ -307,10 +256,6 @@ export function parseGraphSettingsBody(body: unknown): SettingsBodyResult<GraphS
 	if (raw.enabled !== undefined) {
 		if (typeof raw.enabled !== "boolean") return { ok: false, error: "enabled must be a boolean" };
 		settings.enabled = raw.enabled;
-	}
-	if (raw.rendering !== undefined) {
-		if (typeof raw.rendering !== "boolean") return { ok: false, error: "rendering must be a boolean" };
-		settings.rendering = raw.rendering;
 	}
 	if (raw.extractionChunkTokens !== undefined) {
 		if (typeof raw.extractionChunkTokens !== "number" || !Number.isFinite(raw.extractionChunkTokens)) {
@@ -387,15 +332,6 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
-/** dictation: { language?: one of Nova-3's supported language codes } */
-export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
-	const raw = asRecord(body);
-	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.language === undefined) return { ok: true, settings: {} };
-	if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
-	return { ok: true, settings: { language: raw.language } };
-}
-
 /** The custom endpoint's per-model pins (PATCH /api/custom-provider): the
  *  whole desired map, replace-whole like every section. Strict write side — a
  *  token count must be a whole number at or above the floor (the read side
@@ -438,15 +374,12 @@ export function parseCustomModelOverridesBody(
 /** The section→parser map for PUT /api/settings/[section]. The custom endpoint
  *  is NOT a section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
-	general: parseGeneralSettingsBody,
 	chat: parseSettingsBody,
 	agent: parseAgentSettingsBody,
 	appearance: parseAppearanceSettingsBody,
 	graph: parseGraphSettingsBody,
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,
-	dictation: parseDictationSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
 } as const;
 
-export type SettingsSectionName = keyof typeof SETTINGS_SECTIONS;

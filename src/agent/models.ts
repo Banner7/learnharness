@@ -14,13 +14,9 @@ import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type ModelRole } from "../../config.ts";
 import { DEFAULT_THINKING_ORDER } from "../core/settings.ts";
 import packageMetadata from "../../package.json" with { type: "json" };
-import { chatGPTModel } from "./chatgpt-bridge.ts";
-import { chatGPTStream } from "./chatgpt-stream.ts";
-import type { ChatGPTDispatchLifecycle } from "./chatgpt-request-cycle.ts";
+import { customProviders, customProviderIds, serializedCustomStream } from "./custom-providers.ts";
 import { createClaudeCodeProvider } from "./claude-code/provider.ts";
 import { streamClaudeCode } from "./claude-code/stream.ts";
-import { nativeSubscriptionId, nativeSubscriptionModel } from "./subscription-bridge.ts";
-import { nativeSubscriptionStream } from "./subscription-stream.ts";
 
 /** App identity is immutable and shared by Models and every native Agent.
  * Agent's default Pi attribution otherwise overrides the Models identity. */
@@ -91,14 +87,17 @@ export function piModels() {
 				: provider);
 		}
 		collection.setProvider(createClaudeCodeProvider(streamClaudeCode));
+		for (const provider of customProviders()) {
+			// Fork port (2026-10-29): reserve upstream's settings-backed custom
+			// endpoint separately from server-managed provider definitions.
+			if (providerSource?.isCustom(provider.id) || provider.id === "custom" || collection.getProvider(provider.id)) {
+				throw new Error(`Custom provider id "${provider.id}" is reserved`);
+			}
+			collection.setProvider(provider);
+		}
 	}
 	providerSource?.sync(collection);
 	return collection;
-}
-
-/** OpenRouter API key (BYOK); tests never read this — they inject engines. */
-export function openRouterApiKey(): string | undefined {
-	return process.env.OPENROUTER_API_KEY || undefined;
 }
 
 /** A fully-resolved model pin — the shape every engine now comes from:
@@ -128,10 +127,9 @@ function defaultThinkingLevel(model: Model<Api>): ThinkingLevel {
  *  key is resolved by pi-ai itself from the environment per request (the
  *  keys seam reflects file-saved keys into env), so the engine never
  *  hardcodes OpenRouter's. */
-export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (() => boolean) = true, lifecycle?: ChatGPTDispatchLifecycle): PiEngine {
+export function piEngineForSpec(spec: ResolvedModelSpec): PiEngine {
 	const models: Models = piModels();
-	const nativeId = nativeSubscriptionId(spec.provider);
-	const registeredModel = spec.provider === "chatgpt" ? chatGPTModel(spec.id) : nativeId ? nativeSubscriptionModel(spec.provider, spec.id) : models.getModel(spec.provider, spec.id);
+	const registeredModel = models.getModel(spec.provider, spec.id);
 	const custom = providerSource?.isCustom(spec.provider) ?? false;
 	// Custom endpoint owners authorize image attempts independently of sparse
 	// discovery metadata. Never promote the registered/catalog capabilities.
@@ -169,10 +167,9 @@ export function piEngineForSpec(spec: ResolvedModelSpec, background: boolean | (
 					: defaultThinkingLevel(currentModel);
 				return current.streamSimple(permitImages(currentModel), context, { ...options, reasoning: currentLevel === "off" ? undefined : currentLevel });
 			}
-			const requestOptions = { ...options, reasoning: level === "off" ? undefined : level };
-			const purpose = typeof background === "function" ? background : () => background;
-			const stream = spec.provider === "chatgpt" ? chatGPTStream(purpose, lifecycle) : nativeId ? nativeSubscriptionStream(models.getProvider(nativeId)!, purpose, lifecycle) : models.streamSimple.bind(models);
-			return stream(requestModel, context, requestOptions);
+			const stream = models.streamSimple.bind(models);
+			const dispatch = customProviderIds().includes(spec.provider) ? serializedCustomStream(stream) : stream;
+			return dispatch(requestModel, context, { ...options, reasoning: level === "off" ? undefined : level });
 		},
 	};
 }

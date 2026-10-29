@@ -1,6 +1,6 @@
 /**
  * Tests for the section parsers (settings-storage wave, 2026-09-19):
- * src/server/settings-body.ts — general/agent/appearance/graph strictness.
+ * src/server/settings-body.ts — agent/appearance/graph strictness.
  * Same discipline as parseSettingsBody (its tests live in
  * default-settings.test.ts): every known field is strict (bad type/shape
  * → 400-style error, never a silent clamp), unknown keys drop, absent
@@ -13,27 +13,11 @@ import {
 	parseAgentSettingsBody,
 	parseModelsSettingsBody,
 	parseAppearanceSettingsBody,
-	parseGeneralSettingsBody,
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
 	SETTINGS_SECTIONS,
 } from "../src/server/settings-body.ts";
 
-describe("parseGeneralSettingsBody", () => {
-	it("parses {} and {autoUpdate} replace-whole", () => {
-		const empty = parseGeneralSettingsBody({});
-		assert.ok(empty.ok);
-		assert.deepEqual(empty.settings, {});
-		const on = parseGeneralSettingsBody({ autoUpdate: true });
-		assert.ok(on.ok);
-		assert.deepEqual(on.settings, { autoUpdate: true });
-	});
-
-	it("rejects non-objects and non-boolean autoUpdate", () => {
-		assert.equal(parseGeneralSettingsBody("x").ok, false);
-		assert.equal(parseGeneralSettingsBody({ autoUpdate: "yes" }).ok, false);
-	});
-});
 
 describe("parseAgentSettingsBody", () => {
 	it("models: valid roles with model pair and/or thinkingLevel; unknown role is a 400 with the list", () => {
@@ -98,50 +82,39 @@ describe("parseAgentSettingsBody", () => {
 });
 
 describe("parseAppearanceSettingsBody", () => {
-	it("parses every field; hex-or-null colors; clamps happen at sanitize, rejects here", () => {
+	it("parses every typography field; clamps happen at sanitize, rejects here", () => {
 		const r = parseAppearanceSettingsBody({
-			mode: "light",
-			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
-			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
+			mdRendering: { headingWeight: 700 },
 		});
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, {
-			mode: "light",
-			background: "#ffffff",
 			fontFamily: "Some Font",
 			proseFontSize: 20,
 			sessionNameSerif: false,
-			mdRendering: { headingWeight: 700, boldColor: "#ff8800", italicColor: null },
+			mdRendering: { headingWeight: 700 },
 		});
 	});
 
-	it("rejects bad enums, ranges, and colors — with specific messages, never clamps", () => {
+	it("rejects bad types and ranges — with specific messages, never clamps", () => {
 		const cases: unknown[] = [
-			{ mode: "sepia" },
-			{ background: "blue" },
-			{ background: 42 },
 			{ fontFamily: "" },
 			{ fontFamily: 12 },
 			{ proseFontSize: 30 },
 			{ proseFontSize: 64.5 },
 			{ sessionNameSerif: 1 },
 			{ mdRendering: { headingWeight: 1000 } },
-			{ mdRendering: { boldColor: "red" } },
 		];
 		for (const body of cases) {
 			assert.equal(parseAppearanceSettingsBody(body).ok, false, JSON.stringify(body));
 		}
-		// boundary values that MUST pass: 12 and 24, 100 and 900, #fff
+		// Boundary typography values must pass.
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }));
 		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
 		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
-		assert.ok(parseAppearanceSettingsBody({ background: "#abc" }));
-		// null = "the mode's default" — explicit, valid
-		assert.ok(parseAppearanceSettingsBody({ background: null, fontFamily: null }));
 	});
 
 	it("rejects non-object bodies and non-object mdRendering", () => {
@@ -161,17 +134,6 @@ describe("parseGraphSettingsBody", () => {
 	it("rejects non-boolean switches and unknown bodies", () => {
 		assert.equal(parseGraphSettingsBody({ enabled: "off" }).ok, false);
 		assert.equal(parseGraphSettingsBody("nope").ok, false);
-	});
-
-	it("rendering (2026-10-06): boolean display switch — replace-whole like every sibling", () => {
-		const off = parseGraphSettingsBody({ enabled: true, rendering: false });
-		assert.ok(off.ok);
-		assert.deepEqual(off.settings, { enabled: true, rendering: false });
-		// absent = unset (factory ON at resolution)
-		const absent = parseGraphSettingsBody({ enabled: true });
-		assert.ok(absent.ok);
-		assert.deepEqual(absent.settings, { enabled: true });
-		assert.equal(parseGraphSettingsBody({ rendering: "off" }).ok, false, "rendering must be a boolean");
 	});
 
 	it("extractionChunkTokens: whole tokens ≥ the 500 floor (extraction-UX redesign, 2026-09-24)", () => {
@@ -234,14 +196,14 @@ describe("parseCompactionSettingsBody (owner round 14)", () => {
 });
 
 describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the eight record sections", () => {
+	it("maps exactly the seven record sections", () => {
 		// compaction joined (owner round 14): its own section PUT — the
 		// threshold is engine behavior, not an agent-section key. The custom
 		// endpoint is NOT a section: it is one more provider in the Keys list,
 		// connected through POST /api/custom-provider.
 		assert.deepEqual(
 			Object.keys(SETTINGS_SECTIONS),
-			["general", "chat", "agent", "appearance", "graph", "compaction", "models", "dictation", "claudeCode"],
+			["chat", "agent", "appearance", "graph", "compaction", "models", "claudeCode"],
 		);
 	});
 });

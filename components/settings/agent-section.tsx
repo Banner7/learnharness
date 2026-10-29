@@ -9,11 +9,9 @@
  * the six per-role rows disappeared; per-role overrides remain in the
  * schema for a future advanced surface): Strong = Prober + Teacher, Cheap
  * = the five workhorse roles, Vision = Visual maker + PDF reader. Each
- * slot row carries the shared dropdown (fuzzy search, arrow-walk, Enter
- * pick — ModelMenuList/ThinkingMenuList from ./model-menu.tsx) over the
- * FEDERATED catalog (/api/models serves only keyed providers, fresh per
- * call — saving a key in Keys immediately widens this picker). The
- * vision slot filters to image-capable models (Model.input). The slots
+ * slot uses a searchable tap-to-open model menu over the federated catalog
+ * (/api/models serves only keyed providers, refreshed after saving a key).
+ * The Vision slot filters to image-capable models (Model.input). The slots
  * live in the `models` settings section (PUT /api/settings/models — slot
  * pins are engine-level, not per-chat); the rest of the section writes
  * the `agent` section as before. Resolution per tier: slot override →
@@ -55,8 +53,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MenuShell } from "@/components/menu-shell";
 import { useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel } from "@/components/thinking-default";
-import { useModelCatalog } from "@/components/model-catalog";
-import { Hint } from "@/components/ui/hint";
 import type React from "react";
 import {
 	COMPACTION_THRESHOLD_FLOOR,
@@ -65,16 +61,15 @@ import {
 	type AgentSettings,
 	type CompactionSettings,
 	type GraphSettings,
+	type ModelCatalogEntry,
 	type ModelSlotName,
 	type ModelsSettings,
 } from "@/src/core";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { prettyModel } from "@/components/usage-format";
 import { cn } from "@/lib/utils";
-import { SettingsGroup, SettingsRow, SettingsMenuTrigger, Toggle, CommitInput } from "./controls.tsx";
+import { SettingsGroup, SettingsRow, Toggle, CommitInput } from "./controls.tsx";
 import { ModelMenuList, ThinkingMenuList } from "./model-menu";
-import { ChatGPTBackgroundAccess } from "./chatgpt-connection";
-import { NativeSubscriptionBackgroundAccess } from "./subscription-connections";
 
 /** One slot's display identity — the tier's roster as the row hint rides
  *  with the resolved default (owner: the hint ALWAYS names the default). */
@@ -90,6 +85,12 @@ const SEARCH_ENGINES = ["tavily", "brave"] as const;
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
 export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+const TOOL_LABELS: Record<(typeof TOGGLE_TOOLS)[number], string> = {
+	research: "Research",
+	demo: "Demo",
+	visual: "Visual",
+	pdf: "PDF",
+};
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -100,6 +101,15 @@ interface SegmentInfo {
 	overrideText: string | null;
 	enabled: boolean;
 	shared: boolean;
+}
+
+/** The GET /api/models response fields this section consumes. */
+interface ModelsBody {
+	models: ModelCatalogEntry[];
+	/** The three tiers' RESOLVED pins (BYOK: NULL per unset tier — no
+	 *  factory floor) — machinery only (the thinking list fallback); the
+	 *  rows' displays read the record override, never a phantom pin. */
+	slots: Record<ModelSlotName, { model: { provider: string; id: string }; thinkingLevel?: string } | null>;
 }
 
 /** Compose: one tool toggled, the rest of the section carried verbatim.
@@ -225,39 +235,43 @@ function MenuTrigger({
 	open,
 	onClick,
 	widthClass,
+	leftAlign = false,
 	disabled,
-	hint,
 }: {
 	value: string;
-	hint?: string;
 	/** What the trigger shows when there is no override ("Default"). */
 	emptyLabel: string;
 	ariaLabel: string;
 	testid: string;
 	open: boolean;
 	onClick: () => void;
-	/** Owner (2026-09-20): the thinking trigger is FIXED at the width the
-	 *  Default state needs (values shifting it mid-edit shifted the row);
-	 *  the model trigger takes the same width as a MINIMUM — its values
-	 *  genuinely vary in length. */
+	/** Responsive sizing: the model takes the available width, while thinking
+	 *  keeps a stable width beside it on wide sections. */
 	widthClass: string;
+	/** Full-width model rows read from the label edge, not the chevron edge. */
+	leftAlign?: boolean;
 	/** The no-key search state grays the whole row; the trigger follows. */
 	disabled?: boolean;
 }) {
-	const button = (
-		<SettingsMenuTrigger
-			value={value || emptyLabel}
+	return (
+		<button
+			type="button"
 			aria-label={ariaLabel}
 			aria-expanded={open}
 			data-testid={testid}
 			onClick={() => {
 				if (!disabled) onClick();
 			}}
-			unavailable={disabled}
-			className={widthClass}
-		/>
+			className={`flex min-h-11 min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md border border-border bg-background px-3 text-sm text-foreground ${
+				leftAlign ? "text-left" : "text-right"
+			} ${disabled ? "cursor-not-allowed" : "hover:border-primary"} ${widthClass}`}
+		>
+			<span className={`min-w-0 flex-1 truncate ${leftAlign ? "text-left" : "text-right"}`}>{value || emptyLabel}</span>
+			<span aria-hidden className="text-muted-foreground">
+				▾
+			</span>
+		</button>
 	);
-	return hint ? <Hint label={hint}>{button}</Hint> : button;
 }
 
 /* The section's dropdowns all mount the shared MenuShell (fix wave chunk
@@ -292,9 +306,10 @@ export function AgentSection({
 	/** Writes the whole compaction section (replace-PUT discipline). */
 	onCompactionChange: (next: CompactionSettings) => void;
 }) {
-	const { catalog: body, failed: catalogFailed, refresh: refreshCatalog } = useModelCatalog();
-	const catalog = body?.models;
-	const slots = body?.slots;
+	const [catalog, setCatalog] = useState<ModelCatalogEntry[] | null>(null);
+	/** The three tiers' resolved pins — GET /api/models `slots`. The rows'
+	 *  Default hints and thinking lists resolve from it. */
+	const [slots, setSlots] = useState<ModelsBody["slots"] | null>(null);
 	/** The live search state (/api/search) — the row's reason line. */
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
@@ -329,9 +344,28 @@ export function AgentSection({
 			.catch(() => {});
 	}, []);
 
-	// The shared catalog seeds the first frame and refreshes per mount and
-	// keys/models signal. Settings props still own saved selections/levels.
+	// The catalog (federated: keyed providers only), the resolved slots,
+	// the prompt segments, and the search engines' key presence — one
+	// fetch each per section mount. The models read ALSO re-runs on the
+	// cross-surface signal (fix wave: another surface's write re-reads
+	// into the slot rows live).
+	const modelsRequest = useRef(0);
+	const modelsMounted = useRef(false);
+	const readModels = useCallback((connectionChanged = false) => {
+		const request = ++modelsRequest.current;
+		if (connectionChanged) setCatalog(null);
+		fetch("/api/models")
+			.then((r) => { if (!r.ok) throw new Error("Catalog unavailable"); return r.json(); })
+			.then((body: ModelsBody) => {
+				if (!modelsMounted.current || request !== modelsRequest.current) return;
+				setCatalog(body.models);
+				setSlots(body.slots);
+			})
+			.catch(() => { if (modelsMounted.current && request === modelsRequest.current) setCatalog(null); });
+	}, []);
+
 	useSettingsSaved((section) => {
+		if (section === "models") readModels();
 		// THE state-echo root cause: the prompt switches write through the
 		// agent section, but this view (the toggles' truth) never re-read —
 		// the settings-saved law (every reader re-reads) was missing this
@@ -340,6 +374,8 @@ export function AgentSection({
 	});
 
 	useEffect(() => {
+		modelsMounted.current = true;
+		readModels();
 		fetch("/api/settings/prompts")
 			.then((r) => r.json())
 			.then((body: { prober: SegmentInfo[]; teacher: SegmentInfo[] }) => setPrompts(body))
@@ -355,6 +391,7 @@ export function AgentSection({
 				setEngineKeys(present);
 			})
 			.catch(() => {});
+		return () => { modelsMounted.current = false; modelsRequest.current++; };
 	}, []);
 
 	// The reason line re-reads /api/search AFTER an engine write lands —
@@ -365,11 +402,8 @@ export function AgentSection({
 		refreshSearch();
 	}, [agent?.search?.engine]);
 
-	// The dropdown contract (the chat model selector's, mirrored): any
-	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
-	// with stopPropagation so the settings dialog behind does NOT also
-	// close. A pointerdown on the backdrop is left for the dialog (its own
-	// click closes everything); a click inside the dialog just closes us.
+	// A pointer outside the open menu closes it; backdrop dismissal belongs
+	// to the settings dialog.
 	useEffect(() => {
 		if (openMenu === null) return;
 		const onPointerDown = (e: PointerEvent) => {
@@ -381,17 +415,9 @@ export function AgentSection({
 			}
 			// else: outside the dialog — the dialog's own close handles it.
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.stopPropagation();
-				setOpenMenu(null);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [openMenu]);
 
@@ -452,13 +478,13 @@ export function AgentSection({
 			type="button"
 			data-testid={`engine-option-${id}`}
 			onClick={onPick}
-			className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted ${
-				active ? "bg-muted/60 text-card-foreground" : "text-card-foreground"
+			className={`flex min-h-11 w-full items-center justify-between rounded-md px-3 text-left hover:bg-muted ${
+				active ? "bg-muted text-card-foreground" : "text-card-foreground"
 			}`}
 		>
 			<span>{label}</span>
 			<span className="text-muted-foreground">
-				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>· no key</span>}
+				{live === null ? (active && <span aria-hidden>✓</span>) : live ? <span aria-hidden>✓ key</span> : <span aria-hidden>no key</span>}
 			</span>
 		</button>
 	);
@@ -504,29 +530,29 @@ export function AgentSection({
 						setOpenSegment(open ? null : info.path);
 						setSegmentStatus(null);
 					}}
-					className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+					className="min-h-11 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
 				>
 					{open ? "Hide text" : "Show text"}
 				</button>
 				{open && (
 					<div className="mt-1 flex flex-col gap-2">
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Source</p>
+							<p className="mb-1 text-sm text-muted-foreground">Source</p>
 							<textarea
 								readOnly
 								value={info.sourceText}
 								aria-label="The original instructions"
-								className="h-24 w-full resize-y rounded-sm border border-border bg-muted p-2 font-ui text-xs text-muted-foreground"
+								className="lh-input h-24 w-full resize-y rounded-md border border-border bg-muted p-2 text-sm text-muted-foreground"
 							/>
 						</div>
 						<div>
-							<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">Override</p>
+							<p className="mb-1 text-sm text-muted-foreground">Override</p>
 							<textarea
 								value={segmentDraft[info.path] ?? info.overrideText ?? ""}
 								onChange={(e) => setSegmentDraft({ ...segmentDraft, [info.path]: e.target.value })}
 								aria-label="Your version of the instructions"
 								placeholder="Add your own instructions…"
-								className="h-24 w-full resize-y rounded-sm border border-border bg-background p-2 font-ui text-xs text-foreground outline-none"
+								className="lh-input h-24 w-full resize-y rounded-md border border-border bg-background p-2 text-sm text-foreground outline-none"
 							/>
 						</div>
 						<div className="flex items-center gap-3">
@@ -536,8 +562,8 @@ export function AgentSection({
 								onClick={() => void saveSegment(info.path, segmentDraft[info.path] ?? "")}
 								className={
 									dirty
-										? "text-xs text-foreground underline-offset-2 hover:underline"
-										: "cursor-not-allowed text-xs text-muted-foreground/40 underline-offset-2"
+										? "min-h-11 text-sm text-foreground underline-offset-2 hover:underline"
+										: "min-h-11 cursor-not-allowed text-sm text-muted-foreground underline-offset-2"
 								}
 							>
 								Save
@@ -546,7 +572,7 @@ export function AgentSection({
 								<button
 									type="button"
 									onClick={() => void deleteSegment(info.path)}
-									className="text-xs text-muted-foreground/70 underline-offset-2 hover:text-red-500 hover:underline"
+									className="min-h-11 text-sm text-muted-foreground underline-offset-2 hover:text-wrong hover:underline"
 								>
 									Delete
 								</button>
@@ -580,8 +606,7 @@ export function AgentSection({
 
 	return (
 		<>
-			<SettingsGroup label="Models" testid="group-models">
-				{catalogFailed && <p role="alert" className="text-xs text-red-400">Model catalog could not be loaded. Check the connection and retry. <button type="button" className="underline" onClick={refreshCatalog}>Retry</button></p>}
+			<div data-testid="group-models" className="flex min-w-0 flex-col gap-2">
 				{MODEL_SLOTS.map((slot) => {
 					const override = models?.[slot];
 					const modelId = override?.model?.id ?? "";
@@ -606,23 +631,23 @@ export function AgentSection({
 							label={SLOT_META[slot].label}
 							hint={SLOT_META[slot].roster}
 							testid={`slot-row-${slot}`}
+							stacked
 						>
 							{/* The anchor for the outside-click contract is the
 							    span holding BOTH triggers of the open menu. */}
 							<span
 								ref={thisMenuOpen ? menuAnchorRef : undefined}
-								className="relative flex items-center gap-2"
+								className="relative flex w-full min-w-0 items-stretch gap-2"
 							>
-								{slot !== "strong" && <><ChatGPTBackgroundAccess provider={coord?.provider} /><NativeSubscriptionBackgroundAccess provider={coord?.provider} /></>}
 								<MenuTrigger
-									value={modelId ? prettyModel(modelId) : ""}
-									hint={modelId ? `${provider}:${modelId}` : undefined}
+									value={modelId ? (chosen?.label ?? prettyModel(modelId)) : ""}
 									emptyLabel="—"
 									ariaLabel={`${SLOT_META[slot].label} model`}
 									testid={`slot-model-${slot}`}
 									open={thisMenuOpen === "model"}
 									onClick={() => setOpenMenu(thisMenuOpen === "model" ? null : { target: slot, kind: "model" })}
-									widthClass="min-w-20"
+									widthClass="min-w-0 flex-1"
+									leftAlign
 								/>
 								<MenuTrigger
 									// Legacy display (chunk 2 item 4): no stored level + a known
@@ -634,14 +659,15 @@ export function AgentSection({
 									testid={`slot-thinking-${slot}`}
 									open={thisMenuOpen === "thinking"}
 									onClick={() => setOpenMenu(thisMenuOpen === "thinking" ? null : { target: slot, kind: "thinking" })}
-									widthClass="w-20"
+									widthClass="w-24 shrink-0"
+									leftAlign
 								/>
 								{thisMenuOpen === "model" && (
 									<MenuShell
 										preferredSide="down"
 											anchorTestid={`slot-model-${slot}`}
 										testid={`slot-model-menu-${slot}`}
-										menuClass="flex w-[22rem] flex-col rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+										menuClass="flex w-[22rem] flex-col rounded-lg border border-border bg-popover p-2 text-sm shadow-lg"
 									>
 										<ModelMenuList
 											models={catalog ?? undefined}
@@ -669,7 +695,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid={`slot-thinking-${slot}`}
 										testid={`slot-thinking-menu-${slot}`}
-										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+										menuClass="flex w-44 flex-col gap-0.5 rounded-lg border border-border bg-popover p-2 text-sm shadow-lg"
 									>
 										<ThinkingMenuList
 											levels={levels.map(String)}
@@ -687,7 +713,7 @@ export function AgentSection({
 						</SettingsRow>
 					);
 				})}
-			</SettingsGroup>
+			</div>
 
 			<SettingsGroup label="Tools" testid="group-tools">
 				{/* The prober's graph tools (wave 7, owner ruling 2026-09-23):
@@ -726,11 +752,12 @@ export function AgentSection({
 							label="Quizzing"
 							hint="How both tutors check your understanding"
 							testid="quiz-mechanics-row"
+							stacked
 						>
 							<div
 								role="radiogroup"
 								aria-label="Quizzing mechanics"
-								className="flex rounded-lg border border-border/60 bg-muted/30 p-0.5"
+								className="flex w-full rounded-md bg-muted p-1"
 								>
 								{(["choice", "free"] as const).map((m) => {
 									const active = m === "free" ? free : !free;
@@ -743,8 +770,8 @@ export function AgentSection({
 											data-testid={`quiz-mechanics-${m}`}
 											onClick={() => onSectionChange(composeQuizMechanics(agent, m))}
 											className={cn(
-												"h-8 rounded-md px-3 text-sm font-medium transition-colors",
-												active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+												"min-h-11 min-w-0 flex-1 rounded-md border px-2 text-sm font-medium",
+												active ? "border-border bg-card text-foreground" : "border-transparent text-muted-foreground",
 											)}
 										>
 											{m === "choice" ? "Multiple choice" : "Free recall"}
@@ -758,7 +785,7 @@ export function AgentSection({
 				{TOGGLE_TOOLS.map((id) => (
 					<SettingsRow
 						key={id}
-						label={`Tool · ${id}`}
+						label={TOOL_LABELS[id]}
 						testid={`tool-row-${id}`}
 					>
 						<Toggle
@@ -795,7 +822,7 @@ export function AgentSection({
 										preferredSide="down"
 											anchorTestid="search-engine-trigger"
 										testid="search-engine-menu"
-										menuClass="flex w-44 flex-col gap-0.5 rounded-xl border border-border bg-card p-2 text-xs shadow-xl"
+										menuClass="flex w-44 flex-col gap-0.5 rounded-lg border border-border bg-popover p-2 text-sm shadow-lg"
 									>
 										{engineOption("auto", "Automatic", engine === null, null, () => {
 											onSectionChange(composeSearchEngine(agent, null));
@@ -859,7 +886,7 @@ export function AgentSection({
 						    order. */}
 						{sectionedSegments(prompts).map((section) => (
 							<div key={section.id} data-testid={`prompt-section-${section.id}`}>
-								<p className="mb-1 text-xs uppercase tracking-widest text-muted-foreground/70">
+								<p className="mb-1 text-sm font-semibold text-foreground">
 									{section.label}
 								</p>
 								{section.hint && (

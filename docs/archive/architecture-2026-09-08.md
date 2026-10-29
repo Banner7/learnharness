@@ -2,7 +2,7 @@
 
 This is the pre-audit architecture spec (last maintained 2026-09-08). It was superseded after a full-code audit found it drifted from the as-built system; it is retained for history only — **do not trust it as a spec, do not update it**.
 
-Known-stale in this copy: the single `contracts.ts` (now six domain files), the `everyNQuizAnswers` extraction trigger (now token coverage), hotspot + 1-hop graph context (now semantic top-K), sigma.js + forceAtlas2 rendering (now a hand-rolled Canvas 2D renderer + d3-force), Louvain clustering (now embedding-based agglomerative clustering), `MockLanguageModelV4` tests (now pi-ai's faux provider), the three-file store list (now five adapters), and "deliberately deferred" features that since shipped (dictation, notes import, embeddings, clusters, model settings). The current spec's decision-history appendix records each supersession.
+Known-stale in this copy: the single `contracts.ts` (now six domain files), the `everyNQuizAnswers` extraction trigger (now token coverage), hotspot + 1-hop graph context (now semantic top-K), sigma.js + forceAtlas2 rendering (now a hand-rolled Canvas 2D renderer + d3-force), Louvain clustering (now embedding-based agglomerative clustering), `MockLanguageModelV4` tests (now pi-ai's faux provider), the three-file store list (now five adapters), and features that since shipped (notes import, embeddings, clusters, model settings). The current spec's decision-history appendix records each supersession.
 
 ---
 
@@ -124,4 +124,4 @@ All deterministic, no network: models are injected (`MockLanguageModelV4`), stor
 
 ## 7. Deliberately deferred (links)
 
-Fuzzy/embedding merge adjudication, calibration rubric, retroactive bootstrap of the POC sessions (vision §1 consolidation); dictation, not-a-chat presentation overhaul, gated progression, spaced repetition (vision §2/§4 roadmap). SQLite or other storage swaps are drop-in behind the ports (§2). The trigger mechanism beyond the v1 quiz threshold (§3). When any of these land, this doc changes with the commit that lands them — it describes the system, not an intention.
+Fuzzy/embedding merge adjudication, calibration rubric, retroactive bootstrap of the POC sessions (vision §1 consolidation); not-a-chat presentation overhaul, gated progression, spaced repetition (vision §2/§4 roadmap). SQLite or other storage swaps are drop-in behind the ports (§2). The trigger mechanism beyond the v1 quiz threshold (§3). When any of these land, this doc changes with the commit that lands them — it describes the system, not an intention.

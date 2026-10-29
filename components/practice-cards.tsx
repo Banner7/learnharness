@@ -26,12 +26,8 @@ import { createPortal } from "react-dom";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 
-/* TARGET NAMES (owner round 17, 2026-10-06): targets are normalized to
- * opaque node ids at the record seam (owner round 9 — the mastery trace
- * groups on them), so the drawer resolves names at render time. One
- * lazy module-cached fetch of the graph view (the id → name map is a
- * few KB); failures degrade to raw ids — observability never breaks the
- * card. */
+/* Targets use opaque graph node ids in records. Resolve their names from
+ * the graph data API for the practice drawer; fall back to ids if unavailable. */
 let nodeNameMapPromise: Promise<Record<string, string>> | null = null;
 function nodeNameMap(): Promise<Record<string, string>> {
 	nodeNameMapPromise ??= fetch("/api/graph")
@@ -63,9 +59,11 @@ export function ProblemCard({ part }: ArtifactPartProps) {
 	const input = (part.input ?? {}) as { statement?: string };
 	const statement = typeof input.statement === "string" ? input.statement : "";
 	return (
-		<div data-testid="problem-card" className="lh-card-enter my-1 rounded-xl border bg-card p-4">
-			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Problem</div>
-			<div className="lh-prose text-[15px]">
+		// Problems are set on the board too (redesign 2026-10-29). No entrance
+		// motion here: past problems in the transcript must not re-animate.
+		<div data-testid="problem-card" className="lh-board my-2 rounded-xl p-5">
+			<div className="mb-2 text-sm text-primary">Problem</div>
+			<div className="font-prose text-xl">
 				<ToolContentResponse>{statement}</ToolContentResponse>
 			</div>
 		</div>
@@ -80,17 +78,14 @@ const OUTCOME_LABEL: Record<string, string> = {
 	dismissed: "Dismissed",
 };
 
-/* The outcome chips (owner round 3, 2026-10-05): the EXACT register of the
- * quiz cards' correct/incorrect bubbles. Colors per outcome — solved reads
- * green (the "correct" twin), solved-with-hints amber (succeeded with
- * cost), surrendered red (the problem beat the learner), moved on muted
- * (the agent's call, not a verdict against him). */
+/* Redesign (owner, 2026-10-27): practice verdicts use the same theme
+ * grading ink as quiz cards; muted outcomes remain neutral. */
 const OUTCOME_CHIP: Record<string, string> = {
-	solved: "bg-green-500/15 text-green-500",
-	solvedWithHints: "bg-amber-500/15 text-amber-500",
-	movedOn: "bg-muted text-muted-foreground",
-	surrendered: "bg-red-500/15 text-red-500",
-	dismissed: "bg-muted text-muted-foreground",
+	solved: "text-correct",
+	solvedWithHints: "text-correct",
+	movedOn: "text-muted-foreground",
+	surrendered: "text-wrong",
+	dismissed: "text-muted-foreground",
 };
 
 export function ConcludeCard({ part }: ArtifactPartProps) {
@@ -117,14 +112,14 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 	}
 
 	return (
-		<div data-testid="conclude-card" className="lh-card-enter relative my-1 rounded-xl border bg-card p-4">
+		<div data-testid="conclude-card" className="relative my-1 rounded-lg border border-border p-4">
 			{/* The heading row (owner round 3, 2026-10-05): plain 'Concluded'
 			    eyebrow + the outcome in the quiz cards' EXACT chip register —
 			    no more two same-weight headings stacked. */}
-			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
 				Concluded
 				{(OUTCOME_LABEL[outcome] ?? "") !== "" && outcome !== "dismissed" && (
-					<span className={cn("rounded px-1.5 py-0.5", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
+					<span className={cn("font-ui", OUTCOME_CHIP[outcome] ?? OUTCOME_CHIP.movedOn)}>
 						{OUTCOME_LABEL[outcome]}
 					</span>
 				)}
@@ -132,7 +127,7 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			{/* The verdict — plain prose under the heading, no 'Verdict:' label
 			    (owner round 3): the same quiet 50% register as quiz explanations. */}
 			{verdict.length > 0 && (
-				<div className="text-sm text-foreground/50">
+				<div className="font-prose text-base text-muted-foreground">
 					<ToolContentResponse>{verdict}</ToolContentResponse>
 				</div>
 			)}
@@ -140,10 +135,10 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 			    hero is the pose's commitment, verbatim). */}
 			{reveal.length > 0 && (
 				<>
-					<div className="my-3 border-t" />
+					<div className="my-3 border-t border-border" />
 					<div>
-						<div className="mb-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Model solution</div>
-						<div className="lh-prose text-[15px]">
+						<div className="mb-0.5 text-xs font-medium text-muted-foreground">Model solution</div>
+						<div className="font-prose text-lg">
 							<ToolContentResponse>{reveal}</ToolContentResponse>
 						</div>
 					</div>
@@ -160,10 +155,10 @@ export function ConcludeCard({ part }: ArtifactPartProps) {
 /* THE METADATA POPOVER (owner round 17 refinement, 2026-10-06 — full
  * transparency): a quiet METADATA trigger at the very bottom of the
  * conclude card (no divider — it just sits there); click opens the
- * info-box register of the graph-view node cards (rounded-xl border
- * bg-card p-4 shadow-lg, opening BELOW the trigger — always); any scroll or
- * click outside closes it (plus Esc, claimed from the layered chain
- * per the popover law). Shows every field the agent filled in both the
+ * info-box register (rounded-xl border bg-card p-4 shadow-lg, opening
+ * BELOW the trigger — always); any scroll or click outside closes it
+ * (plus Esc, claimed from the layered chain per the popover law). Shows
+ * every field the agent filled in both the
  * problem call (mode, targets — names resolved lazily) and the
  * conclude call (outcome, rung, miss class, retest). Statement and
  * modelSolution stay out — they are the visible card. The data keeps
@@ -237,7 +232,7 @@ function MetadataPopover({
 					});
 				}}
 				aria-expanded={open}
-				className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+				className="flex min-h-11 items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
 			>
 				Metadata
 			</button>
@@ -253,13 +248,13 @@ function MetadataPopover({
 						// EVERYTHING, the dialogs' law. Node-card info-box register;
 						// opening BELOW the trigger — always.
 						style={{ position: "fixed", top: anchor.top, left: anchor.left }}
-						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-xl border bg-card p-4 text-left shadow-lg"
+						className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-card p-4 text-left"
 					>
 				<dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
 						<dt className="text-muted-foreground">Mode</dt>
-						<dd className="font-mono">{mode || "—"}</dd>
+						<dd>{mode || "—"}</dd>
 						<dt className="text-muted-foreground">Targets</dt>
-						<dd className="font-mono">
+						<dd>
 							{targets.length === 0 ? (
 								"untagged"
 							) : (
@@ -274,13 +269,13 @@ function MetadataPopover({
 							)}
 						</dd>
 						<dt className="text-muted-foreground">Outcome</dt>
-						<dd className="font-mono">{outcome || "—"}</dd>
+						<dd>{outcome || "—"}</dd>
 						<dt className="text-muted-foreground">Hint rung</dt>
-						<dd className="font-mono">{rung || "none"}</dd>
+						<dd>{rung || "none"}</dd>
 						<dt className="text-muted-foreground">Miss class</dt>
-						<dd className="font-mono">{miss || "none"}</dd>
+						<dd>{miss || "none"}</dd>
 						<dt className="text-muted-foreground">Retest</dt>
-						<dd className="font-mono">{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
+						<dd>{retest === undefined ? "—" : retest ? "yes" : "no"}</dd>
 					</dl>
 					</div>,
 					document.body,
@@ -294,5 +289,5 @@ export function ThinkingCard({ data }: { data: PracticeThinkingData }) {
 	// 50%-italic quote block on expand. Legacy records' commit flag is
 	// deliberately unread (one lane now). A TRANSCRIPT row (owner round,
 	// 2026-10-07): full-width band + rail, arriving expanded.
-	return <ThinkingBlock testId="thinking-card" label="YOUR THINKING" text={data.text} defaultOpen />;
+	return <ThinkingBlock testId="thinking-card" label="Your thinking" text={data.text} defaultOpen />;
 }

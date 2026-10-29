@@ -57,16 +57,14 @@ import type {
 	ExtractedChain,
 	GraphChain,
 	SessionFindings,
-	Cluster,
 	EmissionStats,
 	GraphEdge,
 	GraphNode,
 	ProvenancePoint,
 	GraphSnapshot,
 } from "./contracts.ts";
-import { MIN_CLUSTER_SIZE } from "./clusters.ts";
 import { formatChainLine } from "./chains.ts";
-import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -383,11 +381,8 @@ export function simplifyChains(lines: GraphChain[]): GraphChain[] {
 
 // ─── derivation (reads only — everything below is recomputable) ─────────────
 
-/** The merged STORED truth: propositions + chains (chains-primary, owner
- *  2026-09-30). `nodes` are PROPOSITIONS ONLY — no derived implication
- *  nodes; the auditor's and prober's views see the world, not the
- *  rendering. The canvas-facing VIEW (implication nodes + untyped
- *  arrows) is deriveView() below — the lossy image. */
+/** Merged stored truth: propositions and chains. `nodes` are propositions
+ * only; implication nodes in the API projection are derived on read. */
 export interface DerivedGraph {
 	nodes: GraphNode[];
 	chains: GraphChain[];
@@ -440,19 +435,10 @@ export function getGraph(graphStore: Pick<GraphStore, "readNodes" | "readChains"
 	return { nodes: [...byId.values()], chains };
 }
 
-/** The DERIVED view — what the canvas renders. A SINGLE-premise chain
- *  collapses to ONE direct arrow premise → conclusion (no imp node:
- *  a chain is always N-in/1-out, so one premise is the degenerate
- *  1-in-1-out case). A MULTI-premise chain mints an implication NODE
- *  (id = the chain's arg_ id; name "⟹"; statement = the chain line;
- *  the chain's provenance/createdAt) plus arrows: each premise → the
- *  implication node, the implication node → the conclusion — the
- *  canvas renders imp nodes as pure geometry (owner, rendering arc:
- *  invisible, unpickable; co-premise lines converge headless to a
- *  point, one arrowed line leaves it). Physics keeps imp nodes as
- *  regular citizens (half link distance — layout.ts). Dangling chains
- *  (a member node missing) drop here — the deletion cascades should
- *  prevent them; this is the honest belt. */
+/** The graph-shaped API projection. A single-premise chain gives one
+ * premise→conclusion arrow. A multi-premise chain yields an implication
+ * node (id = its `arg_` chain id) and the corresponding arrows. Dangling
+ * chains drop if any endpoint was deleted. */
 export function deriveView(graph: DerivedGraph): {
 	nodes: GraphNode[];
 	edges: GraphEdge[];
@@ -464,10 +450,8 @@ export function deriveView(graph: DerivedGraph): {
 	const live = new Set(graph.nodes.map((node) => node.id));
 	const impNodes: GraphNode[] = [];
 	const edges: GraphEdge[] = [];
-	// The LOGICAL edge set (owner, 2026-09-30): every chain contracted to
-	// direct premise→conclusion arrows over PROPOSITION ids only —
-	// what inference semantics (the depth pass) consumes. The drawn edges
-	// are the canvas image; these are the meaning.
+	// The logical edge set contracts every chain to direct links between
+	// propositions; implication nodes represent multi-premise structure.
 	const impLinks: Array<{ id: string; premises: string[]; conclusion: string }> = [];
 	const logicalEdges: GraphEdge[] = [];
 	const logicalSeen = new Set<string>();
@@ -505,13 +489,11 @@ export function deriveView(graph: DerivedGraph): {
 
 // ─── the /api/graph payload ──────────────────────────────────────────────────
 
-/** Everything the home graph view needs, in one fetch (shape: contracts). */
+/** Graph data and provenance for consumers, in one fetch (shape: contracts). */
 export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 	const graph = getGraph(deps.graphStore);
-	// The canvas-facing lossy image: propositions + derived implication
-	// nodes, untyped arrows. `chains` (the stored truth) ride along for
-	// the chain table — it reads the truth, never the derived fan-out,
-	// never the derived fan-out.
+	// The derived implication nodes and arrows accompany the stored
+	// propositions and chains for consumers of the graph data.
 	const view = deriveView(graph);
 	const nodes = view.nodes;
 
@@ -552,37 +534,6 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		if (ids.length > 0) nodeSessions[nodeId] = ids;
 	}
 
-	// BIRTH-SESSION CLUSTERS (wave 7, owner-locked 2026-09-23): embeddings
-	// are dead — a cluster is the SESSION THAT CREATED ITS PROPOSITIONS,
-	// derived on read from provenance (core/session-clusters.ts). The label
-	// is the session's NAME (chat title / file path): no LLM naming pass, no
-	// persisted partition to invalidate. MIN_CLUSTER_SIZE stays the hull
-	// presentation rule (a region needs >= 3 propositions for a hull). A
-	// birth session whose record is gone (deleted chat) keeps its members
-	// but renders unlabeled — honest, never guessed.
-	// PROPOSITIONS ONLY (owner, 2026-09-30): derived implication nodes
-	// never partition — the stored world clusters, its image follows.
-	const communities = birthSessionPartition(graph.nodes);
-	const clusters: Cluster[] = communities
-		.filter((community) => community.members.length >= MIN_CLUSTER_SIZE)
-		.map((community) => ({
-			id: community.id,
-			label: sessions[community.id] ?? fileSources[community.id] ?? null,
-			members: community.members,
-		}));
-	// IMP-NODE CLUSTER ASSIGNMENT (owner, 2026-09-30): majority among the
-	// premises' birth sessions, ties to the chain's own birth — attached
-	// AFTER the hull filter so a two-proposition community + its bundle
-	// never resurrects a hull (the filter counts propositions). Both
-	// cluster-membership consumers — the sim's centroid pull and the
-	// canvas's region rasterization — read it through this one list.
-	attachImpToCommunities(clusters, graph.nodes, graph.chains);
-
-	// Resting layout (Option A): the positions ledger, when the settle has
-	// ever run. Absent on a fresh graph — the view falls back to its own
-	// one-shot pass until the first merge writes the ledger.
-	const positions = deps.graphStore.readPositions();
-
 	return {
 		nodes,
 		propositions: graph.nodes,
@@ -593,19 +544,14 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		sessions,
 		fileSources,
 		nodeSessions,
-		clusters,
-		...(Object.keys(positions).length > 0 ? { positions } : {}),
 	};
 }
 
 // ─── Prober graph tools — the data seam (wave 7, owner-locked 2026-09-23) ───
 
-/** One session in the prober's graph view: every provenance anchor the
- *  graph can name — a real chat (deep-linkable) or an imported notes file
- *  (owner ruling 2026-09-23: files are birth-sessions too, kind "file").
- *  The prober's session-list tool renders these; the per-session view is
- *  graphSessionPropositions below. Pure derivation over the same ports
- *  the snapshot reads — Teacher's tool handlers call these in-process. */
+/** One session in the prober's graph data tools: a real chat (deep-linkable)
+ * or an imported notes file (birth sessions). Both tools derive their data
+ * from the same stores as the snapshot used by the phone UI. */
 export interface GraphSessionEntry {
 	/** chatId or notes source id ("src_…") — the birth-session key. */
 	id: string;

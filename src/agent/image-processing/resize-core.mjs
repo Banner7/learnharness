@@ -1,5 +1,5 @@
 // Ported from @earendil-works/pi-coding-agent 1.1.0, dist/utils/image-resize-core.js (MIT).
-// Runtime .mjs resources stay unbundled for Next's Node/Electron worker packaging.
+// Fork rewrite (2026-10-29): worker/core/EXIF/Photon resources ship unbundled.
 import { applyExifOrientation } from "./exif-orientation.mjs";
 import { loadPhoton } from "./photon.mjs";
 /**

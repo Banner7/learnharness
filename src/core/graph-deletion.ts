@@ -29,10 +29,8 @@
  *                   chat leaves the ledgers — its provenance points on
  *                   every node and chain line, its link lines (their
  *                   phrasings die with them), its coverage/checkpoint
- *                   rows — and orphans die: a node
- *                   whose references all came from this chat disappears
- *                   entirely, pruned from the positions ledger too (dead
- *                   members would break cluster hulls).
+ *                   rows — and orphans die: a node whose references all
+ *                   came from this chat disappears entirely.
  *
  * Shared nodes survive automatically (the ruling): a node lives iff ANY
  * surviving reference remains — a provenance point from another chat or
@@ -210,26 +208,6 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 		checkpoints,
 	});
 
-	// 4. Positions: prune dead nodes AND dead chains (an argument's derived
-	//    implication node carries the chain's arg_ id — stale resting spots
-	//    would pin nothing; pruning keeps the ledger honest and the
-	//    revision moving for exactly the right reason).
-	const deadChainIds = new Set(
-		chainLines
-			.filter((line) => !outChains.includes(line))
-			.map((line) => line.id),
-	);
-	const positions = graphStore.readPositions();
-	const knownNodeIds = new Set(nodeLines.map((line) => line.id));
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(
-			([id]) => (live.has(id) || !knownNodeIds.has(id)) && !deadChainIds.has(id),
-		),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
-	}
-
 	return stats;
 }
 
@@ -247,7 +225,6 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
  *   - every line of the node (create + link lines)
  *   - every CHAIN referencing it (as premise or conclusion), whatever
  *     session asserted it — a chain with a dead member is not a chain
- *   - its resting position (and every dead chain's)
  *
  * An ARGUMENT deletion is the same call with an arg_-prefixed id (owner,
  * 2026-09-30: the chain table's fenced delete kills chains): the "node"
@@ -257,10 +234,9 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
  * provenance, aliases, and sessions are untouched (full death is
  * NODE-scoped, not session-scoped), and the source records of notes
  * imports stay (the import's bookkeeping; deleting one proposition is not
- * deleting the file). Derived data needs no pruning: the birth partition
- * derives on read (the cluster shrinks below MIN_CLUSTER_SIZE and stops
- * rendering — fine), and no other consumer indexes nodes by id across
- * ledgers.
+ * deleting the file). The birth-session partition derives from the
+ * surviving provenance on each read; no separate layout or positions
+ * data needs pruning.
  *
  * Synchronous, one rewriteLedgers call, no awaits (the same atomicity
  * argument as the chat cascade); idempotent in the wave-6 sense — a
@@ -295,11 +271,6 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 		const outChains = chainLines.filter((line) => line.id !== nodeId);
 		if (outChains.length === chainLines.length) return null; // unknown argument
 		graphStore.rewriteLedgers({ chains: outChains });
-		const positions = graphStore.readPositions();
-		if (positions[nodeId] !== undefined) {
-			const { [nodeId]: _dead, ...rest } = positions;
-			graphStore.writePositions(rest);
-		}
 		return { chainsRemoved: chainLines.length - outChains.length };
 	}
 
@@ -317,16 +288,6 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 		nodes: outNodes,
 		...(outChains.length !== chainLines.length ? { chains: outChains } : {}),
 	});
-
-	// The resting positions die with the node and every dead chain.
-	const deadChainIds = new Set(chainLines.filter((line) => !outChains.includes(line)).map((line) => line.id));
-	const positions = graphStore.readPositions();
-	const prunedPositions = Object.fromEntries(
-		Object.entries(positions).filter(([id]) => id !== nodeId && !deadChainIds.has(id)),
-	);
-	if (Object.keys(prunedPositions).length !== Object.keys(positions).length) {
-		graphStore.writePositions(prunedPositions);
-	}
 
 	return {
 		chainsRemoved: chainLines.length - outChains.length,

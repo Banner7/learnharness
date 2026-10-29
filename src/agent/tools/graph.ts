@@ -12,10 +12,8 @@ import type { ChatStore, GraphStore } from "../../core/ports.ts";
  *
  * Names + levels + dating ONLY — no statement text, no session contents
  * (owner ruling: the map's ORGANIZATION is the prober's business, its
- * prose is not). The data comes from Platform's pure core seams
- * (graphSessionIndex / graphSessionPropositions) over the same ports the
- * snapshot reads, so the prober and the learner's graph view can never
- * disagree.
+ * prose is not). Both prober tools read the same graph data stores as the
+ * snapshot and the phone's proposition picker.
  *
  * Registered on the prober ONLY when the settings gate opens
  * (graphToolsEnabled — the graph master switch AND the agent.graphTools

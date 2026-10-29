@@ -1,0 +1,26 @@
+# Template only; deployment and server credentials require separate approval.
+services:
+  learnharness:
+    build: .
+    image: learnharness:local
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${LH_HOST_PORT:-3000}:3000"
+    env_file:
+      - ./secrets/runtime.env
+    environment:
+      LH_DATA_DIR: /data
+      LH_AUTH_FILE: /secrets/auth.json
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+      # Claude Code CLI state (CLAUDE_CONFIG_DIR); owned by uid 1000 (node).
+      - ./claude:/claude
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

@@ -18,7 +18,7 @@ export const MermaidError = ({
 }: MermaidErrorComponentProps & { className?: string }) => (
 	<div
 		className={cn(
-			"my-4 rounded-xl border border-destructive/40 bg-destructive/5 p-4",
+			"my-4 rounded-lg border border-border p-4 font-ui",
 			className,
 		)}
 		data-streamdown="mermaid-error"
@@ -26,14 +26,14 @@ export const MermaidError = ({
 		<p className="text-sm font-medium text-destructive">
 			Diagram failed to render
 		</p>
-		<p className="mt-1 font-mono text-xs break-words text-muted-foreground">
+		<p className="mt-1 break-words text-xs text-muted-foreground">
 			{error}
 		</p>
 		<details className="mt-3">
-			<summary className="cursor-pointer text-xs text-muted-foreground">
+			<summary className="flex min-h-11 cursor-pointer items-center text-xs text-muted-foreground">
 				Show diagram source
 			</summary>
-			<pre className="mt-2 overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground">
+			<pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs text-foreground">
 				{chart}
 			</pre>
 		</details>

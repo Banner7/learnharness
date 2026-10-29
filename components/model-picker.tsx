@@ -8,11 +8,48 @@ import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-men
 import { composeSlotModel } from "@/components/settings/agent-section";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
-import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
-import { useModelCatalog } from "@/components/model-catalog";
-export { useModelCatalog } from "@/components/model-catalog";
+import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
 
+/** GET /api/models is cached per page load for instant menu opens, but
+ *  the server's configured providers can change out-of-band. ModelControl
+ *  therefore re-fetches on
+ *  every model-menu open (stale-while-revalidate: the cached list shows
+ *  instantly, the fresh one swaps in while the menu is open). */
+let catalogCache: ModelCatalogResponse | undefined;
+let catalogInflight: Promise<void> | undefined;
+let catalogGeneration = 0;
+let stopCatalogSignals: (() => void) | undefined;
+const catalogReaders = new Set<() => void>();
+const publishCatalog = () => { for (const reader of catalogReaders) reader(); };
+function fetchCatalog(revalidate = false): void {
+	if (revalidate) { catalogGeneration++; catalogInflight = undefined; }
+	if (catalogInflight) return;
+	const generation = catalogGeneration;
+	catalogInflight = fetch("/api/models")
+		.then((r) => { if (!r.ok) throw new Error(`catalog request failed: ${r.status}`); return r.json() as Promise<ModelCatalogResponse>; })
+		.then((c) => { if (generation === catalogGeneration) { catalogCache = c; publishCatalog(); } })
+		.catch(() => { /* existing unavailable/usage-only posture, no retry timer */ })
+		.finally(() => { if (generation === catalogGeneration) catalogInflight = undefined; });
+}
+export function useModelCatalog(): { catalog: ModelCatalogResponse | undefined; refresh: () => void } {
+	const [catalog, setCatalog] = useState(catalogCache);
+	useEffect(() => {
+		const first = catalogReaders.size === 0;
+		const read = () => setCatalog(catalogCache);
+		catalogReaders.add(read);
+		if (first) {
+			stopCatalogSignals = onSettingsSaved((section) => {
+				if (section === "models" || section === "claudeCode") fetchCatalog(true);
+			});
+			fetchCatalog(true);
+		} else fetchCatalog();
+		read();
+		return () => { catalogReaders.delete(read); if (!catalogReaders.size) { stopCatalogSignals?.(); stopCatalogSignals = undefined; } };
+	}, []);
+	const refresh = useCallback(() => fetchCatalog(true), []);
+	return { catalog, refresh };
+}
 /** provider:id → known contextWindow over the cached catalog, mirroring
  * the server's catalogContextLimits join. CLI aliases have no global
  * denominator: the stats bar uses that session's actual CLI report instead.
@@ -33,7 +70,7 @@ export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Ma
  * WITHOUT a chatId (the draft surfaces — home + /chat/new): the pills
  * bind the STRONG SLOT (reads the raw models section, GET /api/settings;
  * writes PUT /api/settings/models via composeSlotModel — the same seam
- * the settings Agent section and the SetupDialog write): picking there IS
+ * the settings Models section writes): picking there IS
  * changing the new-session default. Unpicked reads "—" (the
  * no-factory-fallback language: the UI never presents a default model).
  */
@@ -110,14 +147,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// only: the record stays unset until a fresh pick populates it.
 	const effectiveLevel = storedLevel ?? (entry ? defaultOrderLevel(levels) : undefined);
 
-	// The intuitive dropdown contract (owner, stats-control round 1): any
-	// click outside the open menu — or an Esc keypress — closes it. The
-	// menu's own surface keeps it open: the toggle buttons live inside the
-	// container, and the menu BODY lives in a portal on document.body
-	// (MenuShell) — never a container descendant, so its rows are carved
-	// out via [data-lh-menu] (the settings sections' discipline; without
-	// it a row's pointerdown counts as outside and eats the pick —
-	// live-caught in the fix wave, broken since the MenuShell migration).
+	// Pointer dismissal includes the portaled menu body.
 	useEffect(() => {
 		if (open === null) return;
 		const onPointerDown = (e: PointerEvent) => {
@@ -127,19 +157,9 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				setOpen(null);
 			}
 		};
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// Claim the Esc (keyboard wave A): the window-level chain must
-				// not ALSO stop dictation / abort the turn under this menu.
-				e.stopPropagation();
-				setOpen(null);
-			}
-		};
 		document.addEventListener("pointerdown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [open]);
 
@@ -221,35 +241,8 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		[chatId, models, save, saveChat],
 	);
 
-	// Shortcut seams (keyboard wave A): ⌘K opens the model menu (the
-	// universal command convention); Shift+Tab cycles the thinking level
-	// up the ladder (wrapping) — the owner's replacement for browser
-	// tab-focus. Both work from any focus, including mid-typing.
-	useEffect(() => {
-		const onOpenPicker = () => {
-			setOpen("model");
-			setError(null);
-			refresh(); // mid-session key changes widen the menu (cache fix)
-		};
-		window.addEventListener("lh:kbd-open-model-picker", onOpenPicker);
-		return () => window.removeEventListener("lh:kbd-open-model-picker", onOpenPicker);
-	}, [refresh]);
 
-	useEffect(() => {
-		const onCycleThinking = () => {
-			if (levels.length === 0) return;
-			const idx = effectiveLevel === undefined ? -1 : levels.indexOf(effectiveLevel);
-			const next = levels[(idx + 1) % levels.length];
-			if (next === undefined) return;
-			apply(effectiveProvider ?? "", effectiveId ?? "", next);
-		};
-		window.addEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-		return () => window.removeEventListener("lh:kbd-cycle-thinking", onCycleThinking);
-	}, [levels, effectiveLevel, effectiveProvider, effectiveId, apply]);
-
-	// Selecting a model (click and Enter share one path): keep the
-	// thinking level only when the new model supports it — otherwise
-	// drop it (a carry-over would 400 at the server's catalog gate).
+	// Selecting a model keeps its supported thinking level.
 	const pickModel = (m: ModelCatalogEntry) => {
 		// Auto-populate (chunk 2, owner: "populate everywhere"): a fresh pick
 		// ALWAYS writes a level — the STORED one rides as-is (the write clamps
@@ -263,9 +256,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 		apply(m.provider, m.id, nextLevel);
 	};
 
-	// Stale-while-revalidate on manual open too (⌘K covers the keyboard
-	// path above): the cached list shows instantly, the fresh federation
-	// swaps in when it lands.
+	// Refresh the cached list on manual open.
 	const openMenu = (kind: "model" | "thinking") => {
 		setOpen((o) => (o === kind ? null : kind));
 		setError(null);
@@ -273,10 +264,9 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	};
 
 	return (
-		<div ref={containerRef} className="relative flex items-center gap-1.5" data-testid="model-control">
+		<div ref={containerRef} className="relative flex items-center gap-1" data-testid="model-control">
 			<Hint
-				label={effectiveId ? `${effectiveProvider ? `${effectiveProvider}:` : ""}${effectiveId}` : "Model selector"}
-				action="open-model-picker"
+				label="Model selector"
 				side="bottom"
 			>
 				<button
@@ -284,22 +274,14 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 				data-testid="stats-model"
 				onClick={() => openMenu("model")}
 				aria-expanded={open === "model"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+				className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
 			>
-				<span className="text-card-foreground">{effectiveId ? prettyModel(effectiveId) : "—"}</span>
+				<span className="text-foreground">{effectiveId ? (entry?.label ?? prettyModel(effectiveId)) : "—"}</span>
 				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
 			</button>
 			</Hint>
 			<Hint
-				// "Thinking" + its real shortcut via the registry (owner interlude
-				// 2026-09-25): ⇧⇥ cycles the level, so "Thinking (⇧⇥)" —
-				// rebind-live like every Hint suffix.
 				label="Thinking"
-				action="cycle-thinking"
 				side="bottom"
 			>
 				<button
@@ -312,30 +294,24 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					openMenu("thinking");
 				}}
 				aria-expanded={open === "thinking"}
-				// Chrome look (owner, fix wave round 3): matches the graph
-				// view's floating top-right buttons (import notes, gear,
-				// coverage) — blurred, fuller opacity, shadowed — so the
-				// graph no longer bleeds through these pills.
-				className="flex items-center gap-1.5 rounded-full border bg-card/85 px-2.5 py-1 shadow-lg backdrop-blur transition-colors hover:border-border hover:bg-muted"
+				className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
 			>
 				{/* Just the level — the button reads like the model button reads
 				   the model name (owner, stats-control round 1). */}
-				<span className="text-card-foreground">
+				<span className="text-foreground">
 					{effectiveLevel === undefined ? "—" : (THINKING_LABEL[effectiveLevel] ?? effectiveLevel)}
 				</span>
 				<span aria-hidden className="text-xs text-muted-foreground">▾</span>
 			</button>
 			</Hint>
 
-			{/* The shared dropdown body (extracted 2026-09-20): the agent
-			    settings' slot selects and the setup dialog use the exact same
-			    one. */}
+			{/* Share the dropdown body with the agent settings' model slots. */}
 			{open === "model" && (
 				<MenuShell
 					anchorRef={containerRef}
 					testid="model-menu"
 					preferredSide="up"
-					menuClass="flex w-[22rem] flex-col rounded-xl border bg-card p-2 text-xs shadow-xl"
+					menuClass="flex w-[22rem] flex-col rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
 				>
 					{error && <div className="mb-1.5 text-destructive">{error}</div>}
 					<ModelMenuList
@@ -345,7 +321,7 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 						onPick={pickModel}
 						footer={
 							catalog && catalog.models.length === 0
-								? "No models — add a provider key in Keys"
+								? "No models — configure a provider on the server"
 								: chatId
 									? "This session's model"
 									: "Strong tier — the default for new sessions"
@@ -359,13 +335,13 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 					anchorRef={containerRef}
 					testid="thinking-menu"
 					preferredSide="up"
-					menuClass="flex w-44 flex-col gap-0.5 rounded-xl border bg-card p-2 text-xs shadow-xl"
+					menuClass="flex w-44 flex-col gap-0.5 rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
 				>
 					<ThinkingMenuList
 						levels={catalog ? levels : []}
 						effectiveLevel={effectiveLevel}
 						onPick={(level) => apply(effectiveProvider ?? "", effectiveId ?? "", level as ThinkingLevel)}
-						empty={catalog ? (effectiveId ? `${prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
+						empty={catalog ? (effectiveId ? `${entry?.label ?? prettyModel(effectiveId)} has no thinking levels.` : "Pick a model first.") : "Loading…"}
 						footer="Levels this model actually supports"
 					/>
 					{error && <div className="mt-1 text-destructive">{error}</div>}

@@ -31,7 +31,6 @@ import { after, describe, it } from "node:test";
 // values only, never real secrets).
 for (const varName of [
 	"OPENROUTER_API_KEY",
-	"DEEPGRAM_API_KEY",
 	"TAVILY_API_KEY",
 	"BRAVE_API_KEY",
 	"OPENAI_API_KEY",
@@ -58,7 +57,7 @@ process.env.OPENAI_API_KEY = "sk-openai-env-env-env";
 process.env.LH_IGNORE_ENV_KEYS = "1";
 
 // Import AFTER env setup — module init runs the boot deletion + fill-gap.
-const { deleteKey, envKeysIgnored, initAuthEnv, keyStatuses, keyValue, saveKey } = await import(
+const { envKeysIgnored, initAuthEnv, keyValue } = await import(
 	"../src/server/keys.ts"
 );
 const { authStore } = await import("../src/store/auth.ts");
@@ -107,30 +106,6 @@ describe("the fresh-user switch (boot under LH_IGNORE_ENV_KEYS=1)", () => {
 			delete process.env.OPENROUTER_API_KEY;
 			process.env.LH_IGNORE_ENV_KEYS = "1";
 		}
-	});
-
-	it("the status view is the fresh machine's: file sources only, no env rows, no shadowing", () => {
-		const rows = keyStatuses();
-		const openai = rows.find((r) => r.id === "OPENAI_API_KEY");
-		assert.ok(openai, "the file-backed provider key has a row");
-		assert.equal(openai!.present, true);
-		assert.equal(openai!.source, "file", "realEnv is empty under the switch — nothing reports as env");
-		assert.equal(openai!.shadowedByEnv, false);
-		assert.equal(rows.some((r) => r.id === "OPENROUTER_API_KEY"), false, "the env-only key is gone everywhere — no row");
-		assert.equal(rows.some((r) => r.source === "env"), false, "no env-owned key under the switch");
-	});
-
-	it("a fresh user CAN add keys mid-session: save reflects file → env (engines see it, no restart)", () => {
-		const result = saveKey("ZAI_API_KEY", "zai-fresh-sim-key-1234567890");
-		assert.equal(result.ok, true);
-		assert.equal(authStore.authVars().ZAI_API_KEY, "zai-fresh-sim-key-1234567890", "persisted to the file");
-		assert.equal(process.env.ZAI_API_KEY, "zai-fresh-sim-key-1234567890", "reflected into env for pi-ai");
-		const row = keyStatuses().find((r) => r.id === "ZAI_API_KEY");
-		assert.equal(row!.source, "file", "the status honestly reports the file as the source");
-		// and DELETE removes both (fill-gap semantics hold under the switch)
-		deleteKey("ZAI_API_KEY");
-		assert.equal(process.env.ZAI_API_KEY, undefined);
-		assert.equal(authStore.authVars().ZAI_API_KEY, undefined);
 	});
 
 	it("re-running initAuthEnv is idempotent — deleted env keys never resurrect", () => {

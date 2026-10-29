@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBackdropDismiss } from "@/components/backdrop-dismiss";
+import { tap } from "@/lib/haptics";
+import { HapticLabel } from "@/components/ui/haptic";
 import type { ChatDeleteMode, ChatListItem } from "@/src/core";
 
 /** The graph-traces checkbox copy (owner, 2026-09-24 flow rework — was
@@ -18,8 +20,8 @@ export const TRACES_COPY = {
 
 /**
  * Session deletion (wave 6 chunk A; owner flow rework 2026-09-24) — THE
- * destructive-confirmation surface, portaled z-50 like the setup dialog,
- * now in the node dialog's shape (the two must read as one design):
+ * destructive-confirmation surface, portaled z-50 in the node dialog's
+ * shape (the two must read as one design):
  *
  *   - red title "Delete session?" in the abort-turn look (owner, 2026-10-13
  *     polish: text-sm font-semibold JetBrains Mono via the UI default —
@@ -70,22 +72,6 @@ export function DeleteSessionDialog({
 		}
 	}, [chat]);
 
-	// Esc closes (claimed — a menu/dialog Esc must not also abort a turn).
-	useEffect(() => {
-		if (!chat) return;
-		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				// THE ONE-ESC LAW (keyboard round 2026-10-06): claim at the
-				// document level — a window-level stopPropagation cannot stop
-				// the earlier-registered global window listener.
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [chat, onClose]);
 
 	const run = async () => {
 		if (!chat || busy) return;
@@ -162,26 +148,20 @@ export function DeleteSessionBody({
 			aria-label="Delete session"
 			data-testid="delete-session-dialog"
 			onClick={(e) => e.stopPropagation()}
-			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-5 shadow-xl"
+			className="w-[32rem] max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-popover p-5 shadow-lg"
 		>
 			<h2 className="text-sm font-semibold text-destructive">Delete session?</h2>
-			{/* The session name below the title in JetBrains Mono (owner,
-			    2026-09-24): no code-block chrome — the font already says
-			    code. Owner, 2026-10-13 polish: normal text-sm size (was
-			    sized-up text-lg), still white. Same shape as the node
-			    dialog. */}
 			<div className="mt-1.5">
-				<code data-testid="session-name-code" className="font-mono text-sm text-foreground">
+				<span data-testid="session-name-code" className="font-prose text-base text-foreground">
 					{chat.title}
-				</code>
+				</span>
 			</div>
 			<p className="mt-2 text-sm text-muted-foreground">
 				This permanently removes the session — its messages, background jobs, and extraction records. Everything
 				it added to the graph stays unless you check below. This cannot be undone.
 			</p>
 			<label
-				data-testid={TRACES_COPY.testid}
-				className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-lg border border-border/60 px-4 py-3"
+				className="mt-4 flex min-h-11 cursor-pointer items-start gap-2.5 rounded-md border border-border px-4 py-3"
 			>
 				<input
 					type="checkbox"
@@ -206,7 +186,7 @@ export function DeleteSessionBody({
 					<button
 						type="button"
 						data-testid="delete-retry"
-						onClick={onRun}
+						onClick={() => { tap(); onRun(); }}
 						disabled={busy}
 						className="ml-3 text-xs text-foreground underline-offset-2 hover:underline disabled:opacity-40"
 					>
@@ -214,27 +194,27 @@ export function DeleteSessionBody({
 					</button>
 				</div>
 			)}
-			{/* The node dialog's exact bottom row: quiet Cancel, destructive
-			    red Delete (border + text, fill on hover — the app's
-			    established destructive pair). */}
+			{/* Redesign (2026-10-29): only confirmation gets the destructive fill;
+			    the surrounding choices stay quiet. */}
 			<div className="mt-4 flex justify-end gap-2">
 				<button
 					type="button"
 					data-testid="delete-cancel"
 					onClick={onClose}
 					disabled={busy}
-					className="rounded-sm px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+					className="min-h-11 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
 				>
 					Cancel
 				</button>
 				<button
 					type="button"
 					data-testid="delete-confirm"
-					onClick={onRun}
+					onClick={() => { tap(); onRun(); }}
 					disabled={busy}
-					className="rounded-sm border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+					className="relative min-h-11 rounded-md bg-destructive px-3 text-sm font-medium text-primary-foreground hover:bg-destructive/90 disabled:opacity-40"
 				>
 					{busy ? "Deleting…" : "Delete"}
+					<HapticLabel />
 				</button>
 			</div>
 		</div>

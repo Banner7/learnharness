@@ -45,10 +45,10 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 // Route-level pin (the chat-birth-stamp pattern): the dismiss route's
 // handler, driven directly. Env is the runner's (the same the static
 // store imports already resolved under).
-const dismissRoute = await import("../app/api/chats/[id]/dismiss/route.ts");
-const steerRoute = await import("../app/api/chats/[id]/steer/route.ts");
-const streamRoute = await import("../app/api/chats/[id]/stream/route.ts");
-const recordRoute = await import("../app/api/chats/[id]/route.ts");
+const dismissRoute = await import("../server/routes/chats/[id]/dismiss/route.ts");
+const steerRoute = await import("../server/routes/chats/[id]/steer/route.ts");
+const streamRoute = await import("../server/routes/chats/[id]/stream/route.ts");
+const recordRoute = await import("../server/routes/chats/[id]/route.ts");
 import { PATHS } from "../config.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
@@ -910,7 +910,7 @@ describe("canonical persistence failures", () => {
 				automaticPosts++;
 				return new Response("unexpected automatic retry", { status: 500 });
 			} });
-			missedView.setMessages(snapshot.messages, snapshot.turnError);
+			missedView.setMessages(snapshot.messages, snapshot.turnFailure ?? undefined);
 			await missedView.continueIfOwed(snapshot.messages);
 			assert.equal(automaticPosts, 0, "the record notice must block replacement even without a stream attachment");
 			assert.equal(missedView.getState().error?.message, "The reply could not be saved.");
@@ -1090,7 +1090,7 @@ describe("the key-presence turn gate (provider-key interlude, 2026-09-25)", () =
 			assert.equal(body.code, "provider_key_missing");
 			assert.equal(body.provider, "together", "the envelope names whose key is gone");
 			assert.deepEqual(body.slots, ["strong"], "the conversation tier is the affected slot");
-			assert.equal(body.error, "No Together key is set — add one in Settings → Keys", "the human line names the provider");
+			assert.equal(body.error, "No Together credential is configured — configure it on the server", "the human line names the provider");
 			assert.equal(isTurnRunning(chat.id), false, "the refusal never registers a live turn");
 			assert.equal(chatStore.getChat(chat.id)!.messages.length, 0, "no write-ahead persist before the gate");
 		} finally {

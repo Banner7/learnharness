@@ -2,6 +2,8 @@
 
 Living document. Started 2026-08-22, capturing the current vision and all agreed decisions. Amend as things evolve.
 
+**Private-fork supersession (2026-10-26):** Earlier graph-canvas, keyboard and desktop passages below record historical design decisions, not current implementation instructions. This fork is browser-only: no Electron packaging, setup dialog, auto-updater or theme controls. The graph's data/APIs remain. The phone UI runs at all widths with a topic composer, overlay sidebar, inline transcript questions and Settings sheets.
+
 Master frame: the three-part learning model and the extensibility/plugin direction live in [`vision-extensibility.md`](vision-extensibility.md) (2026-10-02).
 
 Prior art: `knowledge graph design.md` in the Obsidian vault (2025-08-20 ideation) — was canonical for the epistemic model; the 2026-09-02 node-theory + construction redesign in §1 amends it further (no misconception nodes, `follows`/`supports`, no taught events, message-granular provenance). This document records what today's decisions **amend** in it, and adds the session-experience and presentation layers the original doc deferred.
@@ -10,7 +12,7 @@ Prior art: `knowledge graph design.md` in the Obsidian vault (2025-08-20 ideatio
 
 ## 1. The knowledge graph — the centerpiece
 
-Everything the learner learns accumulates into one persistent, cross-domain graph. It is the home page of the app and the heart of the system: structure builds out visibly over time, and the data supports frontier expansion, what-next queries, repairs, unlock-value (per the original design doc).
+The original vision placed a visual knowledge graph at the center of the home page. Its persistent, cross-domain propositions and chains remain central to the learning data, but the private fork's home page is now the topic composer (see the UI supersession above).
 
 **Node theory + construction redesigned 2026-09-02** — the subsections below from "What the graph is" through "Understanding is derived" are the current philosophy, superseding both the original design doc's epistemic model in part and the 2026-08-22 live-emission construction decision (see the amendments table).
 
@@ -154,14 +156,9 @@ The most general and capable demo runtime is the one we already ship: **the web 
 - **Python: deferred.** Pyodide (WASM CPython; numpy works; matplotlib renders static figures) is the only no-server path — heavy (10–20 MB lazy download) and poor at interactivity (static-image-oriented re-rendering). Revisit when a session genuinely wants numpy-grade computation. **Server-side Python: rejected** (sandbox infrastructure, portability).
 - The system prompt should push demos the way it pushes diagrams: *if the concept is dynamic — a parameter to sweep, a process to animate, a distribution to sample — build the instrument, don't describe it.*
 
-### Notes, thinking out loud, and dictation (DECIDED direction; build later)
+### Notes and thinking out loud (DECIDED direction)
 
-The note field is not an auxiliary input — it's the channel where the learner **reasons out loud**. The lesson should evolve from it: the teacher is prompted to elicit yapping ("talk me through your reasoning"), to reference the learner's own words later, and notes feed the graph as diagnostic events (per the design doc: notes are calibration gold). Notes get more prominent treatment in the UI.
-
-**Dictation is a requirement, not a luxury** — yapping means talking, not typing. What it requires on the web:
-1. **Capture:** `getUserMedia` + AudioWorklet → 16 kHz linear16 PCM (browser-native; replaces the pi extension's sox/`rec`).
-2. **Transport + transcription:** the pi `dictate` extension's proven recipe ports directly — Deepgram streaming (`nova-3`, `smart_format`, `punctuate`, `endpointing=300`), per-utterance finals. Architecture: a server route mints a **short-lived Deepgram token**, the browser connects to Deepgram's WSS directly (API key never touches the client). On-device whisper (transformers.js/WebGPU) is the private/offline alternative — deferred unless Deepgram disappoints.
-3. **UX:** mic button in the composer blob; live level meter (AnalyserNode — the pi extension's responsive visuals rebuilt for web); transcript lands in the textarea/field, editable before send; Escape cancels; **a finished dictation is never lost** (carried over from the pi extension's hard-won UX lessons).
+The note field is not an auxiliary input — it's the channel where the learner reasons through ideas in their own words. The lesson should evolve from it: the teacher is prompted to ask "talk me through your reasoning," to reference the learner's own words later, and notes feed the graph as diagnostic events. Notes get more prominent treatment in the UI.
 
 ### It is not a chat — the presentation principle (direction, 2026-08-22 — LOW PRIORITY)
 
@@ -190,7 +187,7 @@ The margin model above has two real flaws, spotted in review: (a) **placement** 
 The evolved model keeps the chat-killing (asymmetry) and drops the relocation:
 
 - **One chronological spine.** Everything renders in time order at the frontier. The learner's block stays **intact, visible, and timestamped** — always.
-- **The learner block is an "interjection" card, not a bubble.** A distinct block species: full-width, tinted, left rule, `You · 3:41 PM` kicker (mic badge when dictated). Never right-aligned, never a bubble. Chat-ness dies by **type asymmetry and document typography**, not by relocating the learner's words.
+- **The learner block is an "interjection" card, not a bubble.** A distinct block species: full-width, tinted, left rule, `You · 3:41 PM` kicker. Never right-aligned, never a bubble. Chat-ness dies by **type asymmetry and document typography**, not by relocating the learner's words.
 - **The teacher's reply is woven document content.** A multi-question yap gets a **Q&A interlude**: the teacher quotes each fragment and answers in prose beneath it (LLMs are natively great at quote-then-answer — contextuality without moving the learner's text). The send moment pays off structurally: tree may visibly update (detour nodes), then the interlude writes itself.
 - **Anchoring survives as a link overlay, never a relocation.** When a question clearly refers to an earlier passage, a deep link is attached (and a backlink on the passage: "questioned here ↩"). The margin/panel can later *show* "questions attached to this node" as a computed **view** — a lens, not storage. No scattering; chronology intact; the revision aid is preserved as a byproduct.
 
@@ -251,7 +248,7 @@ The teacher's context window and attention are precious — it has the lesson to
 6b. **Researcher tool** — fact verification for the teacher (§2.5); cheap port of proven pi pieces. **✅ Wave 1 (W2): async job protocol, live activity card, sourced brief, teacher continuation. Live-verified.**
 7. **Presentation fixes** — LaTeX delimiters, line breaks, mermaid integration. **✅ Wave 1 (W3): \(…\)/\[…\] contract ($ literal forever), remark-breaks, dark mermaid + styled streamdown chrome. Live-verified.**
 8. **Structural-identity candidates** (from §2 ideation, pending selection): sectioned lesson-document transcript, gated progression, typed blocks, session-state strip.
-9. **Later:** dictation (Deepgram token-mint + AudioWorklet capture), frontier expansion + what-next queries (new territory / repairs / conversions), spaced repetition on the event ledger, practice exercises, Electron.
+9. **Later:** frontier expansion + what-next queries (new territory / repairs / conversions), spaced repetition on the event ledger, practice exercises, Electron.
 
 ---
 

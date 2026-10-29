@@ -103,7 +103,7 @@ test("shape parsers retain source text and identities; recovery is presentation 
 test("the live dock recovers only its rendering, including question, context and option labels", () => {
 	const source = { question: doubled, details: doubled, options: [{ label: doubled }, { label: "no" }] };
 	const before = structuredClone(source);
-	const html = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="source_q" input={source} expanded onExpand={() => {}} onSubmit={() => {}} />);
+	const html = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="source_q" input={source} onSubmit={() => {}} />);
 	assert.deepEqual(tex(html), Array(3).fill(String.raw`\nabla f`));
 	assert.deepEqual(source, before);
 });
@@ -144,7 +144,6 @@ test("historical source join restores matrices while retaining recorded order, a
 	assert.equal(projection.confidence, 70);
 	const html = renderToStaticMarkup(<AnsweredCard answer={answer} input={input} />);
 	assert.deepEqual(tex(html), [a.slice(1,-1), b.slice(1,-1), a.slice(1,-1)]);
-	assert.match(html, /incorrect/);
 	assert.deepEqual({ answer, input }, before);
 });
 

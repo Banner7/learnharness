@@ -11,7 +11,7 @@ import React from "react";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Composer, enterAction } from "../components/composer.tsx";
+import { Composer } from "../components/composer.tsx";
 
 function render(
 	opts: { busy?: boolean; canSend?: boolean; placeholder?: string; nextProblem?: boolean } = {},
@@ -51,22 +51,15 @@ describe("Composer", () => {
 		assert.ok(idleStop.includes('aria-label="Stop"'), "empty composer: stop replaces send while streaming");
 	});
 
-	it("send button radius is 10px = 25% of the 40px button (concentric with the shell)", () => {
-		const html = render();
-		assert.ok(html.includes("rounded-[10px]"), "send radius = shell radius − row padding");
-		assert.ok(html.includes("size-10"), "40px send button (10px = 25%)");
-	});
-
 	it("disabled when nothing to send", () => {
 		const html = render({ canSend: false });
 		assert.ok(/aria-label="Send"[^>]*disabled|disabled[^>]*aria-label="Send"/.test(html), "send disabled");
 	});
 
-	it("THE NEXT MORPH (owner round 16 refinement): empty composer in the pause → wide green Next problem", () => {
+	it("THE NEXT MORPH (owner round 16 refinement): empty composer in the pause → wide Next problem", () => {
 		const html = render({ canSend: false, nextProblem: true });
 		assert.ok(html.includes('data-testid="next-problem-button"'), "the morphed button");
 		assert.match(html, /Next problem/, "the label");
-		assert.ok(html.includes("bg-green-600"), "green — the correct-answer register");
 		assert.ok(!html.includes('aria-label="Send"'), "the square send is gone in the pause");
 	});
 
@@ -80,39 +73,5 @@ describe("Composer", () => {
 		const html = render({ busy: true, canSend: false, nextProblem: true });
 		assert.ok(html.includes('aria-label="Stop"'), "stop wins the empty lane mid-turn");
 		assert.ok(!html.includes('data-testid="next-problem-button"'), "no next morph mid-turn");
-	});
-});
-
-// The Enter decision (composer steering, 2026-10-03): while a turn runs,
-// typed text makes Enter a STEER; Enter with an empty composer stays the
-// stop shortcut. (The plan-verdict accept branch died 2026-09-26 with the
-// verdict itself — the post-plan reply is a natural text message.) Pure
-// function so the static-render harness can pin it (key events can't be
-// simulated in renderToStaticMarkup).
-describe("enterAction", () => {
-	it("busy stream with text: Enter steers (the queued send)", () => {
-		assert.equal(enterAction({ busy: true, canSend: true }), "send");
-	});
-
-	it("busy stream, empty composer: Enter stops", () => {
-		assert.equal(enterAction({ busy: true, canSend: false }), "stop");
-	});
-
-	it("idle: send when there is the text, nothing when there is not", () => {
-		assert.equal(enterAction({ busy: false, canSend: true }), "send");
-		assert.equal(enterAction({ busy: false, canSend: false }), "none");
-	});
-
-	it("the practice pause (owner round 16): Enter on an EMPTY composer fires the move-on signal", () => {
-		assert.equal(enterAction({ busy: false, canSend: false, nextProblem: true }), "next");
-	});
-
-	it("typing anything outranks the pause — text makes Enter a send again", () => {
-		assert.equal(enterAction({ busy: false, canSend: true, nextProblem: true }), "send");
-	});
-
-	it("busy outranks the pause — steering and Stop keep their lanes", () => {
-		assert.equal(enterAction({ busy: true, canSend: false, nextProblem: true }), "stop");
-		assert.equal(enterAction({ busy: true, canSend: true, nextProblem: true }), "send");
 	});
 });

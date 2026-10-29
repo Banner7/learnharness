@@ -9,8 +9,8 @@
  * holds REAL user override files — this suite must never touch it (the
  * old after() wiped it as "disposable scratch", killing real overrides
  * and orphaning their ON switches). LH_DATA_DIR is the established
- * data-location seam (Electron contract, 2026-09-17; see
- * data-dir-seam.test.ts), evaluated at config.ts's MODULE LOAD — so it
+ * data-location seam (see data-dir-seam.test.ts), evaluated at config.ts's
+ * MODULE LOAD — so it
  * must be set before the first import that (transitively) loads config.
  * Every app-module import below is dynamic for exactly that reason;
  * only node builtins and config-independent libs stay static. The seam
@@ -42,8 +42,8 @@ const { isValidSegmentPath } = await import("../src/core/prompt-segments.ts");
 const { promptOverrides } = await import("../src/store/prompt-overrides.ts");
 // Route-level pins drive the actual app/api handlers (framework-free
 // Request/Response), isolated under the same temp LH_DATA_DIR.
-const { PUT: putSettingsSection } = await import("../app/api/settings/[section]/route.ts");
-const { DELETE: deletePromptText } = await import("../app/api/settings/prompts/[...segment]/route.ts");
+const { PUT: putSettingsSection } = await import("../server/routes/settings/[section]/route.ts");
+const { DELETE: deletePromptText } = await import("../server/routes/settings/prompts/[...segment]/route.ts");
 const { readSettingsRecord } = await import("../src/server/index.ts");
 
 /** The REAL repo prompts dir this suite must never touch (read-only). */

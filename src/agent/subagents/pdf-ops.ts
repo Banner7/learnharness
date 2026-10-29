@@ -1,6 +1,6 @@
+import { createRequire } from "node:module";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
 /**
  * PDF plumbing for the pdf-reader sub-agent — sources v0 (2026-09): Node
@@ -49,7 +49,9 @@ async function loadPdfjs() {
  *  pdfjs checks endsWith("/") even on Windows: use a literal trailing slash,
  *  NOT path.sep ("\\" on Windows). Node fs accepts this path on every OS. */
 export function standardFontsDir(): string {
-	return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "node_modules", "pdfjs-dist", "standard_fonts") + "/";
+	// Fork rewrite (2026-10-29): resolve through the external package rather
+	// than this module's source depth, which changes in the server bundle.
+	return path.join(path.dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json")), "standard_fonts") + "/";
 }
 
 async function openDocument(filePath: string) {
@@ -224,16 +226,4 @@ export async function pdfSearch(
 
 function escapeRegex(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Where rendered pages land (mirrors the skill's /tmp convention). */
-export function renderDir(filePath: string): string {
-	// FNV-1a short hash of the absolute path — stable per file, no deps.
-	const abs = path.resolve(filePath);
-	let h = 0x811c9dc5;
-	for (let i = 0; i < abs.length; i++) {
-		h ^= abs.charCodeAt(i);
-		h = Math.imul(h, 0x01000193) >>> 0;
-	}
-	return path.join("/tmp", `lh-pdf-${h.toString(16).padStart(8, "0")}`);
 }

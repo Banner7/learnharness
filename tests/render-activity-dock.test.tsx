@@ -85,7 +85,7 @@ describe("activity dock pure layer", () => {
 			status: "error",
 			activity: "failed",
 			// the runner composes the envelope's error verbatim (invariant tail)
-			error: "No OpenRouter key is set — add one in Settings → Keys",
+			error: "No OpenRouter credential is configured — configure it on the server",
 		});
 		const blob = toBlobs({ jobs: [refused], extractions: [] })[0]!;
 		assert.equal(blob.activity, "needs a provider key");

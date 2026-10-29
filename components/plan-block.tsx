@@ -22,10 +22,8 @@ import { Hint } from "@/components/ui/hint";
  * `data-plan-block` parts render as DAG blocks in the transcript flow, and
  * the right sidebar is retired.
  *
- * - kind "full": the whole DAG, BORDERLESS — no wrapping chrome, the SVG
- *   scales to the full column width (viewBox = layout extent + GRAPH_PAD,
- *   so strokes/glow never clip), natural height, capped at the chat prose
- *   font size (TEXT_CAP_SCALE — fills the column, never oversizes text).
+ * - kind "full": the whole DAG without wrapping chrome, sized to the
+ *   column with GRAPH_PAD around strokes and a reading-size cap.
  * - Clicking opens the full plan in a session-scoped focus overlay
  *   (absolute inside the session area, below the drag bar — chrome-melt
  *   wave, 2026-09-19; was a fixed inset-0 full-screen popup) —
@@ -62,13 +60,9 @@ export const PAD_X = 16;
 export const NODE_W_MIN = 96;
 export const NODE_H = 44;
 
-// Width classes for the PROSE font (Source Sans 3 as shipped, text-xs
-// rendering at 11px): narrow stems and punctuation, wide m/w, caps +
-// digits, everything else. Rates least-squares-fitted against
-// getComputedTextLength() measurements of the live plan titles
-// (2026-10-07 smoke) — residuals land within ±4px per LINE, so
-// per-side padding reads as PAD_X ±2. A different reading font
-// (Appearance override) drifts the estimate slightly; accepted.
+// The width classes approximate node titles in the reading font without
+// measuring the DOM at render time. Generous PAD_X leaves room for differences
+// between the default Computer Modern and any reading-font override.
 const NARROW_CHARS = new Set(" ijltfr.,:;'!|()[]-\\");
 const WIDE_CHARS = new Set("mwMW@");
 const CAP_DIGIT = /[A-Z0-9]/;
@@ -142,7 +136,7 @@ export function topoFor(nodes: readonly LayoutNode[], edges: ReadonlyArray<{ fro
  *  separations, zero margin — the caller adds GRAPH_PAD/POPUP_PAD).
  *  Node sizes are fed in (boxes grow with their wrapped content, round
  *  7); dagre returns node CENTERS, we hand back top-lefts like before,
- *  so every consumer (diagram, popup fit, plan window) is unchanged.
+ *  so diagram and popup placements stay consistent.
  *  Deterministic + synchronous + DOM-free: SSR and render tests stay
  *  exact. Dangling edges are ignored defensively — a ghost endpoint
  *  would spawn an unmeasured node and break the measurer. */
@@ -287,18 +281,8 @@ export function nodeWidth(lines: readonly string[]): number {
 	return Math.max(NODE_W_MIN, Math.ceil(widest) + 2 * PAD_X);
 }
 
-/** SVG-unit padding around the layout extent: strokes are centered on the
- *  geometry (half bleeds outside the extent) and the glow halo reaches −4 —
- *  without this pad the outermost node borders clip at the svg edge. */
+/** SVG-unit padding keeps centered node borders inside the viewBox. */
 export const GRAPH_PAD = 8;
-/** The current node's yellow glow: a fill blurred so it bleeds over the
- *  node's edges (owner). A Gaussian's visible spread is ≈3σ, so the glow
- *  reaches GLOW_MARGIN + 3·GLOW_BLUR past the node — any surface that
- *  shows the glow must pad its viewBox by GLOW_REACH or the blur clips
- *  at the frame edge (owner: extend the container padding to fit it). */
-export const GLOW_MARGIN = 8;
-export const GLOW_BLUR = 5;
-export const GLOW_REACH = GLOW_MARGIN + 3 * GLOW_BLUR;
 /** Node titles render at text-xs (12.5px) in svg units. The in-chat block
  *  scales up to fill the column but NEVER past the chat prose size
  *  (--lh-prose-size, 16px — the ladder's reading rung) — the width cap
@@ -310,7 +294,7 @@ export const TEXT_CAP_SCALE = 16 / 12.5;
 /** Baked from arrowhead_1.svg (the CM/MJX long-arrow head), transform chain
  *  collapsed: viewBox 0 0 50.2 104, tip at (50.2, 52), notch mouth at
  *  x 27.2 with a 9.6-tall opening — at full height 104 the tail opening
- *  is ≈10, per the owner's spec. Solid white fill, no padding. */
+ *  is ≈10, per the owner's spec. The fill follows the theme token. */
 export const ARROW_HEAD = "M48,55.2C49.4,54.6 50.2,53.4 50.2,52C50.2,50.6 49.4,49.4 48,48.8C38.2,45.6 29.2,38.8 21,28.4C15.2,21.4 11.4,13.2 9.6,3.8C9,1.2 7.4,0 4.8,0C1.6,0 0,1.6 0,5L0.2,5.6C3.6,23 12.6,36.8 27.2,47.2L27.2,56.8C12.6,67.2 3.6,81 0.2,98.4L0,99C0,102.4 1.6,104 4.8,104C7.4,104 9,102.8 9.6,100.2C11.4,90.8 15.2,82.6 21,75.6C29.2,65.2 38.2,58.4 48,55.2Z";
 /** Lines + outlines run at the app's standard border weight (owner,
  *  2026-09-26 — same 1px the UI borders use; was 1.5). */
@@ -436,62 +420,38 @@ export function edgePathD(
 	return edgeLine(pts) ?? "";
 }
 
-// ─── Status styling (the retired panel's color language, unchanged) ──────────
-
-// The simple look (owner, plan-graph round 4): rectangular boxes, white
-// outlines/arrows/text; no fill on visited, today's gray look on upcoming,
-// and the current node carries a faint yellow glow (a blurred yellow fill
-// bleeding over the edges). The IN-CHAT block is monochrome white instead
-// — no status language; the popup/window show the progression.
+// Redesign (owner, 2026-10-27): plan status uses the shared ink/chalk
+// tokens so the diagram remains readable in either mode.
 const BOX: Record<PlanNodeStatus, string> = {
-	// 50%-opacity app background instead of true transparency: a routed
-	// edge passing behind the box composites UNDER the fill — dimmed to
-	// half, not shown straight through (owner, round 9).
-	visited: "fill-background/50 stroke-white",
-	current: "fill-background/50 stroke-white",
-	// The grayed-out not-yet-visited look stays as-is (owner).
+	visited: "fill-card stroke-muted-foreground",
+	current: "fill-card stroke-primary",
 	upcoming: "fill-card stroke-border",
 };
 const TEXT: Record<PlanNodeStatus, string> = {
-	visited: "fill-white text-xs",
-	current: "fill-white text-xs font-medium",
-	upcoming: "fill-muted-foreground/80 text-xs",
+	visited: "fill-foreground text-xs",
+	current: "fill-primary text-xs font-medium",
+	upcoming: "fill-muted-foreground text-xs",
 };
-// The in-chat block speaks the dock language now (owner, plan-hug
-// round 2026-10-07): boxes in the lighter background variant like
-// the composer/dock shells — but the outlines STAY white (owner
-// follow-up: the gray fill is good, white box edges).
-const MONO_BOX = "fill-card stroke-white";
+const MONO_BOX = "fill-card stroke-border";
 const MONO_TEXT = "fill-foreground text-xs";
 
-/** The diagram itself: positioned nodes + bezier edges. Pure-ish render —
- *  every input is data, so SSR render tests pin the whole thing. The root
- *  sets font-family var(--font-prose): node titles render in the READING
- *  font, not the mono UI font (owner, 2026-09-26) — and the runtime var
- *  rides the Appearance reading-font override (the utility can't: @theme
- *  inline bakes literals — the --font-title trap). */
+/** The diagram stays in the reading font via the runtime variable so
+ * appearance overrides are honored in both the transcript and popup. */
 export function PlanDiagram({
 	nodes,
 	edges,
 	statusOf,
-	glowId,
 	markerId,
-	viewBoxOverride,
 	pad: padUnits,
 	textCapScale,
 	naturalSize,
 	monochrome,
-	fill,
 }: {
 	nodes: readonly LayoutNode[];
 	edges: ReadonlyArray<{ from: string; to: string }>;
 	statusOf: (id: string) => PlanNodeStatus;
-	glowId?: string | null;
 	markerId: string;
-	/** A windowed viewBox (the plan window) instead of the full extent. */
-	viewBoxOverride?: string;
-	/** Pads the viewBox by this many svg units so centered strokes and the
-	 *  glow halo never clip at the extent edges (full-extent renders only). */
+	/** Pads the viewBox so centered strokes do not clip. */
 	pad?: number;
 	/** Caps the rendered width at extent × scale — the chat-font-size zoom
 	 *  ceiling for the in-chat block (fills the column, never past prose). */
@@ -500,19 +460,12 @@ export function PlanDiagram({
 	 *  the popup's transform math depends on it; w-full inside the popup's
 	 *  shrink-to-fit wrapper resolved to the popup width and broke fit. */
 	naturalSize?: boolean;
-	/** The in-chat block's mode: every node white (fill-none, white stroke
-	 *  and text, no glow) — statuses never show in the transcript (owner). */
+	/** The in-chat block uses one muted, token-colored appearance; statuses
+	 *  remain visible in the popup. */
 	monochrome?: boolean;
-	/** Meet-fits the diagram inside a fixed box (h-full w-full — the svg's
-	 *  default preserveAspectRatio centers + contains the viewBox): the
-	 *  dock band's marginalia mode, where the diagram must fit BOTH the
-	 *  flank's width and the band's height rather than run width-first. */
-	fill?: boolean;
 }) {
 	const layout = useMemo(() => blockLayout(nodes, edges), [nodes, edges]);
-	// Pad only the full-extent render — the plan window's override viewBox is
-	// a deliberate viewport crop, and the popup keeps its own fit margins.
-	const pad = viewBoxOverride ? 0 : (padUnits ?? 0);
+	const pad = padUnits ?? 0;
 	const w = Math.max(layout.width, 1);
 	const h = Math.max(layout.height, 1);
 	const vbW = w + 2 * pad;
@@ -520,18 +473,14 @@ export function PlanDiagram({
 	// The origin rides the ink extent (owner, 2026-10-10): an arrow
 	// bulging past zero shifts the viewBox with it instead of clipping.
 	// Zero-origin plans (the ordinary case) render exactly as before.
-	const ox = viewBoxOverride ? 0 : (layout.originX ?? 0);
-	const oy = viewBoxOverride ? 0 : (layout.originY ?? 0);
+	const ox = layout.originX ?? 0;
+	const oy = layout.originY ?? 0;
 	return (
 		<svg
-			viewBox={viewBoxOverride ?? `${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
-			className={`block ${fill ? "h-full w-full" : `h-auto${naturalSize ? "" : " w-full"}`}${textCapScale ? " mx-auto" : ""}`}
+			viewBox={`${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
+			className={`block h-auto${naturalSize ? "" : " w-full"}${textCapScale ? " mx-auto" : ""}`}
 			style={{
-				// The READING font (owner, 2026-09-26) — via the runtime var, NOT
-				// the font-prose utility: @theme inline bakes the literal into
-				// utilities (the --font-title trap), which would freeze the
-				// graph at Source Sans 3 and ignore the Appearance reading-font
-				// override. var(--font-prose) rides it.
+				// Runtime reading font follows the appearance setting.
 				fontFamily: "var(--font-prose)",
 				...(textCapScale
 					? { maxWidth: `${Math.round(vbW * textCapScale * 100) / 100}px` }
@@ -555,7 +504,7 @@ export function PlanDiagram({
 				>
 					{/* The owner's arrowhead. The mouth (x 27.2) sits at refX so the
 					    line ends AT the notch — the tip beyond it is solid fill. */}
-					<path d={ARROW_HEAD} className="fill-white" />
+					<path d={ARROW_HEAD} className="fill-muted-foreground" />
 				</marker>
 				{/* Same head, grayed — arrows into not-yet-visited nodes are
 				    grayed out like the nodes themselves (owner, round 6). */}
@@ -571,12 +520,6 @@ export function PlanDiagram({
 				>
 					<path d={ARROW_HEAD} className="fill-border" />
 				</marker>
-				{/* The current node's highlight: a faint yellow fill BLURRED so it
-				    bleeds out over the node's edges (owner). Generous filter region
-				    so the blur never clips at its own bounds. */}
-				<filter id={`${markerId}-glow`} x="-60%" y="-60%" width="220%" height="220%">
-					<feGaussianBlur stdDeviation={GLOW_BLUR} />
-				</filter>
 			</defs>
 			{edges.map((e) => {
 				// Dagre's route for this edge: border-intersected waypoints —
@@ -592,11 +535,8 @@ export function PlanDiagram({
 					tx !== undefined && ty !== undefined
 						? { x: tx, y: ty, w: layout.nodeW.get(e.to) ?? NODE_W_MIN, h: layout.nodeH.get(e.to) ?? NODE_H }
 						: undefined;
-				// An arrow is white only when BOTH its ends are white (owner,
-				// 2026-09-26): origin AND terminal covered — a gray box's outgoing
-				// arrows stay gray even when they point into covered territory
-				// (supersedes round 6's target-only rule); the in-chat block
-				// stays all-white.
+				// Future edges follow the border token; past/current edges
+				// remain legible with the muted-foreground token.
 				const dim =
 					!monochrome &&
 					(statusOf(e.from) === "upcoming" || statusOf(e.to) === "upcoming");
@@ -604,7 +544,7 @@ export function PlanDiagram({
 					<path
 						key={`${e.from}->${e.to}`}
 						d={edgePathD(pts, target)}
-						className={dim ? "fill-none stroke-border" : "fill-none stroke-white"}
+						className={dim ? "fill-none stroke-border" : "fill-none stroke-muted-foreground"}
 						strokeWidth={STROKE_W}
 						markerEnd={`url(#${markerId}${dim ? "-dim" : ""})`}
 					/>
@@ -612,7 +552,6 @@ export function PlanDiagram({
 			})}
 			{nodes.map((n) => {
 				const status = statusOf(n.id);
-				const glow = n.id === glowId && !monochrome;
 				const lines = wrapTitle(n.title);
 				// The box hugs its wrapped content; text centers in it —
 				// horizontally too now (text-first sizing round, 2026-10-07).
@@ -633,21 +572,6 @@ export function PlanDiagram({
 							className={monochrome ? MONO_BOX : BOX[status]}
 							strokeWidth={STROKE_W}
 						/>
-						{glow && (
-							// The current node's highlight: faint yellow, blurred so it
-							// bleeds over the edges — static, no pulse (owner, round 6).
-							// Paints ABOVE the box fill (owner, round 10): the round-9
-							// background fill no longer dims the glow inside the box,
-							// while edges behind the box still dim under that fill.
-							<rect
-								x={-GLOW_MARGIN}
-								y={-GLOW_MARGIN}
-								width={w + 2 * GLOW_MARGIN}
-								height={h + 2 * GLOW_MARGIN}
-								className="fill-yellow-400/25"
-								filter={`url(#${markerId}-glow)`}
-							/>
-						)}
 						{lines.map((line, i) => (
 							<text
 								key={i}
@@ -669,11 +593,11 @@ export function PlanDiagram({
 // ─── The transcript block ─────────────────────────────────────────────────────
 
 /**
- * A persisted plan-block part, rendered as carried (snapshot statuses,
- * never re-derived): borderless and column-filling, it opens the live plan
- * popup. Full-only by design since the 2026-09-11 pivot (the neighborhood
- * fragments are retired — position derives live in the popup and the
- * future DAG window).
+ * A persisted plan-block snapshot keeps statuses as carried, never
+ * re-derived: borderless and column-filling (the diagram's own boxes are
+ * the structure), it opens the live plan popup.
+ * Full-only by design since the 2026-09-11 pivot (the neighborhood
+ * fragments are retired — position derives live in the popup).
  */
 export function PlanBlock({ data, onOpen }: { data: PlanBlockData; onOpen: () => void }) {
 	const markerId = useId().replace(/[^a-zA-Z0-9-]/g, "");
@@ -686,11 +610,10 @@ export function PlanBlock({ data, onOpen }: { data: PlanBlockData; onOpen: () =>
 			data-testid="plan-block-full"
 			aria-label="Open the full plan"
 			onClick={onOpen}
-			className="block w-full text-left"
+			className="block min-h-11 w-full text-left"
 		>
-			{/* pad keeps centered strokes + the glow halo inside the frame; the
-		    cap keeps node text at or below chat prose size while still filling
-		    the column when it can (owner, plan-graph refinement round 1). */}
+			{/* ViewBox padding keeps centered strokes inside the frame; the
+			    width cap holds node labels at the reading size. */}
 		<PlanDiagram
 			nodes={data.nodes}
 			edges={data.edges}
@@ -727,9 +650,7 @@ export function latestTree(messages: readonly PopupMessage[]): PlanTree | null {
 	return null;
 }
 
-/** The popup shows the glow, so its frame pads by the glow's reach —
- *  the in-chat block (monochrome, no glow) stays tight at GRAPH_PAD. */
-const POPUP_PAD = GLOW_REACH;
+const POPUP_PAD = GRAPH_PAD;
 
 // The pan/zoom math now lives in components/pan-zoom.ts (shared with the
 // mermaid focus overlay since the session-overlay wave, 2026-09-19) — same
@@ -748,7 +669,7 @@ const POPUP_PAD = GLOW_REACH;
  * territory. Surface 80% + blur (owner decision): the transcript ghosts
  * through while the focus owns the session area.
  */
-export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessage[]; onClose: () => void }) {
+export function PlanPopup({ messages, onClose, onRename }: { messages: readonly PopupMessage[]; onClose: () => void; onRename?: () => void }) {
 	const tree = useMemo(() => latestTree(messages), [messages]);
 	const statuses = useMemo(
 		() => (tree ? derivePlanStatuses(tree, messages as Parameters<typeof derivePlanStatuses>[1]) : null),
@@ -756,24 +677,6 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	);
 	const statusOf = (id: string): PlanNodeStatus => (statuses ? derivedNodeStatus(statuses, id) : "upcoming");
 
-	// Esc closes — claimed at the DOCUMENT level (THE ONE-ESC LAW, owner
-	// keyboard round 2026-10-06): a surfaced layer's Esc is exactly one
-	// action. The window-level chain (dictation cancel → abort) is the
-	// fallback for when NOTHING is surfaced; a window listener here could
-	// never stop it — same-node listeners all fire — which was the
-	// plan-open-while-dictating double-act (Esc closed the plan AND
-	// cancelled the dictation).
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
 
 	// ── pan/zoom viewport (harvested semantics: fit floor = the default) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -787,9 +690,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 	}, []);
 
 	const layout = useMemo(() => (tree ? blockLayout(tree.nodes, tree.edges) : null), [tree]);
-	// The fit box is the PADDED ink box — the diagram renders with POPUP_PAD
-	// (= the glow's reach) so the blurred glow never clips at the frame, and
-	// the fit must account for that padding.
+	// Fit includes the SVG's stroke padding so border nodes stay in view.
 	const box = useMemo(
 		() => (layout ? { w: layout.width + 2 * POPUP_PAD, h: layout.height + 2 * POPUP_PAD } : { w: 0, h: 0 }),
 		[layout],
@@ -893,15 +794,20 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 			}}
 		>
 			<div className="mb-2 flex items-center gap-2">
-				<span className="text-sm font-medium">The plan</span>
-				<span className="text-xs text-muted-foreground">live — statuses derive from your check outcomes</span>
-				<Hint label="Close" binding="escape" side="left">
+				<span className="font-title text-lg">The plan</span>
+				<span className="text-xs text-muted-foreground">Live progress</span>
+				{onRename && (
+					<button type="button" onClick={onRename} className="ml-auto min-h-11 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+						Rename
+					</button>
+				)}
+				<Hint label="Close" side="left">
 <button
 					type="button"
 					onClick={onClose}
 					aria-label="Close"
 					data-testid="plan-popup-close"
-					className="ml-auto rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
 					<XIcon className="size-4" />
 				</button>
@@ -910,7 +816,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 			<div
 				ref={viewportRef}
 				className={cn(
-					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl border select-none",
+					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-lg border border-border bg-card select-none",
 					atFloor ? "cursor-default" : "cursor-grab",
 				)}
 				onPointerDown={startDrag}
@@ -940,21 +846,20 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 								nodes={tree.nodes}
 								edges={tree.edges}
 								statusOf={statusOf}
-								glowId={statuses?.current ?? null}
 								markerId={markerId}
 								pad={POPUP_PAD}
 								naturalSize
 							/>
 						</div>
 						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-							<span className="text-xs text-muted-foreground/60">Drag to pan · scroll to zoom</span>
+							<span className="font-ui text-xs text-muted-foreground/60">Drag to pan, scroll to zoom</span>
 							<div className="flex gap-1">
 								<Hint label="Zoom out" side="bottom">
 <button
 									type="button"
 									aria-label="Zoom out"
 									onClick={() => stepZoom(1 / 1.25)}
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 								>
 									<MinusIcon className="size-3.5" />
 								</button>
@@ -965,7 +870,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 									aria-label="Fit plan to screen"
 									onClick={fitView}
 									data-testid="plan-popup-fit"
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 								>
 									<MaximizeIcon className="size-3.5" />
 								</button>
@@ -975,7 +880,7 @@ export function PlanPopup({ messages, onClose }: { messages: readonly PopupMessa
 									type="button"
 									aria-label="Zoom in"
 									onClick={() => stepZoom(1.25)}
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 								>
 									<PlusIcon className="size-3.5" />
 								</button>

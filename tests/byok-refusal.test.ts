@@ -4,7 +4,6 @@ import { parseModelsRefusal, parseProviderKeyRefusal, retryFailedResponse } from
 import { SessionModel } from "../components/session-core.ts";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { newUserMessage, type LhMessage } from "../src/core/native-messages.ts";
-import { prefillFromSlots, prefillLevelFromPin, setupStage } from "../components/setup-dialog.tsx";
 import {
 	isModelsRefusal,
 	isProviderKeyRefusal,
@@ -12,14 +11,13 @@ import {
 	providerKeyMissing,
 	PROVIDER_KEY_MISSING_CODE,
 } from "../src/core/settings.ts";
-import type { ModelCatalogEntry, ModelSlotName } from "../src/core/index.ts";
 
 /**
  * The BYOK universal gate rendered honestly (owner, 2026-09-22): the server
  * refuses ALL turns with 503 {error, code: "models_not_configured", missing}
  * when a slot tier is unset. These pin the client's pure seams: the refusal
- * detector (the transport throws the 503 body verbatim as the error text),
- * the job-record refusal matcher, and the SetupDialog's prefill.
+ * detector (the transport throws the 503 body verbatim as the error text)
+ * and the job-record refusal matcher.
  */
 
 const REFUSAL = JSON.stringify(modelsNotConfigured(["strong"]));
@@ -113,7 +111,7 @@ describe("providerKeyMissing — the envelope factory (provider-key interlude, 2
 	it("names the provider from the curated label and carries the exact machine code", () => {
 		const envelope = providerKeyMissing("openrouter", ["strong"]);
 		assert.deepEqual(envelope, {
-			error: "No OpenRouter key is set — add one in Settings → Keys",
+			error: "No OpenRouter credential is configured — configure it on the server",
 			code: PROVIDER_KEY_MISSING_CODE,
 			provider: "openrouter",
 			slots: ["strong"],
@@ -123,7 +121,7 @@ describe("providerKeyMissing — the envelope factory (provider-key interlude, 2
 
 	it("an unknown provider falls back to its raw id as the label", () => {
 		const envelope = providerKeyMissing("weird", ["cheap"]);
-		assert.equal(envelope.error, "No weird key is set — add one in Settings → Keys");
+		assert.equal(envelope.error, "No weird credential is configured — configure it on the server");
 	});
 });
 
@@ -153,76 +151,3 @@ describe("isProviderKeyRefusal — the job-record matcher (provider-key interlud
 	});
 });
 
-describe("prefillFromSlots — the SetupDialog prefill (BYOK wave)", () => {
-	const entry = (id: string, provider: string): ModelCatalogEntry => ({
-		id,
-		name: id,
-		provider,
-		reasoning: false,
-		input: ["text"],
-		supportedLevels: ["low"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 8192,
-		maxTokens: 1024,
-	});
-	const catalog = [entry("glm-5.3-flash", "z-ai"), entry("qwen3.8-flash", "qwen")];
-	const pins = (strong: boolean, vision: boolean) => ({
-		strong: strong ? { model: { provider: "z-ai", id: "glm-5.3-flash" } } : null,
-		cheap: null,
-		vision: vision ? { model: { provider: "qwen", id: "qwen3.8-flash" } } : null,
-	});
-
-	it("prefills exactly the pinned tiers, matched by provider AND id", () => {
-		const pre = prefillFromSlots(catalog, pins(true, true));
-		assert.equal(pre.strong?.id, "glm-5.3-flash");
-		assert.equal(pre.vision?.id, "qwen3.8-flash");
-		assert.equal(pre.cheap, undefined);
-	});
-
-	it("nothing pinned (first-run) → nothing prefilled — all three marked needed", () => {
-		const pre = prefillFromSlots(catalog, pins(false, false));
-		assert.deepEqual(pre, {});
-	});
-
-	it("a disconnected saved identity still prefills without selectable metadata", () => {
-		const pre = prefillFromSlots(catalog, { strong: { model: { provider: "gone", id: "vanished" } }, cheap: null, vision: null });
-		assert.deepEqual(pre, { strong: { provider: "gone", id: "vanished" } });
-	});
-
-	it("provider collisions never cross-pollute (same id, different provider)", () => {
-		const both = [entry("shared-id", "openai"), entry("shared-id", "openrouter")];
-		const pre = prefillFromSlots(both, { strong: { model: { provider: "openrouter", id: "shared-id" } }, cheap: null, vision: null });
-		assert.equal(pre.strong?.provider, "openrouter");
-	});
-
-	it("absent slots payload (older shape) prefills nothing", () => {
-		const pre = prefillFromSlots(catalog, undefined);
-		assert.deepEqual(pre, {});
-	});
-});
-
-describe("prefillLevelFromPin — the setup dialog's level prefill (chunk 2)", () => {
-	const entry = (levels: string[]) =>
-		({ id: "m", name: "M", provider: "p", reasoning: true, input: ["text"], supportedLevels: levels, cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1000, maxTokens: 1000 }) as never;
-
-	it("a stored level the pinned model still supports prefills as-is", () => {
-		assert.equal(prefillLevelFromPin(entry(["low", "high"]), { thinkingLevel: "high" }), "high");
-	});
-
-	it("a stored level the model LOST rides as-is — Save clamps server-side (bd68486)", () => {
-		assert.equal(prefillLevelFromPin(entry(["minimal", "medium"]), { thinkingLevel: "xhigh" }), "xhigh");
-	});
-
-	it("a legacy pin with no stored level prefills the ordering's level", () => {
-		assert.equal(prefillLevelFromPin(entry(["low", "medium"]), {}), "medium");
-		assert.equal(prefillLevelFromPin(entry(["low", "medium"]), null), "medium");
-	});
-});
-
-describe("setupStage — unknown is not keyless", () => {
-	it("keys first (owner ordering), pickers when a provider is keyed", () => {
-		assert.equal(setupStage(null), "loading");
-		assert.equal(setupStage([{ id: "x", keyPresent: false }]), "keys");
-		assert.equal(setupStage([{ id: "x", keyPresent: true }]), "pickers");
-	});
-});

@@ -108,4 +108,3 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 	return text;
 }
 
-export type ResearcherAgent = ReturnType<typeof runResearcherAgent>;

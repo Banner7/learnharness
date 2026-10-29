@@ -14,7 +14,7 @@ import { describe, it } from "node:test";
 import { parseHTML } from "linkedom";
 import { findSessionTextMatches, stepSessionMatch } from "../src/core/session-find.ts";
 import { sessionFindRanges, sessionRangeIdentity, sameSessionRange } from "../components/session-find-dom.ts";
-import { clearSessionFindHighlights, injectFindStyles, sessionFindHasForegroundLayer } from "../components/session-find.tsx";
+import { clearSessionFindHighlights, injectFindStyles } from "../components/session-find.tsx";
 
 const dom = parseHTML("<html><head><style></style></head><body></body></html>");
 (globalThis as Record<string, unknown>).window = dom.window;
@@ -120,34 +120,6 @@ describe("sessionFindRanges — the displayed-text DOM seam", () => {
 		p.firstChild!.textContent = "findme and more text streamed in";
 		const [again] = sessionFindRanges(document.body as unknown as HTMLElement, "findme");
 		assert.ok(sameSessionRange(again!, identity), "same node/offsets: refresh holds the active match");
-	});
-});
-
-describe("sessionFindHasForegroundLayer — the one-Esc law", () => {
-	const mount = (html: string): void => {
-		document.body.innerHTML = html;
-	};
-
-	it("no surfaced layer when only session content exists", () => {
-		mount(`<div data-testid="user-message"><p>needle</p></div>`);
-		assert.equal(sessionFindHasForegroundLayer(document), false);
-	});
-
-	it("a surfaced menu/dialog/cheat sheet outranks the Find bar", () => {
-		for (const html of [
-			'<div data-lh-menu></div>',
-			'<div data-testid="cheat-sheet"></div>',
-			'<div role="dialog"></div>',
-			'<div data-radix-popper-content-wrapper></div>',
-		]) {
-			mount(html);
-			assert.equal(sessionFindHasForegroundLayer(document), true, html);
-		}
-	});
-
-	it("a closed Radix layer is not surfaced", () => {
-		mount(`<div role="dialog" data-state="closed"></div>`);
-		assert.equal(sessionFindHasForegroundLayer(document), false);
 	});
 });
 

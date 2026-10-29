@@ -8,7 +8,6 @@ import { Toggle } from "@/components/settings/controls";
 import { useSessionMermaid } from "@/components/session-overlay";
 import { downloadFile } from "@/components/artifacts/download";
 import { DispatchCard } from "@/components/artifacts/dispatch-card";
-import { SvgImage } from "@/components/artifacts/svg-image";
 import type { ArtifactPartProps, VisualResult } from "@/src/core";
 
 /**
@@ -17,9 +16,21 @@ import type { ArtifactPartProps, VisualResult } from "@/src/core";
  * the chat view's jobs feed). The SVG itself renders from the steer message
  * (sub-agent result delivery) via VisualOutputCard.
  *
- * Both display modes use an SVG image document: generated markup and its
- * styles never join the app's DOM. Downloads still contain the original SVG.
+ * The SVG is model-authored for the learner's own machine (their own teacher
+ * wrote it, verified by looking) — dangerouslySetInnerHTML is acceptable
+ * here, with a cheap hygiene pass (sanitizeSvg: strip <script> blocks, on*
+ * handlers, and javascript:/data:text/html URLs) since it lands in the
+ * app's DOM.
  */
+
+/** Cheap SVG hygiene — not a full sanitizer, just removing the obvious exec vectors. */
+export function sanitizeSvg(svg: string): string {
+	return svg
+		.replace(/<script[\s\S]*?<\/script\s*>/gi, "")
+		.replace(/<script[^>]*\/?>/gi, "")
+		.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+		.replace(/(href|xlink:href)\s*=\s*(?:"\s*(?:javascript|data:text\/html)[^"]*"|'\s*(?:javascript|data:text\/html)[^']*'|(?:javascript|data:text\/html)[^\s>]*)/gi, "");
+}
 
 /** The svg root's DECLARED width in px, when there is one — the natural
  *  size the card displays at instead of stretching to full width (owner,
@@ -71,7 +82,7 @@ export function VisualOutputCard({
 	const natural = result && typeof result.svg === "string" ? svgNaturalWidth(result.svg) : null;
 	if (!result || typeof result.svg !== "string") {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div className="rounded-lg border border-border p-4 font-ui text-sm text-muted-foreground">
 				Figure completed, but the result could not be displayed.
 			</div>
 		);
@@ -79,10 +90,10 @@ export function VisualOutputCard({
 	const failed = result.svg.length === 0;
 	if (failed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-card-foreground" data-testid="visual-card-failed">
-				<div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="rounded-lg border border-border p-4 font-ui text-foreground" data-testid="visual-card-failed">
+				<div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
 					Figure
-					<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">failed</span>
+					<span className="text-destructive">Failed</span>
 				</div>
 				<p className="mt-2 text-sm text-muted-foreground">{result.notes ?? "The figure could not be drawn."}</p>
 			</div>
@@ -102,29 +113,21 @@ export function VisualOutputCard({
 			}
 			data-testid="visual-card"
 		>
-			{/* Natural sizing (owner, 2026-10-07): a declared-width svg sits at
-			   ITS size; max-w-full still shrinks oversized ones to fit. No
-			   declared size (viewBox-only, %-width) keeps the full-width law.
-			   The invert filter rides the bg-white holder, so the backing flips
-			   white→black together with the strokes; transparent areas ARE the
-			   backing. */}
+			{/* Redesign (owner, 2026-10-27): a declared-width SVG retains its
+			    natural size, while the backing uses the card token in either
+			    mode and the inversion control still flips the figure. */}
 			<div
 				className={
 					natural !== null
-						? "w-fit max-w-full overflow-hidden rounded-lg bg-white"
-						: "w-full overflow-hidden rounded-lg bg-white"
+						? "w-fit max-w-full overflow-hidden rounded-md bg-card [&_svg]:h-auto [&_svg]:max-w-full"
+						: "w-full overflow-hidden rounded-md bg-card [&_svg]:h-auto [&_svg]:w-full"
 				}
 				style={{ filter: inverted ? "invert(1) hue-rotate(180deg)" : undefined }}
+				dangerouslySetInnerHTML={{ __html: sanitizeSvg(result.svg) }}
 				data-testid="visual-svg"
-			>
-				<SvgImage
-					svg={result.svg}
-					width={natural ?? undefined}
-					className={natural !== null ? "block h-auto max-w-full" : "block h-auto w-full"}
-				/>
-			</div>
+			/>
 			<div className="mt-2 flex items-center justify-between gap-2">
-				<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Figure</div>
+				<div className="text-xs font-medium text-muted-foreground">Figure</div>
 				<div className="flex items-center gap-1.5">
 					{/* The invert affordance (owner round, 2026-10-07): the disc IS
 					    the half-filled contrast circle; the tooltip names it. */}
@@ -141,7 +144,7 @@ export function VisualOutputCard({
 						title="Download as SVG"
 						onClick={() => downloadFile("figure.svg", result.svg, "image/svg+xml")}
 						data-testid="visual-download"
-						className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 					>
 						<DownloadIcon className="size-3.5" />
 					</button>
@@ -152,7 +155,7 @@ export function VisualOutputCard({
 							title="Open fullscreen"
 							onClick={() => overlay.openFigure(result.svg, inverted)}
 							data-testid="visual-open"
-							className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+							className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						>
 							<MaximizeIcon className="size-3.5" />
 						</button>

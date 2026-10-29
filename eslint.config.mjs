@@ -1,5 +1,4 @@
 import { defineConfig, globalIgnores } from "eslint/config";
-import nextPlugin from "@next/eslint-plugin-next";
 import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 
@@ -9,7 +8,7 @@ import importPlugin from "eslint-plugin-import";
  * way — this is not a style linter.
  *
  *   components/**  →  "@/src/core"  (the pure core barrel) — ONLY
- *   app/**         →  "@/src/core" + "@/src/server" (the server barrel) — ONLY
+ *   server/**      →  "@/src/core" + "@/src/server" (the server barrel) — ONLY
  *   src/core/**    →  never imports src/agent, src/server, src/store (pure
  *                    core: adapters implement core/ports.ts, never the reverse)
  *   src/agent/**   →  never imports src/server, src/store (dependencies —
@@ -20,21 +19,18 @@ import importPlugin from "eslint-plugin-import";
  */
 
 export default defineConfig([
-	// electron/** — the desktop shell: plain Node, no framework, outside the
-// import law (same rationale as scripts/).
-	globalIgnores([".next/**", "node_modules/**", "data/**", "next-env.d.ts", "scripts/**", "electron/**", "dist/**"]),
+	globalIgnores(["node_modules/**", "data/**", "scripts/**", "dist/**"]),
 	{
 		files: ["**/*.{js,mjs,ts,tsx}"],
 		languageOptions: {
 			parser: tsParser,
 			parserOptions: { ecmaVersion: "latest", sourceType: "module" },
 		},
-		plugins: { "@next/next": nextPlugin, import: importPlugin },
+		plugins: { import: importPlugin },
 		settings: {
 			"import/resolver": { typescript: { alwaysTryTypes: true } },
 		},
 		rules: {
-			...nextPlugin.configs.recommended.rules,
 			"import/no-restricted-paths": [
 				"error",
 				{
@@ -48,11 +44,18 @@ export default defineConfig([
 								"Browser shell imports ONLY the pure core barrel: `from \"@/src/core\"` (architecture: docs/architecture.md).",
 						},
 						{
-							target: "./app",
+							target: "./server",
 							from: "./src",
 							except: ["./core/index.ts", "./server/index.ts"],
 							message:
-								"app/ (transport + server components) imports ONLY the barrels: `@/src/core` and `@/src/server` (architecture: docs/architecture.md).",
+								"server/ (HTTP transport) imports ONLY the barrels: `@/src/core` and `@/src/server` (architecture: docs/architecture.md).",
+						},
+						{
+							target: "./web",
+							from: "./src",
+							except: ["./core/index.ts"],
+							message:
+								"Browser shell imports ONLY the pure core barrel: `from \"@/src/core\"` (architecture: docs/architecture.md).",
 						},
 						{
 							target: "./src/core",

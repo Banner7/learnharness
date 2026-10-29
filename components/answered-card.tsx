@@ -25,7 +25,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	const [whyOpen, setWhyOpen] = useState(false); // the tucked explanation (predictions, owner 2026-10-03)
 	if (answer.dismissed) {
 		return (
-			<div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+			<div className="rounded-lg border border-border p-4 font-ui text-sm text-muted-foreground">
 				<span className="font-medium">{answer.questionText}</span> — skipped
 			</div>
 		);
@@ -35,6 +35,18 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 	const isExplain = answer.kind === "explain";
 	const selectedIdx = new Set(answer.answers.map((a) => a.index));
 	const correctIdx = new Set(answer.correctIndices ?? []);
+	// Redesign (owner, 2026-10-27): resolve the learner's choices through
+	// projected option labels so historical math repairs reach the summary.
+	const learnerAnswer = answer.dontKnow
+		? "I don't know"
+		: answer.answers
+				.map((a) => answer.options?.find((opt) => opt.index === a.index)?.label ?? a.label)
+				.concat(answer.other ? [answer.other] : [])
+				.join(", ");
+	const correctAnswer = answer.options
+		?.filter((opt) => correctIdx.has(opt.index))
+		.map((opt) => opt.label)
+		.join(", ");
 	// The question's own context rides the ORIGINAL CALL, not the answer
 	// snapshot (owner, 2026-10-12): the details line — and, for ask
 	// questions, option descriptions — re-render from the persisted
@@ -53,17 +65,17 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 		    ThinkingBlock, instead of an inset inside the answer. Same muted
 		    rail as before; the label is now plain "Your thinking". */}
 		{answer.readingThinking && (
-			<ThinkingBlock testId="reading-thinking-block" label="YOUR THINKING" text={answer.readingThinking} defaultOpen />
+			<ThinkingBlock testId="reading-thinking-block" label="Your thinking" text={answer.readingThinking} defaultOpen />
 		)}
 		{/* [&>*:last-child]:mb-0 (owner round, 2026-10-07): on ask cards the
 		    thinking row is the last child — its my-3 stacked with the card's
 		    p-4 into a 28px void below (12px above); the card's own padding is
 		    the bottom rhythm when a row ends the card. */}
 		<div
-			className="rounded-xl border bg-card p-4 text-card-foreground [&>*:last-child]:mb-0"
+			className="rounded-lg border border-border p-4 font-ui text-foreground [&>*:last-child]:mb-0"
 			data-testid="answered-card"
 		>
-			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-2 font-ui text-xs text-muted-foreground">
 				{/* The tool's OWN name first (owner 2026-10-09): probe-phase
 			    cards label Probe/Recall — the phase boundary visible in the
 			    transcript. No `tool` on old records: kind labels as before. */}
@@ -78,42 +90,50 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 									: isExplain
 										? "Explain"
 											: "Question"}
-				{isQuiz &&
-					(answer.dontKnow ? (
-						<span className="rounded bg-muted px-1.5 py-0.5">didn't know</span>
-					) : answer.correct ? (
-						<span className="rounded bg-green-500/15 px-1.5 py-0.5 text-green-500">correct</span>
-					) : (
-						<span className="rounded bg-red-500/15 px-1.5 py-0.5 text-red-500">incorrect</span>
-					))}
 			</div>
-			<div className="mb-3 font-medium">
+			<div className="mb-3 font-prose text-lg">
 				<ToolContentResponse>{answer.questionText}</ToolContentResponse>
 			</div>
 			{parsedDetails && (
-				// The details line, same paint as the pending dock (owner,
-				// 2026-10-12): full markdown, LaTeX included.
-				<div className="mb-3 text-sm text-muted-foreground">
+				<div className="mb-3 font-prose text-sm text-muted-foreground">
 					<ToolContentResponse>{parsedDetails}</ToolContentResponse>
 				</div>
 			)}
+			{isQuiz && (
+				<div className="mb-2">
+					<div className="flex items-center gap-3 font-ui text-base">
+						<div className="min-w-0 text-learner"><ToolContentResponse className="!font-ui [&>p:first-child]:m-0">{learnerAnswer}</ToolContentResponse></div>
+						{!answer.dontKnow && (
+							<span aria-hidden className={answer.correct ? "text-correct" : "text-wrong"}>
+								{answer.correct ? "✓" : "✗"}
+							</span>
+						)}
+						<span className={answer.dontKnow ? "text-muted-foreground" : answer.correct ? "text-correct" : "text-wrong"}>
+							{answer.dontKnow ? "Didn't know" : answer.correct ? "Correct" : "Not quite"}
+						</span>
+					</div>
+					<div className="font-ui text-sm text-muted-foreground">
+						{answer.confidence != null && `You were ${answer.confidence}% sure. `}
+						{!answer.correct && correctAnswer && <>Correct answer: <ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{correctAnswer}</ToolContentResponse></>}
+					</div>
+				</div>
+			)}
 
-			{((answer.options?.length ?? 0) > 0 || answer.other) && (
-				<div className="flex flex-col gap-1.5 text-sm">
+			{(!isQuiz || (answer.correctIndices?.length ?? 0) > 1) && ((answer.options?.length ?? 0) > 0 || answer.other) && (
+				<div className="flex flex-col gap-1 text-base">
 					{answer.options?.map((opt) => {
 						const sel = selectedIdx.has(opt.index);
 						const key = isQuiz && correctIdx.has(opt.index);
 						return (
 							<div
 								key={opt.index}
-								className={cn(
-									"flex items-center gap-2 rounded-lg border px-3 py-1.5",
-									sel && key && "border-green-500/60 bg-green-500/10",
-									sel && !key && isQuiz && "border-red-500/60 bg-red-500/10",
-									sel && !isQuiz && "border-primary bg-accent",
-									!sel && key && "border-green-500/40",
-								)}
+								className="flex items-center gap-2 border-b border-border px-1 py-2"
 							>
+								{/* Redesign (2026-10-29): the tutor's option text stays prose; only the chosen letter is filled. */}
+								<span aria-hidden className={cn(
+									"grid size-7 shrink-0 place-items-center rounded-full border border-border font-ui text-sm text-muted-foreground",
+									sel && "border-primary bg-primary text-primary-foreground",
+								)}>{String.fromCharCode(64 + opt.index)}</span>
 								{isQuiz && (
 									// Zapf-Dingbats-derived SVG outlines — the exact LaTeX \ding{51}/
 									// \ding{55} hand-drawn shapes (owner, round 6); see ui/glyph-mark.
@@ -122,9 +142,9 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 										data-mark={sel && key ? "check" : sel && !key ? "x" : !sel && key ? "check" : undefined}
 										className={cn(
 											"flex shrink-0 items-center",
-											sel && key && "text-green-500",
-											sel && !key && "text-red-500",
-											!sel && key && "text-green-500",
+											sel && key && "text-correct",
+											sel && !key && "text-wrong",
+											!sel && key && "text-correct",
 										)}
 									>
 										{/* Owner round 8: a touch smaller than the text (size-4→size-3.5,
@@ -132,13 +152,13 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 										{(key || sel) && <GlyphMark kind={key ? "check" : "x"} className="size-3.5" />}
 									</span>
 								)}
-								<span className={cn(!sel && "text-muted-foreground")}>
+								<span className={cn("min-w-0 font-prose", sel ? "font-semibold text-foreground" : "text-muted-foreground")}>
 									<ToolContentResponse>{opt.label}</ToolContentResponse>
 									{descByIndex.get(opt.index) && (
 										// Ask-option subtext (owner, 2026-10-12): same markdown path
 										// as the pending dock — LaTeX included. Quiz options carry
 										// none (owner ruling 2026-09-26); the map stays empty for them.
-										<ToolContentResponse className="lh-prose block text-xs text-muted-foreground">
+										<ToolContentResponse className="block text-xs text-muted-foreground">
 											{descByIndex.get(opt.index)}
 										</ToolContentResponse>
 									)}
@@ -152,7 +172,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					{answer.other && (
 						<div
 							data-testid="answered-other"
-							className="flex items-center gap-2 rounded-lg border border-primary bg-accent px-3 py-1.5"
+							className="flex items-center gap-2 border-b border-border px-1 py-2 text-learner"
 						>
 							<span>“<PathText text={answer.other} />”</span>
 						</div>
@@ -160,37 +180,28 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 				</div>
 			)}
 
-			{answer.text && <div className="lh-prose mt-2 whitespace-pre-wrap">“<PathText text={answer.text} />”</div>}
+			{answer.text && <div className="lh-learner mt-2 whitespace-pre-wrap">“<PathText text={answer.text} />”</div>}
 
-			{/* The confidence record (owner round 6): the slider's rail, disc
-			    removed — the missing handle itself says "this is a record, not a
-			    control". Same paint, same ticks, same ramp, same % read-out as the
-			    live dock. Quiz answers only, and only when a confidence exists:
-			    "I don't know" sent none (its slider was grayed out), explain and
-			    ask never had one, and records from before the feature carry no
-			    field — nothing to show, nothing rendered. */}
+			{/* Redesign (owner, 2026-10-27): the static rail records confidence
+			    without a thumb; the sentence above gives the same value in words. */}
 			{isQuiz && answer.confidence != null && (
 				<div className="mt-3 flex items-center gap-3" data-testid="answered-confidence">
 					<ConfidenceRail value={answer.confidence} className="min-w-0 flex-1" />
-					<span className="w-9 shrink-0 text-right font-mono text-sm tabular-nums text-muted-foreground">
+					<span className="w-10 shrink-0 text-right font-ui text-sm font-semibold tabular-nums text-learner">
 						{answer.confidence}%
 					</span>
 				</div>
 			)}
-			{answer.dontKnow && isQuiz && (
-				<div className="mt-2 text-sm text-muted-foreground">Answered “I don't know”.</div>
-			)}
 
 			{(answer.thinking ?? answer.note) && (
-				/* The SAME unified row (owner round, 2026-10-05): the quiz answer's
-				    thinking is the identical collapsible ThinkingBlock — one
-				    geometry, but NO band on the card (owner round five, 2026-10-07:
-				    the accent lift read too light); rail only, heights identical. */
+				/* Redesign (owner, 2026-10-27): keep the disclosure and its
+				   test id while opening the learner's quoted reasoning. */
 				<ThinkingBlock
 					testId="your-thinking"
-					label="YOUR THINKING"
-					text={answer.thinking ?? answer.note ?? ""}
+					label="Your thinking"
+					text={`“${answer.thinking ?? answer.note ?? ""}”`}
 					inCard
+					defaultOpen
 				/>
 			)}
 
@@ -206,12 +217,12 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 					<button
 						type="button"
 						onClick={() => setWhyOpen((v) => !v)}
-						className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+						className="min-h-11 text-xs font-medium text-muted-foreground hover:text-foreground"
 					>
 						{whyOpen ? "Hide why" : "Why"}
 					</button>
 					{whyOpen && (
-						<div className="mt-1.5 rounded-lg bg-muted py-2 text-sm text-foreground/50">
+						<div className="mt-1.5 py-2 font-prose text-sm text-muted-foreground">
 							<span className="font-medium text-muted-foreground">Why: </span>
 							{/* Keep the first paragraph beside the label, not every paragraph:
 							   later paragraphs must retain their recovered document structure. */}
@@ -225,7 +236,7 @@ export function AnsweredCard({ answer: savedAnswer, input }: { answer: QuestionA
 			    — one field, reasoning included — shown on submit; no verdict,
 			    the model's next reply IS the grading. */}
 			{isExplain && answer.committed && (
-				<div className="mt-3 rounded-lg bg-muted py-2 text-sm text-muted-foreground">
+				<div className="mt-3 border-t border-border py-2 font-prose text-sm text-muted-foreground">
 					<span className="font-medium text-foreground">The answer: </span>
 					<ToolContentResponse className="inline [&>p:first-child]:inline [&>p:first-child]:m-0">{answer.committed}</ToolContentResponse>
 				</div>

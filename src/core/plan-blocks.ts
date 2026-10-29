@@ -21,15 +21,6 @@ import type { LhMessage } from "./native-messages.ts";
 import { newPlanBlockMessage } from "./native-messages.ts";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 
-/** The message part the chat renderer consumes (TeacherUIDataParts key
- *  "plan-block" — the SDK strips the `data-` prefix). Kept for the client
- *  renderers; the projection emits this shape. */
-export interface PlanBlockPart {
-	type: "data-plan-block";
-	id: string;
-	data: PlanBlockData;
-}
-
 /** The snapshot payload (unchanged since wave 4): statuses derived AT
  *  EMISSION time from the transcript — the block never re-derives. Wave D:
  *  the derivation reads the NATIVE transcript (quiz CALLS only — results

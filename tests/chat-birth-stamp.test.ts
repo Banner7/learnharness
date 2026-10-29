@@ -22,7 +22,7 @@ import { after, describe, it } from "node:test";
 const TMP_DATA = fs.mkdtempSync(path.join(os.tmpdir(), "lh-birth-stamp-"));
 process.env.LH_DATA_DIR = TMP_DATA;
 
-const { POST } = await import("../app/api/chats/route.ts");
+const { POST } = await import("../server/routes/chats/route.ts");
 const { readSettings, writeSettings } = await import("../src/store/settings.ts");
 const { chatStore } = await import("../src/store/chats.ts");
 

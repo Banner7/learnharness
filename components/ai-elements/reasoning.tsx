@@ -26,7 +26,6 @@ import { Streamdown } from "streamdown";
 import { transformMathDelimiters } from "@/src/core";
 import { streamdownPlugins, streamdownRemend } from "./message";
 import { mdComponents } from "@/components/md-blocks";
-import { Shimmer } from "./shimmer";
 
 interface ReasoningContextValue {
   isStreaming: boolean;
@@ -111,7 +110,7 @@ export const Reasoning = memo(
     return (
       <ReasoningContext.Provider value={contextValue}>
         <Collapsible
-          className={cn("not-prose mb-4", className)}
+          className={cn("not-prose mb-2 border-l border-border pl-3 font-ui text-muted-foreground", className)}
           onOpenChange={handleOpenChange}
           open={isOpen}
           {...props}
@@ -129,16 +128,11 @@ export type ReasoningTriggerProps = ComponentProps<
   getThinkingMessage?: (isStreaming: boolean) => ReactNode;
 };
 
-/* The settled label (owner round, 2026-10-05): static "Agent's thinking" —
-   the duration was live-turn state that died on remount anyway ("thought
-   for a few seconds"), bookkeeping for information we knowingly lose. The
-   label pairs with the user's collapsed "Your thinking" rows — one
-   language; motion (spinner + shimmer) stays the working signal. */
+// Redesign (owner, 2026-10-27): the disclosure label is small,
+// sentence-case UI text; only the expanded body is reading prose.
 const defaultGetThinkingMessage = (isStreaming: boolean) => {
-  if (isStreaming) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
-  }
-  return <p>AGENT’S THINKING</p>;
+  if (isStreaming) return <span>Thinking…</span>;
+  return <span>Thinking</span>;
 };
 
 export const ReasoningTrigger = memo(
@@ -153,10 +147,7 @@ export const ReasoningTrigger = memo(
     return (
       <CollapsibleTrigger
         className={cn(
-          /* The heading register (owner round 4, 2026-10-05): the small
-             mono caps of the card eyebrows — matching YOUR THINKING, whose
-             rail offsets it by exactly the one-character difference. */
-          "flex w-full items-center gap-2 text-muted-foreground text-xs font-medium uppercase tracking-wide transition-colors hover:text-foreground",
+          "flex min-h-11 w-full items-center gap-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
           className
         )}
         {...props}
@@ -196,15 +187,14 @@ export type ReasoningContentProps = ComponentProps<
   children: string;
 };
 
-// Shares message.tsx's Streamdown config (math delimiters, dark mermaid,
+// Shares message.tsx's Streamdown config (math delimiters and
 // remark-breaks) — reasoning renders the same contract as message text.
 
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "mt-2 max-w-[68ch] font-ui text-sm text-muted-foreground outline-none",
         className
       )}
       {...props}

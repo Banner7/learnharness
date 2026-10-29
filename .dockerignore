@@ -1,0 +1,11 @@
+node_modules
+.git
+.env*
+auth.json
+data
+secrets
+dist
+*.log
+*.tsbuildinfo
+.fresh-data
+real-data-extraction

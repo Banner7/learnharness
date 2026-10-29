@@ -20,8 +20,6 @@ export const stores = {
 	settingsStore,
 };
 
-export type Stores = typeof stores;
-
 /**
  * The resolved view of the settings record (core/settings-resolution.ts):
  * every knob concrete over its factory default — EXCEPT MODELS (BYOK all

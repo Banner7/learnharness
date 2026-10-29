@@ -39,13 +39,11 @@ const part = (over: Partial<ArtifactPartProps["part"]>): ArtifactPartProps["part
 // ── the dock ─────────────────────────────────────────────────────────────────
 
 describe("PracticeDock", () => {
-	it("expanded: statement renders, the two lanes sit in the thinking field", () => {
+	it("statement renders, the two lanes sit in the thinking field", () => {
 		const html = renderToStaticMarkup(
 			<PracticeDock
 				problemCallId="call_p1"
 				input={{ statement: "Show that the sum is even." }}
-				expanded={true}
-				onExpand={() => {}}
 				onSubmit={() => {}}
 			/>,
 		);
@@ -53,28 +51,11 @@ describe("PracticeDock", () => {
 		// The 'Problem' eyebrow (owner round, 2026-10-05): the quiz cards'
 		// label row, mirrored — dock and transcript card read identically.
 		assert.match(html, /Problem/);
-		// The measured column cap (the old fixed 40vh is only the fallback).
-		assert.match(html, /--dock-max-h/);
-		assert.match(html, /YOUR THINKING/);
 		assert.match(html, /data-testid="practice-send"/);
 		assert.ok(!html.includes("practice-nudge") && !html.includes("practice-commit"), "the two-lane buttons are gone");
 		// The buttons carry their lane in the disabled gate; both start
 		// disabled (empty field).
 		assert.match(html, /disabled/);
-	});
-
-	it("collapsed: the slim bar carries the statement excerpt", () => {
-		const html = renderToStaticMarkup(
-			<PracticeDock
-				problemCallId="call_p1"
-				input={{ statement: "Show that the sum is even." }}
-				expanded={false}
-				onExpand={() => {}}
-				onSubmit={() => {}}
-			/>,
-		);
-		assert.match(html, /data-testid="practice-dock-bar"/);
-		assert.match(html, /Show that the sum is even\./);
 	});
 });
 
@@ -176,18 +157,12 @@ describe("the practice transcript cards", () => {
 		assert.doesNotMatch(html, /The solution/);
 	});
 
-	it("ThinkingCard: one label, right side, expanded arrival (owner round, 2026-10-07)", () => {
+	it("ThinkingCard: expanded arrival, no 'Your solution' label on legacy commits", () => {
 		const trace = renderToStaticMarkup(<ThinkingCard data={{ problemCallId: "c", commit: false, text: "stuck at step two" }} />);
-		assert.match(trace, /YOUR THINKING/);
-		// Transcript rows arrive EXPANDED (clearly conveyed as sent) as
-		// full-width card-color bands with the 6px rail (the document,
-		// all-in — owner round two, 2026-10-07).
+		// Transcript rows arrive EXPANDED (clearly conveyed as sent).
 		assert.match(trace, /aria-expanded="true"/);
 		assert.ok(trace.includes("stuck at step two"), "the text is visible on arrival");
-		assert.ok(trace.includes("bg-card"), "the card-color band");
-		assert.ok(trace.includes("border-l-[calc(3ch-14px)]"), "narrow rail inside the 3ch inset");
 		const legacy = renderToStaticMarkup(<ThinkingCard data={{ problemCallId: "c", commit: true, text: "It is 42." }} />);
-		assert.match(legacy, /YOUR THINKING/);
 		assert.doesNotMatch(legacy, /Your solution/);
 	});
 });

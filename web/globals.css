@@ -1,0 +1,638 @@
+@import "tailwindcss";
+@source "../components";
+@source "../lib";
+
+@custom-variant dark (&:is(.dark *));
+
+html {
+	/* Stop double-tap zoom; keep pan and pinch (owner, 2026-10-28). */
+	touch-action: manipulation;
+}
+
+/*
+ * THE SKIN — wave 5. Design tokens, the single place to restyle the app.
+ *
+ * Mathematical soundness, per the owner's brief:
+ *   - Tailwind's built-in 0.25rem (4px) spacing scale IS the rhythm — every
+ *     padding/margin/gap in the app uses whole units of a 4px base.
+ *   - The type scale below is a declared modular ladder (each --text-* token
+ *     carries its own line-height); components never invent pixel sizes.
+ *   - Radii ladder is 4 / 8 / 12 / 16px multiples of the 4px base.
+ *   - Emphasis colors live in tokens (--lh-ink-strong / --lh-ink-italic) so a
+ *     future settings UI reassigns them (configurable per the owner).
+ */
+
+/* Focus rings are handled by controls' own selected/focus affordances.
+   Reset the browser outline to avoid a second indicator on tap. */
+*:focus,
+*:focus-visible {
+	outline: none;
+}
+
+/* Two skins, one layout — Kanagawa Kasumi (owner pick 2026-10-29, community
+   palette "Kanagawa Kasumi", both modes). Fork redesign
+   (2026-10-29): LIGHT is the palette's sand surface with ink #1A2026; its
+   accents are darkened along their own hues because the sand is mid-tone and
+   the raw light accents miss 4.5:1 (primary #936B53 → #6E4A37, secondary
+   #4F6878 → #3E5462, error #A64F4F → #843B3B, green #667858 → #4A5840).
+   DARK uses the palette as published. Every text pair here was checked at
+   ≥ 4.5:1. Only colors differ between modes; type and layout are shared.
+   The mode follows the phone unless Settings → Appearance overrides it
+   (web/index.html sets <html class="dark"> before first paint). */
+:root {
+	color-scheme: light;
+	/* Fork rewrite (2026-10-29): bundled Fontsource faces retain the
+	   variables the existing typography uses, without a font loader. */
+	--font-atkinson: "Atkinson Hyperlegible Next";
+	--font-jetbrains: "JetBrains Mono Variable";
+	--radius: 8px;
+	--background: #d9d1ba;
+	--foreground: #1a2026;
+	--card: #e4decb;
+	--card-foreground: #1a2026;
+	--popover: #e4decb;
+	--popover-foreground: #1a2026;
+	--primary: #6e4a37;
+	--primary-foreground: #efeadb;
+	--secondary: #c7bfa6;
+	--secondary-foreground: #1a2026;
+	--muted: #c7bfa6;
+	--muted-foreground: #3f4952;
+	--accent: #c7bfa6;
+	--accent-foreground: #1a2026;
+	--destructive: #843b3b;
+	--border: #9e9783;
+	--input: #9e9783;
+	--ring: #3e5462;
+	/* Grading marks: red for wrong, green for right. */
+	--correct: #4a5840;
+	--wrong: #843b3b;
+	/* Two voices (redesign 2026-10-29): the learner writes in Atkinson in the
+	   palette's blue ink, next to a red margin rule like an exercise book's. */
+	--learner: #3e5462;
+	--margin-rule: #843b3b;
+	/* Highlighter: the chosen option and learned ideas. */
+	--highlight: #e8c9a8;
+	--highlight-foreground: #1a2026;
+	--lh-ink-strong: var(--foreground);
+	--lh-ink-italic: var(--foreground);
+	/* THE READING SIZE. Computer Modern has a small x-height, so reading
+	   text sits one pixel above the old 16px Source Sans size. The
+	   appearance setting (proseFontSize) still overrides it at runtime. */
+	--lh-prose-size: 17px;
+	--lh-prose-leading: 1.5;
+	/* Computer Modern ships regular and bold only; 700 is its heading cut. */
+	--lh-heading-weight: 700;
+}
+
+.dark {
+	color-scheme: dark;
+	--background: #1a2026;
+	--foreground: #d9d1ba;
+	--card: #20272e;
+	--card-foreground: #d9d1ba;
+	--popover: #20272e;
+	--popover-foreground: #d9d1ba;
+	--primary: #d9a78b;
+	--primary-foreground: #1a2026;
+	--secondary: #313c47;
+	--secondary-foreground: #d9d1ba;
+	--muted: #252d35;
+	--muted-foreground: #9aa2a3;
+	--accent: #313c47;
+	--accent-foreground: #d9d1ba;
+	--destructive: #d96c6c;
+	--border: #313c47;
+	--input: #313c47;
+	--ring: #7794a6;
+	--correct: #8ba37a;
+	--wrong: #d96c6c;
+	--learner: #7794a6;
+	--margin-rule: #d96c6c;
+	--highlight: #4a3d33;
+	--highlight-foreground: #f2bea0;
+}
+
+/* THE BOARD (redesign 2026-10-29): the tutor's questions and problems are
+   "written on the board". The class re-points the tokens inside its panel,
+   so every child that already uses them turns chalk-on-board with no
+   restyling. In light mode the board is the palette's dark surface on the
+   sand page; in dark mode it is a raised panel with a chalk ledge in the
+   primary color along its top edge. */
+.lh-board {
+	color-scheme: dark;
+	--card: #1a2026;
+	--card-foreground: #d9d1ba;
+	--foreground: #d9d1ba;
+	--popover: #20272e;
+	--popover-foreground: #d9d1ba;
+	--primary: #d9a78b;
+	--primary-foreground: #1a2026;
+	--secondary: #313c47;
+	--secondary-foreground: #d9d1ba;
+	--muted: #252d35;
+	--muted-foreground: #9aa2a3;
+	--accent: #313c47;
+	--accent-foreground: #d9d1ba;
+	--border: #313c47;
+	--input: #3c4855;
+	--ring: #7794a6;
+	--correct: #8ba37a;
+	--wrong: #d96c6c;
+	--learner: #8ab2c9;
+	--highlight: #4a3d33;
+	--highlight-foreground: #f2bea0;
+	--lh-ink-strong: #d9d1ba;
+	--lh-ink-italic: #d9d1ba;
+	background: var(--card);
+	color: var(--card-foreground);
+	border-color: transparent;
+}
+.dark .lh-board {
+	--card: #252d35;
+	--muted: #2b343d;
+	box-shadow: inset 0 3px 0 var(--primary);
+}
+
+/* Computer Modern Serif (CMU, OFL) — bundled, no CDN. Reading text, titles
+   and math share one face, so KaTeX output matches the words around it. */
+@font-face {
+	font-family: "lh-cmu";
+	src: url("/fonts/cmunrm.woff") format("woff");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "lh-cmu";
+	src: url("/fonts/cmunti.woff") format("woff");
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+@font-face {
+	font-family: "lh-cmu";
+	src: url("/fonts/cmunbx.woff") format("woff");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: "lh-cmu";
+	src: url("/fonts/cmunbi.woff") format("woff");
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@theme inline {
+	/* Fonts (redesign 2026-10-27): controls = Atkinson Hyperlegible Next,
+	   reading = Computer Modern Serif, code = JetBrains Mono. The Tailwind
+	   defaults are ALIASED to the app fonts so streamdown's utilities never
+	   fall to a system stack. The Atkinson/JetBrains variables live above. */
+	--font-ui: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+	--font-prose: "lh-cmu", serif;
+	--font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+	--font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+	/* The modular type ladder — each size carries its own line-height.
+	   Component sizes must pull from this ladder. (owner, typography
+	   round 4: the 10px rung is merged into 11 — one pixel apart was a
+	   distinction with no visible difference, and 10px sits at the mono
+	   legibility floor; quiet labels get their quiet from color +
+	   tracking, not a notch of size. Reading prose = the 16px rung via
+	   --lh-prose-size.) */
+	/* --font-title lives in the NON-inline @theme below: inline tokens get
+	   their literal values baked into the utilities (.font-title{font-family:
+	   lh-cmu,serif}), which made the appearance "session names in serif"
+	   toggle write a runtime --font-title no consumer ever read (owner, fix
+	   wave: toggle looked dead). Non-inline emits :root { --font-title: … }
+	   and the utility reads var(--font-title) — appearance overrides win. */
+	/* Redesign 2026-10-27: the small rungs rise one notch now that labels
+	   are sentence-case Atkinson instead of tracked all-caps mono. */
+	--text-xs: 12px;
+	--text-xs--line-height: 1.4;
+	--text-sm: 13.5px;
+	--text-sm--line-height: 1.4;
+	--text-base: 15px;
+	--text-base--line-height: 1.45;
+	--text-lg: 17px;
+	--text-lg--line-height: 1.45;
+	--text-xl: 20px;
+	--text-xl--line-height: 1.4;
+	--text-2xl: 25px;
+	--text-2xl--line-height: 1.3;
+	--text-3xl: 32px;
+	--text-3xl--line-height: 1.25;
+	/* Radii ladder — 4/8/12/16 multiples of the 4px base. */
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--radius: 8px;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-correct: var(--correct);
+	--color-wrong: var(--wrong);
+	--color-learner: var(--learner);
+	--color-margin-rule: var(--margin-rule);
+	--color-highlight: var(--highlight);
+	--color-highlight-foreground: var(--highlight-foreground);
+}
+
+/* Fork redesign (2026-10-29): in the base layer, so border-* color
+   utilities (border-primary, the learner's margin rule) can override it.
+   Unlayered, it silently beat every one of them. */
+@layer base {
+	* {
+		border-color: var(--color-border);
+	}
+}
+
+body {
+	background: var(--color-background);
+	color: var(--color-foreground);
+	font-family: var(--font-ui);
+}
+
+/* Teaching prose (the markdown renderer's container gets .lh-prose):
+   Computer Modern with the size/leading tokens; emphasis color bound to
+   the settings-ready tokens. */
+.lh-prose {
+	font-family: var(--font-prose);
+	font-size: var(--lh-prose-size);
+	line-height: var(--lh-prose-leading);
+}
+
+/* Session titles set in Computer Modern regular (redesign 2026-10-27): the
+   notebook look comes from the face, not from weight. */
+.font-title {
+	font-weight: 400;
+}
+/* The learner's voice (redesign 2026-10-29): the tutor speaks in Computer
+   Modern, the learner writes in Atkinson, beside a red margin rule. Same
+   reading size, so the two voices differ in face, not in weight. */
+@utility lh-learner {
+	font-family: var(--font-ui);
+	font-size: calc(var(--lh-prose-size) - 1px);
+	line-height: 1.5;
+	color: var(--color-learner);
+	border-left: 2px solid var(--color-margin-rule);
+	padding-left: 0.875rem;
+}
+/* The board slides up once when a question arrives; nothing else animates
+   on its own (redesign 2026-10-29). */
+@keyframes lh-board-in {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+.lh-board-enter {
+	animation: lh-board-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+	.lh-board-enter {
+		animation: none;
+	}
+}
+
+.lh-prose :where(strong, b) {
+	color: var(--lh-ink-strong);
+	font-weight: 700;
+}
+
+.lh-prose :where(em, i) {
+	color: var(--lh-ink-italic);
+}
+
+/* Markdown lists indent from the prose edge (owner ask, 2026-09-24):
+   streamdown ships list-inside with no container padding (top-level
+   markers sit ON the text edge — nested lists get their pl-6 only via
+   [li_&]). 24px — the same measure as that nested-case pl-6 — pulls
+   the whole list right as a block. Unlayered CSS beats the utility
+   layer; :where keeps specificity zero. */
+.lh-prose :where(ul, ol) {
+	padding-left: 1.5rem;
+}
+
+/* Markdown headings render at the font's BLACK weight (owner ask,
+   2026-09-19) — 900, not streamdown's font-semibold 600. The variable
+   Source Sans 3 axis spans 200–900 (next/font loads the full range), so
+   900 draws the real Black cut. Unlayered CSS beats the utility layer;
+   :where keeps specificity zero. Chrome titles (CMU Serif) don't live
+   under .lh-prose and stay untouched. */
+.lh-prose :where(h1, h2, h3, h4, h5, h6) {
+	font-weight: var(--lh-heading-weight, 900);
+}
+
+/* lh-input (owner, typography round 2): lh-prose's 1.5 READING leading
+   makes typing carets tower over the glyphs — the caret fills the line
+   box (24px at 16px text, ~2× the glyph height). Inputs are not
+   paragraphs: a tighter 1.25 leading brings the caret to the font-metric
+   floor (~20px, as close to the glyphs as Chromium will draw it) while
+   wrapped lines in growing textareas still read fine. */
+/* Voices (redesign 2026-10-29): everything the learner types is in the
+   learner's face, Atkinson, one pixel under the reading size — the same as
+   a sent learner turn, so a draft looks like what it becomes. */
+.lh-input {
+	font-family: var(--font-ui);
+	font-size: calc(var(--lh-prose-size) - 1px);
+	line-height: 1.25;
+}
+
+/* Thin dark native scrollbar (app-wide): dark thumb, transparent track. */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-border) transparent;
+}
+
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--color-border);
+	border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-muted-foreground);
+}
+
+/* Dock variant swap — quick fade/rise on content change; the shell's HEIGHT
+   morph is separate (WAAPI in DockOverlay). Re-applied via class toggling, no
+   remount, so collapsed-question state survives. */
+@keyframes dock-variant-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.dock-variant {
+	animation: dock-variant-in 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ============================================================
+ * W3 — presentation fixes (appended 2026-08-22)
+ * ============================================================ */
+
+/* Streamdown's internal UI chrome (code blocks, tables, mermaid containers,
+   copy/download buttons) is styled with Tailwind utilities living in its dist
+ * bundle. Tailwind v4 never scans node_modules, so without this line those
+ * classes are dead — code blocks and mermaid containers rendered unstyled.
+ * (Streamdown README, "Tailwind CSS setup".) */
+@source "../node_modules/streamdown/dist/*.js";
+
+/* Token the streamdown utilities reference (code-block/mermaid chrome uses
+ * bg-sidebar / border-sidebar): map it onto the app's card surface. */
+@theme inline {
+	--color-sidebar: var(--card);
+}
+
+/* Mermaid diagrams: keep wide charts inside the content column. Mermaid
+ * inlines a px max-width on the svg, so !important is required to win. */
+[data-streamdown="mermaid"] svg {
+	max-width: 100% !important;
+	height: auto !important;
+}
+
+/* Display math: long equations scroll instead of overflowing the column. */
+.katex-display {
+	overflow-x: auto;
+	overflow-y: hidden;
+}
+
+/* ============================================================
+ * Chrome melt (owner wave, 2026-09-19) — tables and code blocks stop
+ * being boxes: blocks read as part of the message. These rules override
+ * streamdown's Tailwind utilities (utilities live in a cascade LAYER;
+ * unlayered author CSS wins regardless of order).
+ * ============================================================ */
+
+/* Code blocks: no header bar — one quiet rounded tint so code reads as a
+   unit (owner note, chrome-melt tweaks 2026-09-19), plus a hairline outline.
+   Redesign (owner, 2026-10-27): the tint is the muted token, so it reads as
+   a pale panel on Cahier paper and a deeper slate panel in the dark mode.
+   (md-blocks renders its own hover copy corner.) */
+[data-streamdown="code-block"] {
+	border: 1px solid var(--border);
+	background: var(--muted);
+	border-radius: 0.75rem;
+	padding: 0.375rem;
+}
+[data-streamdown="code-block-header"] {
+	display: none;
+}
+[data-streamdown="code-block-body"] {
+	border: 0;
+	background: transparent;
+	padding: 0.75rem 1rem;
+}
+
+/* Tables: hairline row rules + header underline, and a full outer border
+   — actual RECTANGLES outlined on all four sides (owner note, chrome-melt
+   tweaks 2026-09-19: the melt left the shape missing its left/right/top
+   edges). border-collapse merges the outer border with the row rules, so
+   no edge doubles. (md-blocks supplies the wrapper + the copy corner.) */
+[data-streamdown="table"] {
+	border: 1px solid var(--border);
+	/* Tables HUG their contents (owner, callout round 2026-10-07): no more
+	   full-width stretch with dead space. max-content sizes to the cells
+	   (width:auto would still stretch — the classic table trap). No
+	   max-width cap: a max-width would squish-wrap wide tables instead of
+	   letting the md-blocks overflow-x scroller carry them. */
+	width: max-content;
+	/* Tables run at the SESSION prose size (owner note, 2026-09-19: they
+	   visibly lagged the 16px chat text at streamdown's 12.5px text-sm).
+	   Unlayered CSS beats the cells' own utility-layer text-sm, and the
+	   :where keeps specificity zero — the override wins on layering alone. */
+	font-size: var(--lh-prose-size);
+}
+[data-streamdown="table"] :where(th, td) {
+	font-size: inherit;
+}
+/* Column separators: a hairline left rule on every cell but the first in
+   its row (owner ask, 2026-09-19) — border-collapse merges it with the row
+   rules and the outer border, no doubled lines anywhere. */
+[data-streamdown="table"] :where(th, td):not(:first-child) {
+	border-left: 1px solid var(--border);
+}
+[data-streamdown="table-header"] {
+	background: transparent;
+	border-bottom: 1px solid var(--border);
+}
+[data-streamdown="table-body"] [data-streamdown="table-row"] {
+	border-bottom: 1px solid var(--border);
+}
+
+/* The mermaid focus overlay's chart wrapper: the svg fills the wrapper
+   (which is sized to the chart's viewBox — pan-zoom.ts math centers on it),
+   overriding mermaid's inline max-width cap. Later + same-specificity
+   than the column rule above, so the !important tie breaks our way; the
+   overlay's svg never sits under [data-streamdown="mermaid"] anyway. */
+[data-lh-overlay-chart] svg {
+	max-width: none !important;
+	width: 100% !important;
+	height: auto !important;
+}
+
+/* ============================================================
+ * Session status — the braille spinner (the one working indicator)
+ * ============================================================ */
+
+/* (owner, minimal-color round) Phase color-coding is RETIRED: phases only
+   advance (every session ends in Teaching), so phase-as-signal was
+   decoration; the --phase-* tokens and every phase-dot state are gone.
+   What state deserved — "a turn is in flight" — is carried by MOTION
+   alone: the terminal braille spinner (components/braille-spinner.tsx),
+   monochrome, existing only while true. */
+
+/* One keyframes, all ten frames: each frame <g> holds opacity 1 for its
+   10% slice of the 800ms cycle and 0 elsewhere; frames stagger via
+   positive animation-delay (frame k starts at k×80ms). Static contexts
+   (SSR, reduced motion) show frame 0 — see the base rules below. */
+@keyframes braille-frame {
+	0%,
+	10% {
+		opacity: 1;
+	}
+
+	10.001%,
+	100% {
+		opacity: 0;
+	}
+}
+
+.braille-frame {
+	animation: braille-frame 800ms linear infinite;
+	opacity: 0;
+}
+
+/* Static fallback: frame 0 (⠋) is the glyph a non-animated context shows. */
+.braille-frame[data-frame="0"] {
+	opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.braille-frame {
+		animation: none;
+	}
+}
+
+/* Settings dialog pop (settings-app wave, 2026-09-20): a short fade +
+   2% settle-scale — understated by design, the app's motion taste
+   (200ms sidebar, 150ms here); honors reduced-motion by appearing. */
+@keyframes settings-pop {
+	from {
+		opacity: 0;
+		scale: 0.98;
+	}
+	to {
+		opacity: 1;
+		scale: 1;
+	}
+}
+
+.settings-dialog-pop {
+	animation: settings-pop 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.settings-dialog-pop {
+		animation: none;
+	}
+}
+
+/* Home action entrance; reduced motion displays it immediately. */
+@keyframes home-actions-fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+.home-actions-fade-in {
+	animation: home-actions-fade-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.home-actions-fade-in {
+		animation: none;
+	}
+}
+
+/* --font-title deliberately NOT @theme inline (see comment above): the
+   session-name-serif toggle overrides this var at runtime, so the
+   .font-title utility must read it through var(), not carry a baked copy. */
+@theme {
+	--font-title: "lh-cmu", serif;
+}
+
+/* Card enter (owner round, 2026-10-05): the transcript cards' one-shot
+   mount — a subtle fade + 4px rise, the app's motion register (150ms,
+   dock-variant/settings-pop taste). Nothing on update, nothing on
+   unmount. Applied by the unified ThinkingBlock and the practice
+   cards; honors reduced-motion by appearing. */
+@keyframes lh-card-enter {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.lh-card-enter {
+	animation: lh-card-enter 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.lh-card-enter {
+		animation: none;
+	}
+}
+
+/* Source-message arrival: a brief, static theme-colored spotlight. */
+.lh-source-passage {
+	scroll-margin-top: 1rem;
+}
+.lh-source-highlight {
+	background-color: var(--accent);
+	outline: 1px solid var(--border);
+	border-radius: 0.25rem;
+}

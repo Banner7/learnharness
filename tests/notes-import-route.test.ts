@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, it } from "node:test";
-import { POST } from "../app/api/graph/import/route.ts";
+import { POST } from "../server/routes/graph/import/route.ts";
 import { extraction } from "../src/server/index.ts";
 import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../src/core/settings.ts";
 import { createExtractionPipeline, NotesImportError } from "../src/agent/subagents/extraction.ts";
@@ -67,7 +67,7 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 		upsertSource: (source) => { sources.set(source.id, { ...source, extractions: sources.get(source.id)?.extractions ?? [] }); },
 		readSources: () => [...sources.values()],
 		appendSourceUsage: (id, usage) => { sources.get(id)!.extractions!.push(usage); },
-		readPositions: () => ({}), writePositions: () => {}, rewriteLedgers: () => {},
+		rewriteLedgers: () => {},
 	};
 	let calls = 0;
 	const pipeline = createExtractionPipeline({ chatStore: stores.chatStore, graphStore,

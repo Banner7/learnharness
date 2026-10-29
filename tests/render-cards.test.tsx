@@ -27,7 +27,6 @@ import {
 	buildAnswer,
 	normalizeOptions,
 	resolveCorrect,
-	questionNeedsReveal,
 	type QuestionData,
 } from "../src/core/question-core.ts";
 
@@ -70,11 +69,9 @@ function renderDock(props: {
 	input: never;
 	onSubmit?: () => void;
 }) {
-	// expanded=true renders the full form (the collapsed bar is covered by the
-	// QuestionDockBar test below). No scroll context needed — the DockOverlay
-	// in the chat view owns that.
+	// The dock always renders the full form (in-flow in the chat scroller).
 	return renderToStaticMarkup(
-		<QuestionDock {...props} expanded={true} onExpand={() => {}} onSubmit={props.onSubmit ?? (() => {})} />,
+		<QuestionDock {...props} onSubmit={props.onSubmit ?? (() => {})} />,
 	);
 }
 
@@ -88,17 +85,17 @@ describe("question submission draft restoration", () => {
 	};
 
 	it("restores a quiz selection, thinking, and confidence when its form remounts", () => {
-		const html = renderToStaticMarkup(<QuestionDock toolName="quiz" toolCallId="q1" input={quizInput} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
-		assert.match(html, /role="radio" aria-checked="true" data-kbdrow="0"/);
+		const html = renderToStaticMarkup(<QuestionDock toolName="quiz" toolCallId="q1" input={quizInput} onSubmit={() => {}} initialDraft={draft} />);
+		assert.match(html, /role="radio" aria-checked="true"/);
 		assert.ok(html.includes("preserved reasoning"));
 		assert.ok(html.includes("90%"));
 	});
 
 	it("restores an ask's custom answer and a free-text answer", () => {
-		const custom = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="ask1" input={{ question: "Fixture?", options: [{ label: "Listed answer" }, { label: "Another answer" }], multiSelect: true }} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
+		const custom = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="ask1" input={{ question: "Fixture?", options: [{ label: "Listed answer" }, { label: "Another answer" }], multiSelect: true }} onSubmit={() => {}} initialDraft={draft} />);
 		assert.match(custom, /role="textbox"[^>]*aria-multiline="false"[^>]*>preserved custom answer<\/div>/);
 		assert.match(custom, /aria-checked="true" data-testid="other-option"/);
-		const text = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="ask2" input={{ question: "Fixture?" }} expanded onExpand={() => {}} onSubmit={() => {}} initialDraft={draft} />);
+		const text = renderToStaticMarkup(<QuestionDock toolName="ask_user_question" toolCallId="ask2" input={{ question: "Fixture?" }} onSubmit={() => {}} initialDraft={draft} />);
 		assert.ok(text.includes("preserved free-text answer"));
 	});
 });
@@ -118,41 +115,36 @@ describe("DispatchCard — the BYOK refusal tone (owner, 2026-09-22)", () => {
 	const inJobs = (jobs: JobRecord[]) => (
 		<JobsContext.Provider value={jobs}>
 			<ChatActionsContext.Provider
-				value={{ chatId: "c1", syncFromServer: async () => {}, sendText: () => {}, openSetup: () => {} }}
+				value={{ chatId: "c1", syncFromServer: async () => {}, sendText: () => {} }}
 			>
 				<DispatchCard toolCallId="t1" kind="research" />
 			</ChatActionsContext.Provider>
 		</JobsContext.Provider>
 	);
 
-	it("a models-refused job is INFO: quiet card, 'needs model setup', deep-link to the dialog", () => {
+	it("a models-refused job is informational and has no configuration action", () => {
 		const html = renderToStaticMarkup(
 			inJobs([job({ error: "No model configured — set up your models first (missing: cheap)" })]),
 		);
 		assert.ok(html.includes('data-testid="dispatch-refused"'));
-		assert.ok(html.includes("needs model setup"));
-		assert.ok(html.includes('data-testid="dispatch-setup-link"'));
-		assert.ok(html.includes("Set up models"));
+		assert.ok(html.includes("needs model configuration"));
 		assert.ok(!html.includes("failed"));
 		assert.ok(!html.includes("text-red-500"));
 	});
 
-	it("a key-refused job is INFO: 'needs a provider key', 'Add a key' (zero-keys wave, 66dbea9)", () => {
+	it("a key-refused job reports the missing server credential without an editor action", () => {
 		const html = renderToStaticMarkup(
-			inJobs([job({ error: "No OpenRouter key is set — add one in Settings → Keys" })]),
+			inJobs([job({ error: "No OpenRouter credential is configured — configure it on the server" })]),
 		);
 		assert.ok(html.includes('data-testid="dispatch-refused"'));
-		assert.ok(html.includes("needs a provider key"));
-		assert.ok(html.includes("Add a key"));
-		assert.ok(html.includes('data-testid="dispatch-setup-link"'));
+		assert.ok(html.includes("needs a server provider key"));
 		assert.ok(!html.includes("failed"));
 	});
 
-	it("a real failure keeps the honest red failure", () => {
+	it("a real failure keeps the honest failure", () => {
 		const html = renderToStaticMarkup(inJobs([job({ error: "FAILED: headless crashed" })]));
 		assert.ok(html.includes('data-testid="dispatch-settled"'));
 		assert.ok(html.includes("failed"));
-		assert.ok(html.includes("text-red-500"));
 		assert.ok(!html.includes("dispatch-refused"));
 	});
 
@@ -171,11 +163,8 @@ describe("render smoke tests", () => {
 		// The learner's voice: a labeled "Your thinking" composer-twin lives
 		// INSIDE the dock — never called optional, inviting the dump.
 		assert.ok(html.includes('data-testid="thinking-field"'), "thinking field present");
-		assert.match(html, /YOUR THINKING/, "labeled as the learner's voice (all caps, owner round 3)");
-		assert.match(html, /Why this answer\? Whatever comes to mind/, "placeholder invites, not apologizes (owner, placeholder round 2026-10-07)");
 		assert.ok(!html.includes("optional"), "the field is never called optional");
 		assert.match(html, /Submit answer/, "send becomes Submit answer");
-		assert.match(html, /↵ submits · ⇧↵ newline/, "the standard chord is discoverable (owner round 5)");
 		// The v1 desync bug: options are buttons with ARIA roles, not native inputs.
 		assert.ok(!html.includes('type="radio"'), "no native radio inputs");
 		assert.ok(html.includes('role="radio"'), "button-based radio role present");
@@ -200,7 +189,6 @@ describe("render smoke tests", () => {
 		assert.ok(html.includes('role="radio"'), "Other row keeps the option role");
 		assert.match(html, /aria-checked="false"/, "circle starts unfilled");
 		assert.ok(html.includes('data-testid="thinking-field"'), "thinking field coexists with Other");
-		assert.match(html, /YOUR THINKING/, "ask select-mode also gets the learner's voice");
 	});
 
 	it("multi-select ask renders checkbox rows and the select-all hint", () => {
@@ -236,24 +224,6 @@ describe("render smoke tests", () => {
 		assert.match(html, /malformed/);
 	});
 
-	it("phase scales the thinking field: teaching invites depth, probing stays quick", () => {
-		const teach = renderToStaticMarkup(
-			<QuestionDock
-				toolName="quiz"
-				toolCallId="t1"
-				input={quizInput as never}
-				expanded={true}
-				phase="teach"
-				onExpand={() => {}}
-				onSubmit={() => {}}
-			/>,
-		);
-		assert.ok(teach.includes("min-h-[4.5rem]"), "teach: a generous dump area");
-		const probe = renderDock({ toolName: "quiz", toolCallId: "q1", input: quizInput as never });
-		assert.ok(!probe.includes("min-h-[4.5rem]"), "probe (default): stays compact");
-		assert.ok(probe.includes("min-h-10"), "probe: one quiet row");
-	});
-
 	it("text-mode asks keep Enter-to-submit and the answer label", () => {
 		const html = renderDock({
 			toolName: "ask_user_question",
@@ -269,13 +239,11 @@ describe("render smoke tests", () => {
 	it("AnsweredCard grades quiz answers (✓/✗ + explanation)", () => {
 		const answer = buildAnswer(quizQD(), { values: ["Venus"] });
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
-		assert.match(html, /incorrect/);
+		assert.match(html, /Mercury/, "a wrong pick reveals the correct answer");
 		// Tucked for ALL questions (owner, 2026-10-07): the explanation sits
 		// behind the Why toggle — never center stage.
 		assert.ok(html.includes("tucked-explanation"), "the Why toggle mounts");
 		assert.ok(!html.includes("innermost"), "explanation hidden until opened");
-		// Glyph-shaped SVG marks (owner preference) — pinned via data-mark.
-		assert.ok(html.includes('data-mark="check"') && html.includes('data-mark="x"'));
 	});
 
 	it("AnsweredCard shows the confidence rail on quiz answers (record, no disc)", () => {
@@ -303,7 +271,6 @@ describe("render smoke tests", () => {
 		const answer = buildAnswer(askQD(), { other: "Fairly confident — but shaky on applications" });
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.ok(html.includes('data-testid="answered-other"'), "the Other answer is an option row");
-		assert.match(html, /border-primary bg-accent/, "styled like its selected siblings");
 		assert.match(html, /shaky on applications/, "the typed words render");
 		// Inside the options container — same list, not a loose quote outside it.
 		assert.ok(
@@ -319,21 +286,6 @@ describe("render smoke tests", () => {
 		});
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} />);
 		assert.ok(html.includes('data-testid="your-thinking"'), "the thinking row exists");
-		assert.match(html, /YOUR THINKING/, "labeled as the learner's voice (all caps, owner round 3)");
-		// COLLAPSED ARRIVAL (owner round 2, 2026-10-05): the SSR output is the
-		// trigger row only — the thinking text is one click away, never loud.
-		assert.ok(html.includes('data-testid="your-thinking-trigger"'), "the trigger row");
-		assert.ok(html.includes('aria-expanded="false"'), "arrives collapsed");
-		// ONE GEOMETRY, NO BAND IN CARDS (owner round five, 2026-10-07): the
-		// accent lift read too light — rail only, heights match everywhere.
-		const yourRow = html.slice(html.indexOf('data-testid="your-thinking"'));
-		assert.ok(!yourRow.slice(0, 400).includes("bg-card") && !yourRow.slice(0, 400).includes("bg-accent"), "no band inside the card");
-		// THE RAIL GROUPS (owner correction): the label sits INSIDE the rail —
-		// ownership readable from the rail alone, collapsed or expanded.
-		const railAt = html.indexOf("border-l-[calc(3ch-14px)]");
-		const trigAt = html.indexOf("your-thinking-trigger");
-		assert.ok(railAt !== -1 && railAt < trigAt, "the rail opens before the label (same quote)");
-		assert.ok(!html.includes("brightness isn&#x27;t distance"), "the text is hidden until expanded");
 		assert.ok(!html.includes("Note:"), "no longer a muted 'Note:' footnote");
 		// The thinking sits ABOVE the verdict's explanation — the dialogue of
 		// thinking, not an afterthought.
@@ -421,52 +373,6 @@ describe("math rendering (streamdown + KaTeX)", () => {
 			<AnsweredCard answer={buildAnswer(qd, { values: ["$2x$"] })} />,
 		);
 		assert.ok(answeredHtml.includes("katex"), "answered card: option/explanation math renders");
-	});
-});
-
-describe("teach-check reveal (W5 phase separation)", () => {
-	// The collapsed dock renders the bar AND the hidden form (it stays mounted
-	// so a half-made selection survives) — assertions target the bar species.
-	it("teach-phase check collapses into the invitation bar, not the scroll bar", () => {
-		const html = renderToStaticMarkup(
-				<QuestionDock
-					toolName="quiz"
-					toolCallId="t1"
-					input={quizInput as never}
-					expanded={false}
-					reveal
-					onExpand={() => {}}
-					onSubmit={() => {}}
-				/>,
-		);
-		assert.ok(html.includes('data-testid="teach-check-reveal"'), "invitation affordance present");
-		assert.match(html, /Check your understanding/);
-		assert.match(html, /Which planet is closest/, "question teaser invites, not minimizes");
-		assert.match(html, /Open/, "a clear reveal action");
-	});
-
-	it("probe questions keep the plain collapsed bar (no invitation copy)", () => {
-		const html = renderToStaticMarkup(
-				<QuestionDock
-					toolName="quiz"
-					toolCallId="q1"
-					input={quizInput as never}
-					expanded={false}
-					onExpand={() => {}}
-					onSubmit={() => {}}
-				/>,
-		);
-		assert.ok(html.includes('data-testid="question-dock-bar"'), "the scroll-collapse strip");
-		assert.ok(!html.includes("Check your understanding"), "no invitation copy outside teach phase");
-		assert.match(html, /Answer/, "the strip keeps its Answer affordance");
-	});
-
-	it("after the reveal, the teach check renders the full form (probe default, unchanged)", () => {
-		// Post-click: expanded=true — exactly today's dock. The probe auto-open
-		// path renders the identical form; this is also the regression pin for it.
-		const html = renderDock({ toolName: "quiz", toolCallId: "t1", input: quizInput as never });
-		assert.ok(html.includes('data-testid="question-dock"'), "the form is the dock's content once expanded");
-		assert.match(html, /Submit answer/);
 	});
 });
 
@@ -644,8 +550,6 @@ describe("predict vs check rendering", () => {
 					toolCallId: "call-p1",
 					input: { ...quizInput, type: "predict", nodeId: "planet-order" },
 				}}
-				expanded={true}
-				onExpand={() => {}}
 				onSubmit={() => {}}
 			/>,
 		);
@@ -660,8 +564,6 @@ describe("predict vs check rendering", () => {
 					toolCallId: "call-c1",
 					input: { ...quizInput, type: "check", nodeId: "planet-order" },
 				}}
-				expanded={true}
-				onExpand={() => {}}
 				onSubmit={() => {}}
 			/>,
 		);
@@ -700,14 +602,12 @@ describe("predict vs check rendering", () => {
 		const cardAt = html.indexOf("answered-card");
 		assert.ok(blockAt !== -1, "the lifted block renders");
 		assert.ok(blockAt < cardAt, "it sits ABOVE the answered card");
-		assert.ok(html.includes("YOUR THINKING"), "the plain label");
 		assert.ok(!html.includes("Your thinking while reading"), "the old verbose label is gone");
 		assert.ok(!html.includes("your-reading-thinking"), "the in-card inset is gone");
-		// EXPANDED ARRIVAL (owner round two, 2026-10-07): transcript rows
-		// render their text; the in-card answer thinking stays collapsed.
+		// EXPANDED ARRIVAL: the lifted reading row renders its text; the
+		// answer thinking stays inside the card.
 		assert.ok(html.includes('data-testid="your-thinking-trigger"'), "the answer thinking stays inside the card");
 		assert.ok(html.includes("was unsure mid-paragraph"), "the lifted row arrives expanded");
-		assert.ok(!html.includes("answering thought"), "the in-card row stays collapsed");
 		const legacy = { ...buildAnswer(quizQD(), { values: ["Mercury"] }), note: "a 2026-09 answer" };
 		const legacyHtml = renderToStaticMarkup(<AnsweredCard answer={legacy} />);
 		assert.ok(legacyHtml.includes("a 2026-09 answer") || legacyHtml.includes('data-testid="your-thinking-trigger"'), "records from before the rename still render");
@@ -786,7 +686,7 @@ describe("question context renders as markdown everywhere (owner, 2026-10-12)", 
 		const answer = buildAnswer(qd, { values: ["a"] });
 		const html = renderToStaticMarkup(<AnsweredCard answer={answer} input={input} />);
 		const katexCount = (html.match(/class="katex"/g) ?? []).length;
-		assert.ok(katexCount >= 3, `details + option-label math renders (got ${katexCount})`);
+		assert.ok(katexCount >= 2, `details + chosen-answer math renders (got ${katexCount})`);
 		// Quiz options carry NO description field at all (owner ruling
 		// 2026-09-26) — the desc map is ask-only and stays empty here.
 		assert.ok(!html.includes("lh-prose block text-xs"), "no option-subtext slot on quiz rows");

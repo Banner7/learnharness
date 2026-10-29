@@ -14,7 +14,12 @@ import type { BackgroundModelRole, ModelSlotName } from "../settings.ts";
 export interface ModelCatalogEntry {
 	id: string;
 	name: string;
+	/** A short display name where the id is only an alias (Claude Code's
+	 *  "opus" → "Opus 5.5", as the CLI reports it). Absent: show the id. */
+	label?: string;
 	provider: string;
+	/** Fork (2026-10-29): models from LH_CUSTOM_PROVIDERS can be picked for vision even when the endpoint reports text-only input. */
+	serverManaged?: true;
 	reasoning: boolean;
 	input: ("text" | "image")[];
 	/** The thinking levels this model actually accepts (pi's
@@ -80,6 +85,10 @@ export interface ModelCatalogResponse {
 /** One row of the providers surface. */
 export interface CatalogProvider {
 	id: string;
+	/** Configured display name for an LH_CUSTOM_PROVIDERS provider (falls back to id). */
+	name?: string;
+	/** Fork (2026-10-29): distinguish server-configured providers from built-in and settings-backed connections. */
+	serverManaged?: true;
 	/** The gating env var; empty for subscription and file-configured routes. */
 	envVar: string;
 	/** Whether credentials are present (and custom references resolve). */

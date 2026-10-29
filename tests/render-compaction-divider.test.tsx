@@ -47,10 +47,9 @@ describe("CompactionMomentDivider", () => {
 });
 
 describe("CompactionCutDivider", () => {
-	it("renders the longer seam — dotted rules + chip with the token count", () => {
+	it("renders the longer seam — chip with the token count", () => {
 		const html = renderToStaticMarkup(<CompactionCutDivider data={data} />);
 		assert.ok(html.includes('data-testid="compaction-cut-divider"'));
-		assert.ok(html.includes("border-t-2 border-dotted"));
 		assert.ok(html.includes("History compacted"));
 		// 152000 → 152k tok
 		assert.ok(html.includes("152k tok"));

@@ -4,6 +4,7 @@
  * Run: node scripts/smoke-opening-prompt.mjs
  */
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
@@ -21,7 +22,7 @@ fs.writeFileSync(path.join(home, "auth.json"), "{}\n");
 const require = createRequire(import.meta.url);
 const { getFontAxes } = require("next/dist/compiled/@next/font/dist/google/get-font-axes.js");
 const { getGoogleFontsUrl } = require("next/dist/compiled/@next/font/dist/google/get-google-fonts-url.js");
-const fonts = Object.fromEntries(["JetBrains Mono", "Source Sans 3"].map(family => [
+const fonts = Object.fromEntries(["JetBrains Mono", "Atkinson Hyperlegible Next"].map(family => [
 	getGoogleFontsUrl(family, getFontAxes(family, ["variable"], ["normal"]), "swap"),
 	`@font-face { font-family: '${family}'; src: local('Arial'); font-weight: 100 900; }`,
 ]));
@@ -32,11 +33,16 @@ await once(listener, "listening");
 const port = listener.address().port;
 await new Promise(resolve => listener.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
+// This fork's browser gate (0.3.9 port, 2026-10-28): every path requires
+// LH_WEB_ORIGIN plus the Basic access token, so the throwaway server gets a
+// throwaway token and the page authenticates with it.
+const accessToken = crypto.randomBytes(32).toString("hex");
 const env = {
 	PATH: process.env.PATH, HOME: home, TMPDIR: home, NODE_ENV: "development",
 	LH_DATA_DIR: path.join(home, "data"), LH_AUTH_FILE: path.join(home, "auth.json"),
 	LH_IGNORE_ENV_KEYS: "1", NEXT_TELEMETRY_DISABLED: "1",
 	NEXT_FONT_GOOGLE_MOCKED_RESPONSES: path.join(home, "fonts.cjs"),
+	LH_WEB_ORIGIN: origin, LH_WEB_ACCESS_TOKEN: accessToken,
 };
 const server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--hostname", "127.0.0.1", "--port", String(port)], {
 	cwd: root, env, stdio: ["ignore", "pipe", "pipe"],
@@ -62,6 +68,7 @@ try {
 		args: ["--disable-background-networking", "--disable-sync", "--no-first-run", "--disable-default-apps"],
 	});
 	page = await browser.newPage();
+	await page.authenticate({ username: "learnharness", password: accessToken });
 	page.setDefaultTimeout(45000);
 	page.on("pageerror", err => errors.push(err.message));
 	const model = { id: "synthetic", name: "Synthetic (no calls)", provider: "fixture", input: ["text"], reasoning: false, supportedLevels: ["off"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 };
@@ -110,7 +117,12 @@ try {
 		await Promise.all(held.splice(0).map(request => request.abort("aborted").catch(() => {})));
 		await page.goto(origin + route, { waitUntil: "domcontentloaded", timeout: 120000 });
 		await page.waitForSelector(route === "/" ? "[data-file-path-input]" : '[data-testid="composer"] [data-file-path-input]');
-		await page.waitForFunction(() => !document.querySelector('[data-testid="setup-cta"]') && !document.querySelector('[data-testid="setup-cta-keys"]'));
+		// Fork port (2026-10-29): no setup CTA; wait for React hydration on
+		// the upstream contenteditable composer so an early fill is not wiped.
+		await page.waitForFunction(() => {
+			const input = document.querySelector('[data-testid="composer"] [data-file-path-input]') || document.querySelector("[data-file-path-input]");
+			return !!input && Object.keys(input).some(key => key.startsWith("__reactFiber"));
+		});
 	}
 	async function fill(text) {
 		await page.evaluate(value => {

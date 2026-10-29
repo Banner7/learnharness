@@ -1,19 +1,7 @@
-/**
- * The AuthStore adapter (auth-keys wave, 2026-09-19): the flat {VAR: value}
- * auth.json map at config.AUTH_FILE — the SAME file the Electron app has
- * always hand-edited (owner decision: option A — same file, env-located,
- * zero migration). 0600, atomic writes, hand-edits keep working (the file
- * is re-read from disk on every access).
- *
- * The server (src/server/keys.ts) is the only intended writer: it applies
- * shape validation before setAuthVar and env precedence on top of
- * authVars(). Ordinary reads never throw (absent/corrupt file = {} =
- * "no keys yet"); custom-only pair reads/writes below are deliberately
- * strict so an unreadable private record is never overwritten as {}.
- * Ordinary writes preserve unknown string vars verbatim
- * (forward-compat: future entries — e.g. a plans-login token — ride along
- * untouched until a catalog entry adopts them).
- */
+/** Read-only adapter for the out-of-band {VAR: value} auth.json file.
+ * Re-read on every access so externally managed credentials remain current.
+ * Missing or malformed ordinary reads resolve to no configured keys.
+ * The settings-backed custom endpoint pair uses strict atomic writes below. */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -52,19 +40,6 @@ export const authStore: AuthStore = {
 	authVars() {
 		return readMap();
 	},
-	setAuthVar(name, value) {
-		assertOrdinaryVar(name);
-		const map = readMap();
-		map[name] = value;
-		writeMap(map);
-	},
-	deleteAuthVar(name) {
-		assertOrdinaryVar(name);
-		const map = readMap();
-		if (!(name in map)) return; // absent = silent success, idempotent
-		delete map[name];
-		writeMap(map);
-	},
 };
 
 /** Custom writes must never turn an unreadable/corrupt private file into {}.
@@ -81,9 +56,6 @@ function readCustomMap(): Record<string, unknown> {
 	if (Object.hasOwn(map, CUSTOM_AUTH_BINDING) && !parseCustomAuthBinding(map[CUSTOM_AUTH_BINDING])) throw new Error("Invalid custom authorization record");
 	if (Object.hasOwn(map, CUSTOM_PROVIDER.envVar) && typeof map[CUSTOM_PROVIDER.envVar] !== "string") throw new Error("Invalid custom credential record");
 	return map;
-}
-function assertOrdinaryVar(name: string): void {
-	if (name === CUSTOM_AUTH_BINDING || name === CUSTOM_PROVIDER.envVar) throw new Error("Use the custom endpoint editor");
 }
 /** One immutable file snapshot. Keyless callers never invoke fileKey(). */
 export function readCustomAuth() {

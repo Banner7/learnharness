@@ -46,8 +46,6 @@ function fakeStores(
 		readCheckpoints: () => [],
 		readCoverage: () => [],
 		readSources: () => [],
-		readPositions: () => ({}),
-		writePositions: () => {},
 		readClusterLabels: () => [],
 		appendClusterLabel: () => {},
 		appendNamingRun: () => {},

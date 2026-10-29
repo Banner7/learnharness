@@ -20,25 +20,17 @@
 import { clampThinkingLevel, getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { piModels } from "../agent/models.ts";
+import { customProviderSummaries } from "../agent/custom-providers.ts";
 import { customProviderAvailable } from "./custom-provider.ts";
-import { chatGPTConnected, chatGPTModel, chatGPTModels, refreshChatGPTModels } from "../agent/chatgpt-bridge.ts";
-import { NATIVE_SUBSCRIPTIONS } from "../core/contracts/subscriptions.ts";
-import { nativeSubscriptionId, nativeSubscriptionConnected, nativeSubscriptionModel, nativeSubscriptionModels, refreshSubscriptionModels } from "../agent/subscription-bridge.ts";
 
-export async function refreshConnectionCatalog(provider?: string): Promise<void> {
-	await Promise.all([
-		!provider || provider === "chatgpt" ? refreshChatGPTModels(piModels().getModels("openai").filter((m): m is Model<"openai-responses"> => m.api === "openai-responses")) : Promise.resolve(),
-		!provider || nativeSubscriptionId(provider) ? refreshSubscriptionModels() : Promise.resolve(),
-	]);
-}
 function connectionModel(provider: string, id: string): Model<Api> | undefined {
 	if (provider === CLAUDE_CODE_PROVIDER && !claudeCodeAvailable()) return undefined;
-	return provider === "chatgpt" ? chatGPTModel(id) : nativeSubscriptionId(provider) ? nativeSubscriptionModel(provider, id) : piModels().getModel(provider, id);
+	return piModels().getModel(provider, id);
 }
-function connectionProviderIds(): string[] { return [...piModels().getProviders().map((p) => p.id), "chatgpt", ...NATIVE_SUBSCRIPTIONS.map((p) => p.logicalId)]; }
+function connectionProviderIds(): string[] { return piModels().getProviders().map((p) => p.id); }
 import { settingsStore } from "../store/settings.ts";
 import { effectiveSettings } from "./stores.ts";
-import { keyValue } from "./keys.ts";
+import { providerKeyPresent } from "./keys.ts";
 import type { ChatSettings } from "../core/contracts/chat.ts";
 import type {
 	CatalogDefaults,
@@ -52,6 +44,9 @@ import type { EffectiveModelSpec, EffectiveSlot } from "../core/settings-resolut
 import { AUTH_PROVIDER_KEYS, CUSTOM_PROVIDER } from "../core/auth-keys.ts";
 import { claudeCodeAvailable } from "./claude-code-config.ts";
 import { CLAUDE_CODE_PROVIDER } from "../agent/claude-code/constants.ts";
+import { claudeCodeModelLabel, refreshClaudeCodeModelNames } from "../agent/claude-code/model-names.ts";
+import { externalCliEnv } from "../core/auth-env.ts";
+import { initAuthEnv } from "./keys.ts";
 import {
 	BACKGROUND_MODEL_ROLES,
 	MODEL_SLOTS,
@@ -141,20 +136,17 @@ export function catalogSlots(): SlotPins {
 	return pins;
 }
 
-/** The providers surface (model slots wave, 2026-09-20): one row per
- *  plain-key model provider (core/auth-keys.ts's pi-ai-derived table),
- *  with keyPresent read env-wins through the keys seam, fresh per call —
- *  saving a key immediately federates the provider into the picker. */
+/** Plain-key model providers plus custom server providers. Credential
+ * presence is read env-first through the server's read-only keys seam. */
 export function catalogProviders(): CatalogProvider[] {
 	piModels();
 	return AUTH_PROVIDER_KEYS.map((p) => ({
 		id: p.id,
 		envVar: p.envVar,
-		keyPresent: keyValue(p.envVar) !== undefined,
+		keyPresent: providerKeyPresent(p.id),
 	})).concat([
-		{ id: "chatgpt", envVar: "", keyPresent: chatGPTConnected() },
+		...customProviderSummaries().map(({ id, name }) => ({ id, name, serverManaged: true as const, envVar: "", keyPresent: providerKeyPresent(id) })),
 		{ id: CLAUDE_CODE_PROVIDER, envVar: "", keyPresent: claudeCodeAvailable() },
-		...NATIVE_SUBSCRIPTIONS.map((p) => ({ id: p.logicalId, envVar: "", keyPresent: nativeSubscriptionConnected(p.providerId) })),
 		// The custom endpoint: a row only when usable (base URL set). keyPresent
 		// reflects usability, not key presence (keyless local servers are allowed).
 		...(customProviderUsable(effectiveSettings().customProvider)
@@ -163,18 +155,37 @@ export function catalogProviders(): CatalogProvider[] {
 	]).sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** The providers whose key is present — the picker federates exactly
- *  these (a keyless provider's models are unreachable by design; the
- *  Keys page is the discovery surface, same discipline as search). */
+/** Only configured providers contribute models to the picker. */
 function keyedProviderIds(): Set<string> {
 	return new Set(catalogProviders().filter((p) => p.keyPresent).map((p) => p.id));
 }
 
+/** Read Claude Code's own names for its aliases ("opus" → "Opus 5.5") once
+ *  per process, waiting at most `waitMs` (fork, 2026-10-29; see
+ *  model-names.ts). The CLI's env is the turns' env, so the same account
+ *  answers. A slow or failed read leaves the static names. */
+export async function loadClaudeCodeModelNames(waitMs = 10_000): Promise<void> {
+	if (!claudeCodeAvailable()) return;
+	const read = refreshClaudeCodeModelNames(() => {
+		initAuthEnv();
+		return externalCliEnv();
+	});
+	let timer: NodeJS.Timeout | undefined;
+	const timeout = new Promise<void>((resolve) => {
+		timer = setTimeout(resolve, waitMs);
+		timer.unref();
+	});
+	await Promise.race([read, timeout]);
+	clearTimeout(timer);
+}
+
 /** Project one catalog model to the client DTO. */
 export function toModelDto(model: Model<Api>): ModelDto {
+	const label = model.provider === CLAUDE_CODE_PROVIDER ? claudeCodeModelLabel(model.id) : undefined;
 	return {
 		id: model.id,
-		name: model.name,
+		name: label ? `Claude ${label}` : model.name,
+		...(label ? { label } : {}),
 		provider: model.provider,
 		reasoning: model.reasoning,
 		input: [...model.input],
@@ -207,7 +218,6 @@ export function catalogContextLimits(): Map<string, number> {
 			index.set(`${provider.id}:${model.id}`, model.contextWindow);
 		}
 	}
-	for (const model of [...chatGPTModels(), ...nativeSubscriptionModels()]) index.set(`${model.provider}:${model.id}`, model.contextWindow);
 	return index;
 }
 
@@ -216,20 +226,22 @@ export function catalogContextLimits(): Map<string, number> {
  *  defaults a settings-less chat runs + the background roles' resolved
  *  pins (the settings UI's per-role default captions). */
 export function modelCatalog(): ModelCatalogResponse {
-	const keyed = keyedProviderIds();
+	const providers = catalogProviders();
+	const keyed = new Set(providers.filter((p) => p.keyPresent).map((p) => p.id));
+	// Fork (2026-10-29): carry the server-managed identity on each model because slot menus receive models alone.
+	const serverManaged = new Set(providers.filter((p) => p.serverManaged).map((p) => p.id));
 	const models = piModels()
 		.getProviders()
 		.filter((p) => keyed.has(p.id))
 		.flatMap((p) => piModels().getModels(p.id))
-		.map(toModelDto)
-		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)))
-		.concat([...chatGPTModels(), ...nativeSubscriptionModels()].map(toModelDto));
+		.map((model) => ({ ...toModelDto(model), ...(serverManaged.has(model.provider) ? { serverManaged: true as const } : {}) }))
+		.sort((a, b) => (a.provider === b.provider ? a.id.localeCompare(b.id) : a.provider.localeCompare(b.provider)));
 	return {
 		models,
 		defaults: catalogDefaults(),
 		rolePins: catalogRolePins(),
 		slots: catalogSlots(),
-		providers: catalogProviders(),
+		providers,
 	};
 }
 

@@ -83,7 +83,7 @@ describe("SessionRow", () => {
 
 	it("the meta line: state replaces the count when the state is the useful fact", () => {
 		const awaiting = render(item({ pendingQuestion: true, updatedAt: "2026-01-02T01:00:00.000Z" }));
-		assert.ok(awaiting.includes("Waiting for input · 2026-01-02"), "awaiting meta keeps the existing date");
+		assert.ok(awaiting.includes("Waiting for input, 2026-01-02"), "awaiting meta keeps the existing date");
 		assert.ok(!awaiting.includes("messages"), "count yields to the state");
 		assert.ok(!awaiting.includes("braille-spinner"), "…and the spinner stays off");
 
@@ -102,7 +102,7 @@ describe("SessionRow", () => {
 		for (const kind of ["teach", "practice"] as const) {
 			for (const updatedAt of [new Date().toISOString(), "2025-06-02T12:00:00.000Z"]) {
 				const html = render(item({ kind, pendingQuestion: true, updatedAt }));
-				assert.ok(html.includes(`Waiting for input · ${timeAgo(updatedAt)}`));
+				assert.ok(html.includes(`Waiting for input, ${timeAgo(updatedAt)}`));
 				assert.ok(!html.includes("Waiting for your answer"));
 			}
 		}
@@ -110,14 +110,24 @@ describe("SessionRow", () => {
 
 	it("compacting retains priority over pending input", () => {
 		const html = render(item({ compacting: true, pendingQuestion: true }));
-		assert.match(html, /Compacting context ·/);
+		assert.match(html, /Compacting context,/);
 		assert.doesNotMatch(html, /Waiting for input/);
 	});
 
-	it("active row is visually marked by the background alone (owner, round 5: no weight change)", () => {
+	it("active row is marked by color alone (owner, round 5: no weight change)", () => {
 		const html = render(item({}), true);
-		assert.ok(html.includes("bg-accent"), "active background");
-		assert.ok(!html.includes("font-medium"), "weight is not a second channel doing the same job");
+		assert.ok(html.includes("text-primary"), "active color");
+		assert.ok(!/font-(medium|semibold|bold)/.test(html), "weight is not a second channel doing the same job");
+	});
+
+	it("in a day-grouped list the date drops but a state still shows (redesign 2026-10-29)", () => {
+		const row = (chat: ChatListItem) => renderToStaticMarkup(<SessionRow chat={chat} active={false} dated={false} onOpen={() => {}} />);
+		const idle = row(item({ updatedAt: "2026-01-02T01:00:00.000Z" }));
+		assert.doesNotMatch(idle, /\d{4}-\d{2}-\d{2}|ago|just now/, "the day heading already says when");
+		assert.match(row(item({ pendingQuestion: true })), />Waiting for input</);
+		assert.match(row(item({ compacting: true })), />Compacting context</);
+		assert.match(row(item({ busy: true })), /Working…/);
+		assert.match(row(item({ kind: "practice", pendingProblem: true })), />Problem waiting</);
 	});
 });
 
@@ -158,6 +168,6 @@ describe("SessionRow practice badge (practice sessions, 2026-10-04)", () => {
 
 	it("a practice row with a posed problem says the problem is waiting", () => {
 		const html = render(item({ kind: "practice", pendingProblem: true }));
-		assert.match(html, /Problem waiting ·/);
+		assert.match(html, /Problem waiting,/);
 	});
 });

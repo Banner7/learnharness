@@ -65,9 +65,6 @@ export function toolQuestionKind(tool: string): "quiz" | "ask" | "explain" {
 	return tool === "quiz" || tool === "probe" ? "quiz" : tool === "explain" || tool === "recall" ? "explain" : "ask";
 }
 
-/** Tools fulfilled by background sub-agent jobs (W2/W6). */
-export const JOB_TOOLS = ["research", "demo", "visual"] as const;
-
 // ─── Tool availability (2026-09 settings seam) ─────────────────────────────
 
 /** The tools a user may toggle off in settings — THE DEFINITIVE LIST

@@ -41,12 +41,12 @@ describe("settings-signal — the seam's contract", () => {
 		assert.deepEqual(got, []);
 	});
 
-	it("readers filter their own section — general doesn't reach a models reader", () => {
+	it("readers filter their own section — graph doesn't reach a models reader", () => {
 		const got: string[] = [];
 		const off = onSettingsSaved((s) => {
 			if (s === "models") got.push(s);
 		});
-		notifySettingsSaved("general");
+		notifySettingsSaved("graph");
 		notifySettingsSaved("appearance");
 		assert.deepEqual(got, []);
 		notifySettingsSaved("models");

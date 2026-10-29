@@ -26,7 +26,6 @@ import { grepTool } from "./tools/grep.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import type { GraphStore } from "../core/ports.ts";
 
-export { jobTools };
 export type { ProbeDoneContext } from "./tools/probe.ts";
 
 /**

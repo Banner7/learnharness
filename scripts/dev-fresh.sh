@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
 # THE EXACT NEW-USER SIMULATOR (owner, interlude 2026-09-22): one command,
-# a fresh instance with zero keys and zero data — setup stage 1, every
-# launch. The owner's repeatable first-run BYOK test bed.
+# a fresh instance with zero keys and zero data on every launch.
+# Credentials can then be configured in the scratch auth.json file.
 #
-#   bash scripts/dev-fresh.sh            # http://localhost:3005
-#   npm run dev:fresh                    # the same, via package.json
-#   scripts/dev-fresh.sh --port 3006    # any port OUTSIDE 3000-3004
+#   bash scripts/dev-fresh.sh            # browser http://127.0.0.1:5173
+#   npm run dev:fresh                    # backend http://127.0.0.1:3005
+#   scripts/dev-fresh.sh --port 3006     # another backend port
 #   scripts/dev-fresh.sh --keep         # don't wipe between runs
 #                                        (multi-session testing)
 #
 # WHY A SWITCH, NOT AN ENV SCRUB: a script cannot merely unset shell
-# *_API_KEY vars — Next injects .env.local (the dev secrets) into the
-# server env at boot, so a "fresh" instance would silently federate the
+# *_API_KEY vars — the development runner loads .env.local (dev secrets)
+# into the server env at boot, so a "fresh" instance would silently use the
 # real keys. LH_IGNORE_ENV_KEYS=1 (the keys seam, src/server/keys.ts)
-# deletes every managed key var from the process after Next's env load:
+# deletes every managed key var from the process after the runner's env load:
 # pi-ai reads provider keys from process.env NATIVELY at every request,
 # so deletion hides keys from the whole app, model engines included.
 #
@@ -90,7 +90,8 @@ export LH_IGNORE_ENV_KEYS=1
 export PORT
 
 echo "── fresh-user instance ─────────────────────────────────"
-echo "  URL      : http://localhost:$PORT"
+echo "  browser  : http://127.0.0.1:5173 (LH_WEB_ORIGIN must match)"
+echo "  API      : http://127.0.0.1:$PORT"
 echo "  data dir : $DATA_DIR ($( [ "$KEEP" = "true" ] && echo 'kept across runs' || echo 'wiped next launch unless --keep' ))"
 echo "  keys     : env keys hidden (LH_IGNORE_ENV_KEYS=1), auth.json empty"
 echo "─────────────────────────────────────────────────────────"

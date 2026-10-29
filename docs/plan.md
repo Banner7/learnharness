@@ -2,6 +2,8 @@
 
 Execution plan for `docs/vision.md`. Section references (§) point into that document. Not exact — a dependency-ordered wave structure with verification gates. Written 2026-08-22.
 
+**Historical execution record:** The graph-home, separate question dock and right-panel work below describe past gates, not current UI instructions. The private fork now uses the phone UI at all widths with a home topic composer, inline transcript questions, an overlay sidebar and Settings sheets; the graph stays as data/APIs for teaching and practice, without a visualization. App shortcuts/keybindings and the desktop layout have been removed.
+
 ## Execution model
 
 - **Workers (GLM 5.3) implement everything.** Each task brief carries: exact file ownership, contracts to code against, acceptance criteria, and the standing instruction — *when anything is undecided or ambiguous, ask the orchestrator (me) via your ask tool; never guess details.*
@@ -47,7 +49,7 @@ Execution plan for `docs/vision.md`. Section references (§) point into that doc
 
 ## Deferred (recorded, not in this plan)
 
-Dictation (§2), not-a-chat presentation overhaul + structural-identity items (§2, LOW PRIORITY), DB migration (JSON stores suffice now), retroactive bootstrap of the ~15 vault POC sessions (awaits the full extraction/consolidation pipeline), spaced repetition, practice exercises, Electron, Pyodide.
+Not-a-chat presentation overhaul + structural-identity items (§2, LOW PRIORITY), DB migration (JSON stores suffice now), retroactive bootstrap of the ~15 vault POC sessions (awaits the full extraction/consolidation pipeline), spaced repetition, practice exercises, Electron, Pyodide.
 
 ## Definition of done (every wave)
 

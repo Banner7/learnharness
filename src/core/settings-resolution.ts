@@ -34,8 +34,6 @@ import {
 	type AgentSettings,
 	type BackgroundModelRole,
 	type FactorySettings,
-	type GeneralSettings,
-	type DictationSettings,
 	type CompactionSettings,
 	type CustomModel,
 	type CustomModelOverride,
@@ -71,8 +69,6 @@ export type EffectiveAppearance = FactorySettings["appearance"];
 
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {
-	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
 	agent: {
 		models: Record<BackgroundModelRole, EffectiveModelSpec | undefined>;
 		/** Delta map as stored — consumers resolve absent key → enabled. */
@@ -180,12 +176,6 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		models[role] = resolveModelSpec(role, agent.models?.[role], modelsSection);
 	}
 	return {
-		general: {
-			autoUpdate: record?.general?.autoUpdate ?? FACTORY_SETTINGS.general.autoUpdate,
-		},
-		dictation: {
-			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
-		},
 		agent: {
 			models,
 			tools: agent.tools ?? {},
@@ -199,15 +189,11 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			vision: resolveSlot(modelsSection.vision),
 		},
 		appearance: {
-			mode: appearance.mode ?? factoryAppearance.mode,
-			background: appearance.background ?? factoryAppearance.background,
 			fontFamily: appearance.fontFamily ?? factoryAppearance.fontFamily,
 			proseFontSize: appearance.proseFontSize ?? factoryAppearance.proseFontSize,
 			sessionNameSerif: appearance.sessionNameSerif ?? factoryAppearance.sessionNameSerif,
 			mdRendering: {
 				headingWeight: md.headingWeight ?? factoryMd.headingWeight,
-				boldColor: md.boldColor ?? factoryMd.boldColor,
-				italicColor: md.italicColor ?? factoryMd.italicColor,
 			},
 		},
 		graph: {
@@ -215,9 +201,6 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 			// the embedding/clustering/labeling rungs and the BYOK embeddingModel
 			// are gone (stale record keys are simply never read here).
 			enabled: graph.enabled ?? FACTORY_SETTINGS.graph.enabled,
-			// The RENDERING switch (owner, 2026-10-06): display-only — gates
-			// the home's main view (canvas vs chains), never the data.
-			rendering: graph.rendering ?? FACTORY_SETTINGS.graph.rendering,
 			// The chunk budget (extraction-UX redesign, 2026-09-24): absent
 			// (pre-redesign record, fresh install) resolves to the factory
 			// 4096; the sanitizer has already clamped/floored any stored value.
@@ -246,14 +229,6 @@ export function extractionEnabled(graph: { enabled: boolean }): boolean {
 	return graph.enabled;
 }
 
-/**
- * The RENDERING gate (owner, 2026-10-06): graph off = the home shows the
- * chains view, not the canvas. Display-only by construction — every data
- * path (ledgers, extraction, tools) never consults this.
- */
-export function renderingEnabled(graph: { rendering: boolean }): boolean {
-	return graph.rendering;
-}
 
 /**
  * The PROBER GRAPH TOOLS gate (wave 7, owner ruling 2026-09-23): the

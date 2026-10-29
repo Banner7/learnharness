@@ -15,7 +15,7 @@
  * unrelated to the app release version. Migrations live in the adapter
  * (src/store/settings.ts), not here.
  *
- * Sanitizer contract (mirrors render-settings.ts discipline): whatever
+ * Sanitizer contract: whatever
  * arrives from disk or the network passes through sanitizeUserSettings
  * before use — never trusted raw. Strict on known fields, PRESERVES
  * unknown keys verbatim (a newer record must never be destroyed by an
@@ -33,7 +33,6 @@ import { CLAUDE_CODE_PROVIDER } from "./contracts/claude-code.ts";
 import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
-import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -156,8 +155,8 @@ export interface ProviderKeyMissing {
 }
 /** The refusal wording's invariant tail — the matcher below keys on it
  * (the label prefix varies by provider). */
-const PROVIDER_KEY_MISSING_TAIL = "key is set — add one in Settings → Keys";
-const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable and set it up in Settings → Providers.";
+const PROVIDER_KEY_MISSING_TAIL = "credential is configured — configure it on the server";
+const CLAUDE_CODE_UNAVAILABLE = "Claude Code is unavailable. Enable it in server settings.json and install the Claude Code CLI.";
 export function providerKeyMissing(provider: string, slots: ModelSlotName[]): ProviderKeyMissing {
 	const label = AUTH_PROVIDER_KEYS.find((p) => p.id === provider)?.label ?? provider;
 	return {
@@ -323,18 +322,6 @@ export const ROLE_SLOT: Readonly<Record<ModelRole, ModelSlotName>> = {
 	pdfReader: "vision",
 };
 
-/** General settings — app-level behavior. Version DISPLAY and plans login
- *  live outside the record (package.json / auth.json) by owner decision. */
-export interface GeneralSettings {
-	/** Automatic startup/24h update checks (default ON). Manual checks bypass this. */
-	autoUpdate?: boolean;
-}
-
-/** One app-wide dictation preference, shared by every composer. */
-export interface DictationSettings {
-	language?: DictationLanguage;
-}
-
 /** Agent settings — everything about the non-conversation machinery. */
 export interface AgentSettings {
 	/** Background-role model/thinking overrides (absent role = config pin). */
@@ -369,19 +356,10 @@ export interface MdRenderingSettings {
 	/** Heading font weight (100–900, default 900). CSS resolves the nearest
 	 *  available weight of the chosen font — no font introspection needed. */
 	headingWeight?: number;
-	/** Color for **bold** spans (default #ffffff). */
-	boldColor?: string | null;
-	/** Color for *italic* spans (default #ffffff). */
-	italicColor?: string | null;
 }
 
-/** Appearance settings — mode, colors, type, markdown emphasis. */
+/** Appearance settings — reading typography. */
 export interface AppearanceSettings {
-	/** "dark" | "light" (default dark). */
-	mode?: "dark" | "light";
-	/** The one user-chosen color; everything else derives per-mode in code.
-	 *  null = the mode's default background. */
-	background?: string | null;
 	/** The main reading font (everything that is Source Sans 3 today), by
 	 *  name — user-chosen from installed fonts. null = Source Sans 3. */
 	fontFamily?: string | null;
@@ -393,10 +371,7 @@ export interface AppearanceSettings {
 	mdRendering?: MdRenderingSettings;
 }
 
-/** Knowledge-graph settings — a strict dependency ladder (owner decision
- *  2026-09-19): graph → embedding → clustering → labeling, each rung only
- *  meaningful when its parent is on (the UI grays dependents out; stored
- *  values persist but resolve inert). All default true. */
+/** Knowledge-graph extraction controls. */
 export interface GraphSettings {
 	/** MASTER (and, since wave 7, ONLY): off = no extraction, no auditor.
 	 *  The wave-7 collapse (owner ruling 2026-09-23) deleted the three
@@ -406,13 +381,6 @@ export interface GraphSettings {
 	 *  names, and the prober graph tools read the ledgers directly — there
 	 *  is nothing left to configure. Data stays stored either way. */
 	enabled?: boolean;
-	/** GRAPH RENDERING (owner, 2026-10-06 — the release graph-controls
-	 *  round): gates ONLY the home's main view. Off = the home shows the
-	 *  chains view instead of the canvas; the ledgers, the extraction
-	 *  pipeline, and every write path are untouched — this is a display
-	 *  switch, not a data switch (the extraction master above is the
-	 *  data switch). Default on. */
-	rendering?: boolean;
 	/** The chunk budget (extraction-UX redesign, owner 2026-09-24): the
 	 *  transcript-token share of the extractor's context — a run fires
 	 *  when a chat's UNCOVERED tokens reach it, and the run batches the
@@ -460,9 +428,9 @@ export interface CompactionSettings {
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
 	version: number;
-	general?: GeneralSettings;
-	dictation?: DictationSettings;
-	/** Explicit app-wide opt-in; absent/invalid is off, including older records. */
+	/** Fork port (2026-10-29): the phone UI is read-only; opt in headlessly
+	 * with `"claudeCode": { "enabled": true }` in the server's settings.json.
+	 * The real Claude Code CLI owns login; no pi-ai subscription tokens. */
 	claudeCode?: { enabled?: boolean };
 	agent?: AgentSettings;
 	/** The strong/cheap/vision model slots (model slots wave, 2026-09-20). */
@@ -482,18 +450,12 @@ export interface UserSettings {
  *  prompts default off — hence their absence here. */
 export interface FactorySettings {
 	version: number;
-	general: Required<GeneralSettings>;
-	dictation: Required<DictationSettings>;
 	appearance: {
-		mode: "dark" | "light";
-		background: string | null;
 		fontFamily: string | null;
 		proseFontSize: number;
 		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
-			boldColor: string | null;
-			italicColor: string | null;
 		};
 	};
 	graph: Required<GraphSettings>;
@@ -502,17 +464,13 @@ export interface FactorySettings {
 
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
-	general: { autoUpdate: true },
-	dictation: { language: "en" },
 	appearance: {
-		mode: "dark",
-		background: null, // the dark default (#141414) lives in the mode's derivation curve
-		fontFamily: null, // Source Sans 3
-		proseFontSize: 16,
+		fontFamily: null, // Computer Modern Serif
+		proseFontSize: 17,
 		sessionNameSerif: true,
-		mdRendering: { headingWeight: 900, boldColor: null, italicColor: null },
+		mdRendering: { headingWeight: 700 },
 	},
-	graph: { enabled: true, rendering: true, extractionChunkTokens: 4096 },
+	graph: { enabled: true, extractionChunkTokens: 4096 },
 	compaction: { thresholdTokens: 150_000 },
 };
 
@@ -528,28 +486,8 @@ const PROSE_FONT_MAX = 24;
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
-/** #rgb / #rrggbb (case-insensitive) — the only color format we accept. */
-export function isHexColor(value: string): boolean {
-	return /^#[0-9a-fA-F]{3}$/.test(value) || /^#[0-9a-fA-F]{6}$/.test(value);
-}
-
-/** Coerce an arbitrary hex-or-null field: null and valid hex pass through,
- *  anything else becomes null (the factory/per-mode default). */
-function sanitizeHexOrNull(value: unknown): string | null {
-	if (value === null) return null;
-	if (typeof value === "string" && isHexColor(value)) return value;
-	return null;
-}
-
 const boolOrDrop = (value: unknown): boolean | undefined =>
 	typeof value === "boolean" ? value : undefined;
-
-function sanitizeGeneral(raw: Record<string, unknown>): GeneralSettings {
-	const out: GeneralSettings = {};
-	const autoUpdate = boolOrDrop(raw.autoUpdate);
-	if (autoUpdate !== undefined) out.autoUpdate = autoUpdate;
-	return out;
-}
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
 	"off",
@@ -719,15 +657,11 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 	if (typeof r.headingWeight === "number" && Number.isFinite(r.headingWeight)) {
 		out.headingWeight = clamp(Math.round(r.headingWeight), 100, 900);
 	}
-	if (r.boldColor !== undefined) out.boldColor = sanitizeHexOrNull(r.boldColor);
-	if (r.italicColor !== undefined) out.italicColor = sanitizeHexOrNull(r.italicColor);
 	return out;
 }
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	if (raw.mode === "dark" || raw.mode === "light") out.mode = raw.mode;
-	if (raw.background !== undefined) out.background = sanitizeHexOrNull(raw.background);
 	if (raw.fontFamily !== undefined) {
 		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
 	}
@@ -757,8 +691,6 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	const out: GraphSettings = {};
 	const enabled = boolOrDrop(raw.enabled);
 	if (enabled !== undefined) out.enabled = enabled;
-	const rendering = boolOrDrop(raw.rendering);
-	if (rendering !== undefined) out.rendering = rendering;
 	const rawTokens = raw.extractionChunkTokens;
 	if (typeof rawTokens === "number" && Number.isFinite(rawTokens) && rawTokens > 0) {
 		out.extractionChunkTokens = Math.max(EXTRACTION_CHUNK_TOKENS_FLOOR, Math.floor(rawTokens));
@@ -793,21 +725,11 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	const out: UserSettings = {
 		version: typeof r.version === "number" && Number.isInteger(r.version) && r.version >= 1 ? r.version : CURRENT_SETTINGS_VERSION,
 	};
-	if (r.general !== null && typeof r.general === "object" && !Array.isArray(r.general)) {
-		out.general = sanitizeGeneral(r.general as Record<string, unknown>);
-	}
-	if (r.dictation !== undefined) {
-		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
-	}
 	if (r.claudeCode !== undefined) {
 		const raw = r.claudeCode;
 		out.claudeCode = raw !== null && typeof raw === "object" && !Array.isArray(raw)
-			&& typeof (raw as Record<string, unknown>).enabled === "boolean"
-			? { enabled: (raw as { enabled: boolean }).enabled } : {};
+			&& "enabled" in raw && typeof raw.enabled === "boolean"
+			? { enabled: raw.enabled } : {};
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);
@@ -834,7 +756,7 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	// 2026-09-28) — a fossil copy on disk must never resurrect through
 	// reads (and any later write flushes it from the file for good).
 	for (const [key, value] of Object.entries(r)) {
-		if (key === "chat") continue;
+		if (key === "chat" || key === "general") continue;
 		if (!(key in out)) out[key] = value;
 	}
 	return out;

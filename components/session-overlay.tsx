@@ -7,7 +7,7 @@ import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/comp
 import { renderMermaid } from "@/components/mermaid-render";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
-import { SvgImage } from "@/components/artifacts/svg-image";
+import { useIsDarkTheme } from "@/lib/theme-mode";
 
 /**
  * SESSION-SCOPED OVERLAYS (owner wave, 2026-09-19): the "fullscreen"
@@ -70,9 +70,8 @@ export function chartSize(svg: string): { w: number; h: number } {
  *  pan-zoom.ts), Esc/X close. Renders its own copy of the chart (mermaid
  *  ids are per-render), not the injected inline svg. FIGURE MODE
  *  (2026-10-07): pass a raw `svg` instead of a mermaid `chart` — the same
- *  shell then focuses a figure card's svg on a white stage, with the
- *  caller's invert state carried over (the filter rides the white stage,
- *  exactly like the in-card holder). */
+ *  shell focuses a figure card's SVG on the theme's card surface and
+ *  carries over its inversion choice. */
 export function MermaidOverlay({
 	chart,
 	svg: rawSvg,
@@ -88,6 +87,7 @@ export function MermaidOverlay({
 	const [svg, setSvg] = useState<string | null>(rawSvg ?? null);
 	const [error, setError] = useState<string | null>(null);
 	const [attempt, setAttempt] = useState(0);
+	const dark = useIsDarkTheme();
 	useEffect(() => {
 		if (rawSvg !== undefined) {
 			setSvg(rawSvg);
@@ -108,22 +108,8 @@ export function MermaidOverlay({
 		return () => {
 			cancelled = true;
 		};
-	}, [rawSvg, chart, attempt]);
+	}, [rawSvg, chart, attempt, dark]);
 
-	// Esc closes — claimed at the document level (THE ONE-ESC LAW, owner
-	// keyboard round 2026-10-06): one Esc, one action; the window chain
-	// (dictation → abort) never fires under a surfaced layer.
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
-				e.preventDefault();
-				e.stopPropagation();
-				onClose();
-			}
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [onClose]);
 
 	// ── pan/zoom viewport (same wiring as the plan popup) ──
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -222,15 +208,15 @@ export function MermaidOverlay({
 			aria-label="Diagram focus"
 		>
 			<div className="mb-2 flex items-center gap-2">
-				<span className="text-sm font-medium">Diagram</span>
-				<span className="text-xs text-muted-foreground">from this lesson</span>
-				<Hint label="Close" binding="escape" side="left">
+				<span className="font-title text-lg">Diagram</span>
+				<span className="text-xs text-muted-foreground">From this lesson</span>
+				<Hint label="Close" side="left">
 <button
 					type="button"
 					onClick={onClose}
 					aria-label="Close"
 					data-testid="mermaid-overlay-close"
-					className="ml-auto rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+					className="ml-auto flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 				>
 					<XIcon className="size-4" />
 				</button>
@@ -239,7 +225,7 @@ export function MermaidOverlay({
 			<div
 				ref={viewportRef}
 				className={cn(
-					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl border select-none",
+					"relative min-h-0 flex-1 touch-none overflow-hidden rounded-xl bg-card select-none",
 					atFloor ? "cursor-default" : "cursor-grab",
 				)}
 				onPointerDown={startDrag}
@@ -270,34 +256,28 @@ export function MermaidOverlay({
 										: "transform 180ms ease-out, opacity 160ms ease-out",
 							}}
 						>
-							{/* Figures share the card's image boundary and white backing.
-							    Mermaid keeps its inline renderer; globals.css removes
-							    its max-width cap so it fills the natural-size box. */}
-							{rawSvg !== undefined ? (
-								<div
-									data-lh-overlay-chart
-									className="bg-white"
-									style={inverted ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
-								>
-									<SvgImage svg={svg} className="block h-auto w-full" />
-								</div>
-							) : (
-								<div
-									data-lh-overlay-chart
-									className="[&_svg]:h-auto [&_svg]:w-full"
-									dangerouslySetInnerHTML={{ __html: svg }}
-								/>
-							)}
+							{/* The overlay uses the inline chart's natural size
+							    so its fit and pan math agree. Figure mode keeps the
+							    card surface and the user's inversion choice. */}
+							<div
+								data-lh-overlay-chart
+								className={cn(
+									"[&_svg]:h-auto [&_svg]:w-full",
+									rawSvg !== undefined && "bg-card",
+								)}
+								style={rawSvg !== undefined && inverted ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
+								dangerouslySetInnerHTML={{ __html: svg }}
+							/>
 						</div>
 						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between p-2">
-							<span className="text-xs text-muted-foreground/60">Drag to pan · scroll to zoom</span>
+							<span className="text-xs text-muted-foreground/60">Drag to pan, scroll to zoom</span>
 							<div className="flex gap-1">
 								<Hint label="Zoom out" side="bottom">
 <button
 									type="button"
 									aria-label="Zoom out"
 									onClick={() => stepZoom(1 / 1.25)}
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
 								>
 									<MinusIcon className="size-3.5" />
 								</button>
@@ -307,7 +287,7 @@ export function MermaidOverlay({
 									type="button"
 									aria-label="Fit diagram to view"
 									onClick={fitView}
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
 								>
 									<MaximizeIcon className="size-3.5" />
 								</button>
@@ -317,7 +297,7 @@ export function MermaidOverlay({
 									type="button"
 									aria-label="Zoom in"
 									onClick={() => stepZoom(1.25)}
-									className="pointer-events-auto flex size-7 items-center justify-center rounded-md border border-border/70 bg-card/80 text-muted-foreground backdrop-blur transition-colors hover:bg-accent hover:text-foreground"
+									className="pointer-events-auto flex size-11 items-center justify-center rounded-md bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
 								>
 									<PlusIcon className="size-3.5" />
 								</button>

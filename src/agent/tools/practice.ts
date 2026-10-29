@@ -14,7 +14,7 @@
  * (prompts/practice/10-doctrine.md).
  */
 
-import { Type, type Static } from "typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { resolveTargetId } from "../../core/chains.ts";
 import { readTool } from "./read.ts";
@@ -91,8 +91,6 @@ export const problemInputObject = Type.Object({
 		description: "REQUIRED — the full solution, moves in order, committed BEFORE the learner sees the problem. This IS the reveal — conclude shows it verbatim; never re-author it.",
 	}),
 });
-
-export type ProblemInput = Static<typeof problemInputObject>;
 
 export function problemTool(
 	gate: PracticeGate,
@@ -193,8 +191,6 @@ export const concludeInputObject = Type.Object({
 	),
 	retest: Type.Boolean({ description: "REQUIRED — true marks the problem for a fresh-surface retest before the session ends." }),
 });
-
-export type ConcludeInput = Static<typeof concludeInputObject>;
 
 export function concludeTool(gate: PracticeGate): AgentTool<typeof concludeInputObject> {
 	return {

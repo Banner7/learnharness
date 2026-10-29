@@ -10,12 +10,9 @@ import { timeAgo } from "@/components/sidebar";
 import { resolveSettings } from "@/src/core";
 
 /**
- * The extraction-coverage surfaces (extraction-UX redesign, owner-locked
- * dispatch 2026-09-24): the ring meter in the chat top bar and the coverage
- * block in the sidebar's session context menu — the two replacements for
- * the graph view's coverage panel (components/graph-coverage.tsx, retired
- * with this wave). Coverage is the SAME derivation, scoped to one session:
- * GET /api/chats/[id] now carries `coverage` (Platform's eed4b4e).
+ * The extraction-coverage surfaces: the ring in the chat top bar and
+ * the coverage block in the sidebar's session menu. Both show the same
+ * per-session derivation from GET /api/chats/[id].
  *
  * The ring fills with uncoveredTokens / extractionChunkTokens — the chunk
  * budget the threshold setting (Graph ▸ extractionChunkTokens) pins: the
@@ -189,7 +186,7 @@ export function CoverageMenuBody({
 		<div data-testid="ctx-coverage" className="flex flex-col gap-1 px-2.5 pt-1 pb-2">
 			{busy ? (
 				<span className="flex items-center gap-1.5 text-muted-foreground" data-testid="ctx-coverage-running">
-					<span className="size-1.5 animate-pulse rounded-full bg-foreground/70" aria-hidden />
+					<span className="size-1.5 rounded-full bg-foreground" aria-hidden />
 					extracting…
 				</span>
 			) : complete ? (
@@ -209,7 +206,7 @@ export function CoverageMenuBody({
 				data-testid="ctx-extract"
 				onClick={onExtract}
 				disabled={busy || complete}
-				className="flex items-center justify-center rounded-lg border px-2 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
+				className="flex min-h-11 items-center justify-center rounded-lg border border-border px-3 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
 			>
 				{busy ? "Running" : "Extract"}
 			</button>
@@ -248,11 +245,8 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 	const rootRef = useRef<HTMLDivElement>(null);
 	usePopoverDismiss(rootRef, open, () => setOpen(false));
 
-	// The activity/refresh chain (the dispatch's seam): runs can fire from
-	// OTHER surfaces (the sidebar menu's Extract, the turn pipeline, another
-	// tab) — no turn-settle bump announces those to this page. The dock's
-	// feed knows; a run for THIS session appearing or settling in it
-	// re-reads coverage (same runs-empty-transition the graph view rides).
+	// Runs may start from another tab, the sidebar or the turn pipeline;
+	// refresh this session's coverage when its activity changes.
 	const feed = useActivity().feed;
 	const runHere = feed.extractions.some((run) => run.chatId === chatId);
 
@@ -298,7 +292,7 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 
 	const fill = ringFill(coverage.uncoveredTokens, graph.chunkTokens);
 	return (
-		<div ref={rootRef} className="lh-no-drag relative shrink-0">
+		<div ref={rootRef} className="relative shrink-0">
 			<Hint
 				// Trimmed (owner, subtlety round 2026-09-25).
 				label="How much of this session isn't mapped yet"
@@ -319,7 +313,7 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 			{open && (
 				<div
 					data-testid="coverage-ring-popover"
-					className="absolute top-full right-0 z-40 mt-1.5 w-64 rounded-xl border bg-card p-3 text-xs shadow-xl"
+					className="absolute top-full right-0 z-40 mt-1.5 w-64 rounded-lg border border-border bg-card p-3 font-ui text-xs"
 				>
 					<CoverageRingDetail coverage={coverage} chunkTokens={graph.chunkTokens} />
 				</div>
@@ -361,7 +355,7 @@ export function CoverageRingGlyph({ fill, running }: { fill: number; running: bo
 export function CoverageRingDetail({ coverage, chunkTokens }: { coverage: SessionCoverage; chunkTokens: number }) {
 	return (
 		<>
-			<div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+			<div className="mb-2 text-xs font-medium text-muted-foreground">
 				Extraction coverage
 			</div>
 			<div className="flex flex-col gap-1 text-muted-foreground">
@@ -398,7 +392,7 @@ export function CoverageRingDetail({ coverage, chunkTokens }: { coverage: Sessio
 				{coverage.running && (
 					<div className="flex justify-between gap-2" data-testid="coverage-ring-running">
 						<span>Status</span>
-						<span className="text-card-foreground">extracting…</span>
+						<span className="text-foreground">extracting…</span>
 					</div>
 				)}
 			</div>

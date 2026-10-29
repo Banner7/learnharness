@@ -8,7 +8,7 @@ const testData = mkdtempSync(join(tmpdir(), "lh-cli-opt-in-data-"));
 process.env.LH_DATA_DIR = testData;
 after(() => rmSync(testData, { recursive: true, force: true }));
 const { SETTINGS_FILE } = await import("../config.ts");
-const { PUT } = await import("../app/api/settings/[section]/route.ts");
+const { PUT } = await import("../server/routes/settings/[section]/route.ts");
 const { sanitizeUserSettings, providerKeyMissing } = await import("../src/core/settings.ts");
 const { parseClaudeCodeSettingsBody } = await import("../src/server/settings-body.ts");
 const { claudeCodeAvailable, claudeCodeEnabled } = await import("../src/server/claude-code-config.ts");
@@ -93,6 +93,6 @@ test("a saved CLI background job is refused before model execution while opt-in 
 	assert.equal(calls, 0);
 	const refused = jobStore.getJob(job.id)!;
 	assert.equal(refused.status, "error");
-	assert.match(JSON.stringify(refused.result), /Enable and set it up in Settings/);
+	assert.match(JSON.stringify(refused.result), /Enable it in server settings\.json/);
 	assert(!JSON.stringify(refused.result).includes("add one in Settings → Keys"));
 });

@@ -597,13 +597,13 @@ export class SessionModel {
 					}
 					// Parse outside the transport catch: malformed JSON is a
 					// contract bug, not a connection-drop diagnostic.
-					const record = JSON.parse(text) as { messages?: LhMessage[]; turnError?: string };
+					const record = JSON.parse(text) as { messages?: LhMessage[]; turnFailure?: string | null };
 					if (this.consumeAbort !== controller) return;
 					if (Array.isArray(record.messages)) {
 						this.mutate(() => {
 							this.base = record.messages!;
-							if (record.turnError !== undefined) {
-								this.errorValue = { message: record.turnError };
+							if (record.turnFailure != null) {
+								this.errorValue = { message: record.turnFailure };
 								this.automaticContinuationBlocked = true;
 							}
 							this.forgetResolvedDrafts(record.messages!);
@@ -664,12 +664,12 @@ export class SessionModel {
 				const res = await this.fetch(`/api/chats/${encodeURIComponent(this.chatId)}`, { signal: controller.signal });
 				if (this.consumeAbort !== controller) return false;
 				if (!res.ok) throw new Error((await res.text()) || "An error occurred.");
-				const record = await res.json() as { messages?: LhMessage[]; turnInFlight?: boolean; turnError?: string };
+				const record = await res.json() as { messages?: LhMessage[]; turnInFlight?: boolean; turnFailure?: string | null };
 				if (this.consumeAbort !== controller) return false;
 				// No verified record/liveness: retain the draft and never guess
 				// whether a lost acknowledgement meant the input was accepted.
 				if (!Array.isArray(record.messages) || typeof record.turnInFlight !== "boolean") throw new Error("An error occurred.");
-				this.setMessages(record.messages, record.turnError);
+				this.setMessages(record.messages, record.turnFailure ?? undefined);
 				if (record.turnInFlight) {
 					await this.resumeStream(false);
 					return false;

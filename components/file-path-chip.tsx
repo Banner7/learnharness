@@ -40,7 +40,7 @@ export function FilePathChip({ path, contentEditable, className }: FilePathChipP
 			aria-label={path}
 			title={path}
 			contentEditable={contentEditable}
-			className={`inline-flex max-w-full items-center gap-1 rounded border bg-muted/50 px-1.5 py-0.5 align-middle text-sm${className ? ` ${className}` : ""}`}
+			className={`inline-flex max-w-full items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 align-middle text-sm text-learner${className ? ` ${className}` : ""}`}
 		>
 			<Icon aria-hidden="true" className="size-3.5 shrink-0" />
 			<span className="min-w-0 truncate">{label}</span>

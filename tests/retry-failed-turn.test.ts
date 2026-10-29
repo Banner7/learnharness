@@ -37,7 +37,7 @@ const { jobStore } = await import("../src/store/jobs.ts");
 const { subscribe } = await import("../src/core/events.ts");
 const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/core/question-core.ts");
 const { ChatInputError, endsInFailedTurn, failedResponseAtEnd, inputAppends, parseChatInput, retryDrops } = await import("../src/core/input-events.ts");
-const { INTERRUPTED_TEXT, asAgentMessages, hasProbeDone, newHandoffMessage, newPlanBlockMessage, newUserMessage, reconstructRequestCause, toLlmMessages } = await import("../src/core/native-messages.ts");
+const { INTERRUPTED_TEXT, asAgentMessages, hasProbeDone, newHandoffMessage, newPlanBlockMessage, newUserMessage, toLlmMessages } = await import("../src/core/native-messages.ts");
 const { phaseAt3Lh } = await import("../src/core/phases.ts");
 const { newCompactionMarker } = await import("../src/core/compaction.ts");
 
@@ -354,23 +354,6 @@ describe("failed-response Retry (issue #110)", () => {
 			assert.deepEqual(contexts.at(-1), kind === "teacher" ? ["user", "assistant", "toolResult"] : ["user"]);
 		});
 	}
-
-	it("treats an explicit Retry of an automatic main-agent response as foreground", async () => {
-		const { engine } = scripted([() => fauxAssistantMessage("Explicitly requested response.")]);
-		const chat = createConfiguredChat("Test: foreground manual retry");
-		const before = [newUserMessage("hello"), newHandoffMessage(chat.id), failed("automatic-failure")];
-		chatStore.saveMessages(chat.id, before);
-		assert.equal(reconstructRequestCause(before), "background");
-		let built = false;
-		const factory: AgentFactory = (opts) => {
-			built = true;
-			assert.equal(opts.callPurpose?.background, false);
-			return createTeacherAgent(undefined, { ...opts, engine });
-		};
-		assert.equal((await turn(engine, chat.id, { type: "retry" }, factory)).status, 200);
-		assert.ok(built);
-		assertPreserved(before, chatStore.getChat(chat.id)!.messages);
-	});
 });
 
 describe("retained generations and Pi's native provider filtering", () => {
