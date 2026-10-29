@@ -1353,8 +1353,11 @@ export function Chat({
 							)}
 							{openingError && <p role="alert" className="text-sm text-destructive">{OPENING_PROMPT_FAILURE}</p>}
 							{error && (
-								<div className="flex items-center justify-between gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-									<span>Something went wrong: {error.message}</span>
+								// Fork (2026-10-30): raw provider replies (e.g. a proxy's JSON error) have no
+								// spaces to break at; min-w-0 + anywhere-wrapping keeps them inside the box,
+								// and flex-wrap drops Retry below the text on narrow screens.
+								<div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+									<span className="min-w-0 flex-1 basis-48 break-words [overflow-wrap:anywhere]">Something went wrong: {error.message}</span>
 									{retryable && (
 										<Button variant="outline" size="xs" data-testid="retry-failed-turn" onClick={retryFailedTurn}>
 											Retry
