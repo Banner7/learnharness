@@ -159,9 +159,8 @@ describe("plan block render", () => {
 		// renders past the 16px prose size (owner, plan-graph round 1; the
 		// snap 16.5→16 landed in typography round 4).
 		assert.match(html, /<svg[^>]*class="block h-auto w-full mx-auto"/);
-		// The reading font, not the mono UI font (owner, 2026-09-26) — via the
-		// runtime var (the font-prose utility would bake the @theme literal
-		// and ignore the Appearance reading-font override).
+		// The bundled reading font, not the mono UI font (owner, 2026-09-26),
+		// reaches SVG text through the prose font token.
 		assert.match(html, /<svg[^>]*font-family:var\(--font-prose\)/);
 		// Lines + outlines at the app's standard 1px border weight (owner,
 		// 2026-09-26; was 1.5).

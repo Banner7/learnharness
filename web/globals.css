@@ -113,15 +113,18 @@ html {
 	--highlight-foreground: #f2bea0;
 }
 
-/* THE BOARD (redesign 2026-10-29): the tutor's questions and problems are
-   "written on the board". The class re-points the tokens inside its panel,
-   so every child that already uses them turns chalk-on-board with no
-   restyling. In light mode the board is the palette's dark surface on the
-   sand page; in dark mode it is a raised panel with a chalk ledge in the
-   primary color along its top edge. */
+/* THE BOARD (redesign 2026-10-29; light board follows the theme, owner ruling 2026-10-29):
+   a slightly deeper sand panel for questions, with a primary-color chalk ledge.
+   Dark mode keeps its original chalk-on-board palette and raised surface. */
 .lh-board {
-	color-scheme: dark;
-	--card: #1a2026;
+	--card: #d1c9b2;
+	background: var(--card);
+	color: var(--card-foreground);
+	border-color: transparent;
+	box-shadow: inset 0 3px 0 var(--primary);
+}
+.dark .lh-board {
+	--card: #252d35;
 	--card-foreground: #d9d1ba;
 	--foreground: #d9d1ba;
 	--popover: #20272e;
@@ -130,7 +133,7 @@ html {
 	--primary-foreground: #1a2026;
 	--secondary: #313c47;
 	--secondary-foreground: #d9d1ba;
-	--muted: #252d35;
+	--muted: #2b343d;
 	--muted-foreground: #9aa2a3;
 	--accent: #313c47;
 	--accent-foreground: #d9d1ba;
@@ -144,14 +147,6 @@ html {
 	--highlight-foreground: #f2bea0;
 	--lh-ink-strong: #d9d1ba;
 	--lh-ink-italic: #d9d1ba;
-	background: var(--card);
-	color: var(--card-foreground);
-	border-color: transparent;
-}
-.dark .lh-board {
-	--card: #252d35;
-	--muted: #2b343d;
-	box-shadow: inset 0 3px 0 var(--primary);
 }
 
 /* Computer Modern Serif (CMU, OFL) — bundled, no CDN. Reading text, titles
@@ -199,14 +194,8 @@ html {
 	   round 4: the 10px rung is merged into 11 — one pixel apart was a
 	   distinction with no visible difference, and 10px sits at the mono
 	   legibility floor; quiet labels get their quiet from color +
-	   tracking, not a notch of size. Reading prose = the 16px rung via
+	   tracking, not a notch of size. Reading prose uses
 	   --lh-prose-size.) */
-	/* --font-title lives in the NON-inline @theme below: inline tokens get
-	   their literal values baked into the utilities (.font-title{font-family:
-	   lh-cmu,serif}), which made the appearance "session names in serif"
-	   toggle write a runtime --font-title no consumer ever read (owner, fix
-	   wave: toggle looked dead). Non-inline emits :root { --font-title: … }
-	   and the utility reads var(--font-title) — appearance overrides win. */
 	/* Redesign 2026-10-27: the small rungs rise one notch now that labels
 	   are sentence-case Atkinson instead of tracked all-caps mono. */
 	--text-xs: 12px;
@@ -594,9 +583,7 @@ body {
 	}
 }
 
-/* --font-title deliberately NOT @theme inline (see comment above): the
-   session-name-serif toggle overrides this var at runtime, so the
-   .font-title utility must read it through var(), not carry a baked copy. */
+/* Session titles and headings keep the bundled Computer Modern face. */
 @theme {
 	--font-title: "lh-cmu", serif;
 }

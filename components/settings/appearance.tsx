@@ -8,9 +8,7 @@ import { FACTORY_SETTINGS, type AppearanceSettings } from "@/src/core";
 export function resolveAppearance(delta: AppearanceSettings | undefined) {
 	const f = FACTORY_SETTINGS.appearance;
 	return {
-		fontFamily: delta?.fontFamily ?? f.fontFamily,
 		proseFontSize: delta?.proseFontSize ?? f.proseFontSize,
-		sessionNameSerif: delta?.sessionNameSerif ?? f.sessionNameSerif,
 		mdRendering: {
 			headingWeight: delta?.mdRendering?.headingWeight ?? f.mdRendering.headingWeight,
 		},
@@ -18,37 +16,16 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 }
 
 
-/** THE mapping: resolved appearance → the CSS variables to set on <html>.
- *  Absent entries = leave the factory stylesheet value in place. Pure —
- *  exported for tests. */
+/** Map resolved appearance to the reading-size and heading-weight CSS tokens. */
 export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
 	const vars: Record<string, string> = {};
-	if (a.fontFamily !== null) {
-		vars["--font-prose"] = `"${a.fontFamily}", "lh-cmu", serif`;
-	}
-	// The ONE documented reading-size variable (typography round 4): prose,
-	// inputs, and session titles all read it, so one setProperty moves them.
+	// Reading size and heading weight are the only runtime typography knobs.
 	vars["--lh-prose-size"] = `${a.proseFontSize}px`;
-	// Session names: CMU Serif by default; the toggle swaps the title font
-	// to the prose family — covers chat.tsx + new-session.tsx titles with
-	// zero component edits (they use the .font-title utility).
-	if (!a.sessionNameSerif) vars["--font-title"] = "var(--font-prose)";
 	// Reading typography uses the stylesheet's shared heading-weight token.
 	vars["--lh-heading-weight"] = String(a.mdRendering.headingWeight);
 	return vars;
 }
 
-/** Pure: the previously-applied names ABSENT from the next var set —
- *  these get removeProperty so the factory stylesheet value returns.
- *  (Owner repro, fix wave: resets and toggle-backs never reverted because
- *  application only ever SET properties — the removal half was missing.)
- *  Exported for tests. */
-export function staleVarNames(
-	prevNames: readonly string[],
-	nextVars: Record<string, string>,
-): string[] {
-	return prevNames.filter((n) => !(n in nextVars));
-}
 
 interface AppearanceContextValue {
 	/** Resolved appearance; factory until the record arrives. */
@@ -73,20 +50,12 @@ export function AppearanceProvider({ children }: { children: React.ReactNode }) 
 	// The vars apply on every change — stringified as the change signal.
 	const vars = useMemo(() => appearanceVars(resolveAppearance(delta)), [delta]);
 	const key = useMemo(() => JSON.stringify(vars), [vars]);
-	// Clear previously applied overrides when typography returns to factory defaults.
-	const appliedNamesRef = useRef<Set<string>>(new Set());
 	useEffect(() => {
 		if (appliedRef.current === key) return;
 		appliedRef.current = key;
 		const root = document.documentElement;
-		for (const name of staleVarNames([...appliedNamesRef.current], vars)) {
-			root.style.removeProperty(name);
-			appliedNamesRef.current.delete(name);
-		}
-		for (const [name, value] of Object.entries(vars)) {
-			root.style.setProperty(name, value);
-			appliedNamesRef.current.add(name);
-		}
+		root.style.setProperty("--lh-prose-size", vars["--lh-prose-size"]!);
+		root.style.setProperty("--lh-heading-weight", vars["--lh-heading-weight"]!);
 	}, [key, vars]);
 
 	// One fetch per app load: the record (sanitized server-side) carries the

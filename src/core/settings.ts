@@ -360,14 +360,9 @@ export interface MdRenderingSettings {
 
 /** Appearance settings — reading typography. */
 export interface AppearanceSettings {
-	/** The main reading font (everything that is Source Sans 3 today), by
-	 *  name — user-chosen from installed fonts. null = Source Sans 3. */
-	fontFamily?: string | null;
-	/** Reading font size in px (12–24, default 16). Headings render as
+	/** Reading font size in px (12–24, default 17). Headings render as
 	 *  multiples of this, so one knob scales the document coherently. */
 	proseFontSize?: number;
-	/** Session names in CMU Serif (default true — today's look). */
-	sessionNameSerif?: boolean;
 	mdRendering?: MdRenderingSettings;
 }
 
@@ -451,9 +446,7 @@ export interface UserSettings {
 export interface FactorySettings {
 	version: number;
 	appearance: {
-		fontFamily: string | null;
 		proseFontSize: number;
-		sessionNameSerif: boolean;
 		mdRendering: {
 			headingWeight: number;
 		};
@@ -465,9 +458,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	appearance: {
-		fontFamily: null, // Computer Modern Serif
 		proseFontSize: 17,
-		sessionNameSerif: true,
 		mdRendering: { headingWeight: 700 },
 	},
 	graph: { enabled: true, extractionChunkTokens: 4096 },
@@ -662,14 +653,9 @@ function sanitizeMdRendering(raw: unknown): MdRenderingSettings {
 
 function sanitizeAppearance(raw: Record<string, unknown>): AppearanceSettings {
 	const out: AppearanceSettings = {};
-	if (raw.fontFamily !== undefined) {
-		out.fontFamily = typeof raw.fontFamily === "string" && raw.fontFamily.trim() ? raw.fontFamily : null;
-	}
 	if (typeof raw.proseFontSize === "number" && Number.isFinite(raw.proseFontSize)) {
 		out.proseFontSize = clamp(Math.round(raw.proseFontSize), PROSE_FONT_MIN, PROSE_FONT_MAX);
 	}
-	const sessionNameSerif = boolOrDrop(raw.sessionNameSerif);
-	if (sessionNameSerif !== undefined) out.sessionNameSerif = sessionNameSerif;
 	if (raw.mdRendering !== undefined) out.mdRendering = sanitizeMdRendering(raw.mdRendering);
 	return out;
 }

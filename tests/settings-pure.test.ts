@@ -4,7 +4,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { appearanceVars, resolveAppearance, staleVarNames } from "../components/settings/appearance.tsx";
+import { appearanceVars, resolveAppearance } from "../components/settings/appearance.tsx";
 import {
 	PROMPT_IN_USE_HINT,
 	composePromptSwitch,
@@ -20,74 +20,35 @@ import { slotsConfigured } from "../src/core";
 describe("resolveAppearance — delta over factory", () => {
 	it("absent everything = the factory view", () => {
 		const a = resolveAppearance(undefined);
-		assert.equal(a.fontFamily, null);
 		assert.equal(a.proseFontSize, 17);
-		assert.equal(a.sessionNameSerif, true);
 		assert.deepEqual(a.mdRendering, { headingWeight: 700 });
 	});
 
 	it("explicit deltas win field-by-field", () => {
-		const a = resolveAppearance({ proseFontSize: 20, fontFamily: "Iowan Old Style" });
+		const a = resolveAppearance({ proseFontSize: 20, mdRendering: { headingWeight: 600 } });
 		assert.equal(a.proseFontSize, 20);
-		assert.equal(a.fontFamily, "Iowan Old Style");
+		assert.equal(a.mdRendering.headingWeight, 600);
 	});
 });
-
 
 describe("appearanceVars — the mapping the provider applies", () => {
-	it("factory appearance: only the always-applied tokens move", () => {
+	it("factory appearance sets only size and heading weight", () => {
 		const vars = appearanceVars(resolveAppearance(undefined));
-		assert.equal(vars["--lh-prose-size"], "17px");
-		assert.equal(vars["--lh-heading-weight"], "700");
-		assert.equal(vars["--font-prose"], undefined, "no font override at factory");
-		assert.equal(vars["--font-title"], undefined, "CMU stays");
-		assert.equal(vars["--background"], undefined, "factory palette untouched");
-		assert.equal(vars["--lh-ink-strong"], undefined, "default ink");
+		assert.deepEqual(vars, {
+			"--lh-prose-size": "17px",
+			"--lh-heading-weight": "700",
+		});
 	});
 
-	it("full delta: every knob lands on its token", () => {
-		const vars = appearanceVars(
-			resolveAppearance({
-				fontFamily: "Georgia",
-				proseFontSize: 18,
-				sessionNameSerif: false,
-				mdRendering: { headingWeight: 600 },
-			}),
-		);
-		assert.equal(vars["--font-prose"], `"Georgia", "lh-cmu", serif`);
-		assert.equal(vars["--lh-prose-size"], "18px");
-		assert.equal(vars["--font-title"], "var(--font-prose)", "serif off → titles follow the prose font");
-		assert.equal(vars["--lh-heading-weight"], "600");
-	});
-
-	it("sessionNameSerif false alone: titles move, nothing else does", () => {
-		const vars = appearanceVars(resolveAppearance({ sessionNameSerif: false }));
-		assert.equal(vars["--font-title"], "var(--font-prose)");
-		assert.equal(Object.keys(vars).length, 3, "prose-size, heading-weight, font-title only");
-	});
-});
-
-describe("staleVarNames — the removal half of application (owner repro: resets never reverted)", () => {
-	it("a full delta applied, then factory: every delta-only name goes stale", () => {
-		const fullDelta = appearanceVars(
-			resolveAppearance({
-				fontFamily: "Georgia",
-				sessionNameSerif: false,
-				mdRendering: { headingWeight: 700 },
-			}),
-		);
-		const applied = Object.keys(fullDelta);
-		const factory = appearanceVars(resolveAppearance(undefined));
-		const stale = staleVarNames(applied, factory);
-		assert.ok(stale.includes("--font-prose"));
-		assert.ok(stale.includes("--font-title"), "serif toggle back ON must clear the title override");
-		assert.ok(!stale.includes("--lh-prose-size"), "always-applied tokens never go stale");
-		assert.ok(!stale.includes("--lh-heading-weight"), "always-applied tokens never go stale");
-	});
-
-
-	it("no previous applications → nothing stale", () => {
-		assert.deepEqual(staleVarNames([], appearanceVars(resolveAppearance(undefined))), []);
+	it("a delta changes the corresponding tokens, not the bundled fonts", () => {
+		const vars = appearanceVars(resolveAppearance({
+			proseFontSize: 18,
+			mdRendering: { headingWeight: 600 },
+		}));
+		assert.deepEqual(vars, {
+			"--lh-prose-size": "18px",
+			"--lh-heading-weight": "600",
+		});
 	});
 });
 

@@ -82,29 +82,32 @@ describe("parseAgentSettingsBody", () => {
 });
 
 describe("parseAppearanceSettingsBody", () => {
-	it("parses every typography field; clamps happen at sanitize, rejects here", () => {
+	it("parses the remaining typography fields; clamps happen at sanitize, rejects here", () => {
 		const r = parseAppearanceSettingsBody({
-			fontFamily: "Some Font",
 			proseFontSize: 20,
-			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700 },
 		});
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, {
-			fontFamily: "Some Font",
 			proseFontSize: 20,
-			sessionNameSerif: false,
 			mdRendering: { headingWeight: 700 },
 		});
 	});
 
+	it("ignores retired font settings in old request bodies", () => {
+		const r = parseAppearanceSettingsBody({
+			fontFamily: "Georgia",
+			sessionNameSerif: false,
+			proseFontSize: 18,
+		});
+		assert.ok(r.ok);
+		assert.deepEqual(r.settings, { proseFontSize: 18 });
+	});
+
 	it("rejects bad types and ranges — with specific messages, never clamps", () => {
 		const cases: unknown[] = [
-			{ fontFamily: "" },
-			{ fontFamily: 12 },
 			{ proseFontSize: 30 },
 			{ proseFontSize: 64.5 },
-			{ sessionNameSerif: 1 },
 			{ mdRendering: { headingWeight: 1000 } },
 		];
 		for (const body of cases) {

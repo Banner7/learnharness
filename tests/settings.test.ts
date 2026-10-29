@@ -25,9 +25,7 @@ describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
 		// with the message anchors (owner, 2026-10-13)
 		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, extractionChunkTokens: 4096 });
 		const a = FACTORY_SETTINGS.appearance;
-		assert.equal(a.fontFamily, null); // Computer Modern Serif (redesign 2026-10-27)
 		assert.equal(a.proseFontSize, 17);
-		assert.equal(a.sessionNameSerif, true);
 		assert.equal(a.mdRendering.headingWeight, 700);
 	});
 
@@ -56,9 +54,7 @@ describe("sanitizeUserSettings", () => {
 				cheap: { thinkingLevel: "medium" },
 			},
 			appearance: {
-				fontFamily: "Some Font",
 				proseFontSize: 18,
-				sessionNameSerif: false,
 				mdRendering: { headingWeight: 700 },
 			},
 			graph: { enabled: false },
@@ -82,7 +78,7 @@ describe("sanitizeUserSettings", () => {
 	it("wrong-typed fields DROP (resolve to factory), never crash", () => {
 		const out = sanitizeUserSettings({
 			agent: { tools: { research: "no" }, prompts: { "system-prompt.md": 1 }, models: { researcher: "fast" } },
-			appearance: { sessionNameSerif: "true" },
+			appearance: { proseFontSize: "big" },
 			graph: { enabled: 0 },
 		});
 		assert.ok(out);
@@ -120,12 +116,16 @@ describe("sanitizeUserSettings", () => {
 	});
 
 
-	it("empty strings/whitespace fontFamily → null (Source Sans 3); wrong-type → null too (the default)", () => {
-		for (const bad of ["", "   ", 12, { name: "x" }]) {
-			const out = sanitizeUserSettings({ appearance: { fontFamily: bad } });
-			assert.ok(out);
-			assert.equal(out.appearance?.fontFamily, null, JSON.stringify(bad));
-		}
+	it("retired appearance fields are dropped from stored records", () => {
+		const out = sanitizeUserSettings({
+			appearance: {
+				fontFamily: "Georgia",
+				sessionNameSerif: false,
+				proseFontSize: 18,
+			},
+		});
+		assert.ok(out);
+		assert.deepEqual(out.appearance, { proseFontSize: 18 });
 	});
 
 	it("agent roles: unknown roles drop, known roles keep only well-formed overrides", () => {

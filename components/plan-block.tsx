@@ -60,9 +60,9 @@ export const PAD_X = 16;
 export const NODE_W_MIN = 96;
 export const NODE_H = 44;
 
-// The width classes approximate node titles in the reading font without
-// measuring the DOM at render time. Generous PAD_X leaves room for differences
-// between the default Computer Modern and any reading-font override.
+// The width classes approximate node titles in bundled Computer Modern
+// without measuring the DOM at render time. Generous PAD_X leaves room
+// for variations in text shape.
 const NARROW_CHARS = new Set(" ijltfr.,:;'!|()[]-\\");
 const WIDE_CHARS = new Set("mwMW@");
 const CAP_DIGIT = /[A-Z0-9]/;
@@ -435,8 +435,8 @@ const TEXT: Record<PlanNodeStatus, string> = {
 const MONO_BOX = "fill-card stroke-border";
 const MONO_TEXT = "fill-foreground text-xs";
 
-/** The diagram stays in the reading font via the runtime variable so
- * appearance overrides are honored in both the transcript and popup. */
+/** The diagram reads the same bundled Computer Modern face through the
+ * prose font token in both the transcript and popup. */
 export function PlanDiagram({
 	nodes,
 	edges,
@@ -480,7 +480,7 @@ export function PlanDiagram({
 			viewBox={`${ox - pad} ${oy - pad} ${vbW} ${vbH}`}
 			className={`block h-auto${naturalSize ? "" : " w-full"}${textCapScale ? " mx-auto" : ""}`}
 			style={{
-				// Runtime reading font follows the appearance setting.
+				// Reading text uses the bundled Computer Modern face.
 				fontFamily: "var(--font-prose)",
 				...(textCapScale
 					? { maxWidth: `${Math.round(vbW * textCapScale * 100) / 100}px` }

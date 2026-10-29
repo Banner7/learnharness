@@ -193,17 +193,11 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 	return { ok: true, settings };
 }
 
-/** appearance: { fontFamily?, proseFontSize?, sessionNameSerif?, mdRendering? } */
+/** appearance: { proseFontSize?, mdRendering? } */
 export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<AppearanceSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: AppearanceSettings = {};
-	if (raw.fontFamily !== undefined) {
-		if (raw.fontFamily !== null && (typeof raw.fontFamily !== "string" || !raw.fontFamily.trim())) {
-			return { ok: false, error: "fontFamily must be a non-empty string or null" };
-		}
-		settings.fontFamily = raw.fontFamily as string | null;
-	}
 	if (raw.proseFontSize !== undefined) {
 		if (
 			typeof raw.proseFontSize !== "number" ||
@@ -214,12 +208,6 @@ export function parseAppearanceSettingsBody(body: unknown): SettingsBodyResult<A
 			return { ok: false, error: "proseFontSize must be an integer between 12 and 24" };
 		}
 		settings.proseFontSize = raw.proseFontSize;
-	}
-	if (raw.sessionNameSerif !== undefined) {
-		if (typeof raw.sessionNameSerif !== "boolean") {
-			return { ok: false, error: "sessionNameSerif must be a boolean" };
-		}
-		settings.sessionNameSerif = raw.sessionNameSerif;
 	}
 	if (raw.mdRendering !== undefined) {
 		const md = asRecord(raw.mdRendering);

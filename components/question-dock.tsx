@@ -222,9 +222,8 @@ function QuestionDockForm({
 
 
 	return (
-		// The board (redesign 2026-10-29): the open question is written on
-		// the board — .lh-board re-points every token inside to chalk on
-		// slate, and the panel rises once when the question arrives.
+		// The board (redesign 2026-10-29): the open question uses the
+		// theme's ink on sand in light mode and chalk on slate in dark mode.
 		<div data-testid="question-dock" className="lh-board lh-board-enter rounded-xl p-5">
 			<div data-session-find-root="">
 				<div className="mb-2 text-sm text-primary">
