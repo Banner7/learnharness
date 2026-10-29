@@ -176,6 +176,12 @@ data/                           chats/ · graph/ (nodes/chains/sessions/coverage
                                 jobs/ · settings.json — runtime state, git-ignored
 ```
 
+## Background-worker captures
+
+For background-worker inspection, set `LH_BACKGROUND_CAPTURE=auditor`, a comma-separated role list such as `auditor,extractor`, or `all`. It covers the shared worker runner (`researcher`, `demoBuilder`, `visualMaker`, `pdfReader`, `extractor`, `auditor`), not foreground teaching or probing. The flag must reach the server process (`LH_BACKGROUND_CAPTURE=auditor npm run dev`); restart the server to change it.
+
+Captures are off by default and are written to `<data root>/debug/background-captures/<role>-<run ID>.json`, one file per worker run, holding the last request, its final response or error, and its tool results. `request.format` is `provider` when the adapter exposes its outgoing payload, or `context` (the model-facing conversation, not a wire capture) for CLI adapters. Credentials and headers are redacted; files are owner-only. Captures contain private source and graph content, never expire, and must be deleted by hand.
+
 ## Key mechanisms
 
 See [compaction and accounting](compaction-accounting.md) for the local Pi cutoff port,
