@@ -45,6 +45,7 @@ import {
 } from "./contracts/chat.ts";
 import { compactAnswerForModel, type QuestionAnswerData } from "./question-core.ts";
 import { activeCompactionOf, keptIndexFor } from "./compaction.ts";
+import { parseQuestionInput } from "./tool-parts.ts";
 
 /** The hard-invariant wording for an aborted turn's unanswered calls —
  *  carried over verbatim from the pre-native era so the model's view
@@ -670,12 +671,12 @@ export function toLlmMessages(messages: readonly AgentMessage[]): Message[] {
 // ─── native scans (the UIMessage-era pending/phase seams, natively) ──────────
 
 /** The pending-question gate (findPendingToolCall's native twin): the
- *  NEWEST assistant message's FIRST question-tool call with no result in
- *  the tail — one question at a time, the dock's subject. */
+ *  NEWEST assistant message's FIRST answerable question-tool call with no
+ *  result in the tail — never a failed generation or malformed fragment. */
 export function danglingQuestionOf(
 	messages: readonly LhMessage[],
 ): { toolCallId: string; tool: string; input: unknown } | null {
-	const question = questionOccurrenceOf(messages);
+	const question = questionCallsOf(messages).find(call => call.status === "answerable");
 	return question ? { toolCallId: question.toolCallId, tool: question.tool, input: question.input } : null;
 }
 
@@ -687,7 +688,7 @@ export function pendingQuestionOf(messages: readonly LhMessage[]): PendingQuesti
 	// turn_end includes the temporary questionResult acknowledgement. The
 	// view ignores it too: it is NOT the learner's answer. Exclude it only
 	// from client authority, leaving persisted/server result policy intact.
-	const question = questionOccurrenceOf(messages.filter(message => !isLiveQuestionPlaceholder(message)));
+	const question = questionCallsOf(messages.filter(message => !isLiveQuestionPlaceholder(message))).find(call => call.status === "answerable");
 	if (!question) return null;
 	let occurrences = 0;
 	for (const message of messages) {
@@ -700,7 +701,8 @@ export function pendingQuestionOf(messages: readonly LhMessage[]): PendingQuesti
 		}
 	}
 	return {
-		...question,
+		toolCallId: question.toolCallId, tool: question.tool, input: question.input,
+		messageId: question.messageId, contentIndex: question.contentIndex,
 		key: occurrences > 1 ? JSON.stringify([question.messageId, question.contentIndex, question.toolCallId]) : question.toolCallId,
 	};
 }
@@ -714,25 +716,42 @@ function isLiveQuestionPlaceholder(message: LhMessage): boolean {
 		(QUESTION_TOOLS as readonly string[]).includes(message.toolName);
 }
 
-/** Shared native authority: newest assistant only, siblings in call order. */
-function questionOccurrenceOf(messages: readonly LhMessage[]): Omit<PendingQuestion, "key"> | null {
+export interface QuestionCall extends Omit<PendingQuestion, "key"> {
+	status: "streaming" | "answerable" | "malformed" | "failed";
+}
+
+/** Newest native assistant only; siblings remain in call order. No result
+ * alone is NOT proof of a posed question: failed generations never execute
+ * their calls, and older records can contain truncated/unvalidated inputs. */
+export function questionCallsOf(messages: readonly LhMessage[]): QuestionCall[] {
 	for (let mi = messages.length - 1; mi >= 0; mi--) {
-		const m = messages[mi]!;
-		if ((m as { role?: string }).role !== "assistant") continue;
-		const assistant = m as AssistantMessage & { id: string };
+		const assistant = messages[mi]!;
+		if (assistant.role !== "assistant") continue;
 		const answered = resultIdsFrom(messages.slice(mi + 1));
+		const calls: QuestionCall[] = [];
 		for (const [contentIndex, block] of assistant.content.entries()) {
-			if (block.type !== "toolCall") continue;
-			if (!(QUESTION_TOOLS as readonly string[]).includes(block.name)) continue;
-			if (answered.has(block.id)) continue;
-			return {
-				toolCallId: block.id, tool: block.name, input: block.arguments,
-				messageId: assistant.id, contentIndex,
-			};
+			if (block.type !== "toolCall" || !(QUESTION_TOOLS as readonly string[]).includes(block.name) || answered.has(block.id)) continue;
+			const status = assistant.stopReason === "error" || assistant.stopReason === "aborted" ? "failed"
+				: assistant.stopReason === "pending" ? "streaming"
+				: assistant.stopReason === "length" || block.argumentsError || !parseQuestionInput(block.name, block.arguments) ? "malformed"
+				: "answerable";
+			calls.push({ toolCallId: block.id, tool: block.name, input: block.arguments,
+				messageId: assistant.id, contentIndex, status });
 		}
-		return null; // the newest assistant message's questions are all answered
+		return calls; // never revive older calls, even when this message has none
 	}
-	return null;
+	return [];
+}
+
+/** Background wakes must still wait for an explicit learner action when a
+ * question is unusable. Releasing the composer is not permission to retry. */
+export function hasUnresolvedQuestion(messages: readonly LhMessage[]): boolean {
+	return questionCallsOf(messages).length > 0;
+}
+
+/** Client placeholders are loop acknowledgements, not learner answers. */
+export function malformedQuestionsOf(messages: readonly LhMessage[]): QuestionCall[] {
+	return questionCallsOf(messages.filter(message => !isLiveQuestionPlaceholder(message))).filter(call => call.status === "malformed");
 }
 
 /** Successful probe_done result MESSAGE ids, in transcript order. A call
@@ -810,6 +829,7 @@ export function endsInDismissal(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
 	return last !== undefined && isDismissedResult(last);
 }
+
 
 export function needsContinuation(messages: readonly LhMessage[]): boolean {
 	const last = messages[messages.length - 1];
