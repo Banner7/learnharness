@@ -32,4 +32,4 @@ export type ProcessImageResult = {
 	message: string;
 };
 
-export type SupportedImageMimeType = "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/bmp";
+type SupportedImageMimeType = "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "image/bmp";

@@ -22,7 +22,7 @@ type ChatLoad =
 	| { status: "error"; message: string }
 	| { status: "ready"; chat: ChatSnapshot };
 
-export function NotFound() {
+function NotFound() {
 	return (
 		<main className="mx-auto flex min-h-dvh max-w-[640px] flex-col justify-center gap-4 px-4">
 			<h1 className="font-title text-2xl">Page not found</h1>

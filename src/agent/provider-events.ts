@@ -39,7 +39,7 @@ export const providerEventsCap = { current: CAP_BYTES };
 export const providerEventsDir = { current: path.join(PATHS.debug, "provider-events") };
 
 /** The model shape the observer receives (structural — pi passes Model). */
-export interface ProviderEventModel {
+interface ProviderEventModel {
 	provider?: string;
 	id?: string;
 }

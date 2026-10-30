@@ -23,7 +23,7 @@ export const MERMAID_FONT_SIZE = 16;
 // Slate, and "base" tinted to the parchment palette for light (mermaid's grey
 // "neutral" looked cold on yellow paper). Open charts redraw on a theme flip
 // (useIsDarkTheme in lib/theme-mode.ts).
-export function mermaidConfig(): MermaidConfig {
+function mermaidConfig(): MermaidConfig {
 	const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
 	return {
 		fontFamily: "ui-sans-serif, system-ui, sans-serif",

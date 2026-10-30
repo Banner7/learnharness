@@ -85,7 +85,7 @@ export function catalogDefaultsFor(
 
 /** The conversation agents' resolved default — what a settings-less chat
  *  runs: the strong slot, i.e. the birth-default for new sessions. */
-export function catalogDefaults(): CatalogDefaults | null {
+function catalogDefaults(): CatalogDefaults | null {
 	return catalogDefaultsFor(effectiveSettings().models.strong);
 }
 

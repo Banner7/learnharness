@@ -46,7 +46,7 @@ import type { PlanBlockData } from "./contracts/chat.ts";
  *  fields are optional-typed so the pre-Wave-D renderer code compiles
  *  against it with minimal casts; anything else stays `unknown` through
  *  the index signature. */
-export interface LhViewPart extends Record<string, unknown> {
+interface LhViewPart extends Record<string, unknown> {
 	type: string;
 	id?: string;
 	text?: string;

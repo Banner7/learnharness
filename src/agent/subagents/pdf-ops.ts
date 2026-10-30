@@ -20,7 +20,7 @@ import * as path from "node:path";
  * agent (pdf-reader.ts) drives them through its own tool loop.
  */
 
-export interface PdfPageInfo {
+interface PdfPageInfo {
 	page: number;
 	text_length: number;
 	image_count: number;

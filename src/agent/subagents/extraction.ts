@@ -706,7 +706,7 @@ export function abortExtraction(chatId: string): boolean {
 }
 // ─── the pipeline ───────────────────────────────────────────────────────────
 
-export interface ExtractionModels {
+interface ExtractionModels {
 	/** Test seam: a scripted engine per stage — checked FIRST, ahead of the
 	 *  engineFor chain (production wires no direct values). */
 	extractor?: PiEngine;
@@ -737,7 +737,7 @@ export interface ExtractionPipelineDeps extends GraphDeps, ExtractionModels {
 	getChunkTokens?: () => number;
 }
 
-export interface NotesImportInput {
+interface NotesImportInput {
 	/** The source's file path — its identity (deterministic src id) AND its
 	 *  provenance label in the detail card. */
 	filePath: string;
@@ -774,7 +774,7 @@ export interface ExtractionPipeline {
  *  (the money channel's capture shape, contracts/chat.ts). Exported for
  *  the cluster namer — the same capture shape (2026-09 graph cost
  *  metrics wave). Module scope: no closure deps, pure projection. */
-export function callUsage(usage: Usage): CallUsage {
+function callUsage(usage: Usage): CallUsage {
 	return {
 		inputTokens: usage.input,
 		outputTokens: usage.output,

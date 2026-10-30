@@ -56,7 +56,7 @@ import { Hint } from "@/components/ui/hint";
  * single-line text gets in NODE_H (owner: "the horizontal padding
  * should be the same as the vertical one"): (44 − 11) / 2 ≈ 16 (the
  * prose font renders text-xs at 11px). */
-export const PAD_X = 16;
+const PAD_X = 16;
 export const NODE_W_MIN = 96;
 export const NODE_H = 44;
 
@@ -79,9 +79,9 @@ export function estimateLineWidth(line: string): number {
 	return w;
 }
 /** Baseline-to-baseline distance of node titles. */
-export const LINE_H = 13;
+const LINE_H = 13;
 export const GAP_X = 24;
-export const GAP_Y = 48;
+const GAP_Y = 48;
 
 /** A node for layout purposes — the payload's shape and the tree's shape agree. */
 export interface LayoutNode {
@@ -282,12 +282,12 @@ export function nodeWidth(lines: readonly string[]): number {
 }
 
 /** SVG-unit padding keeps centered node borders inside the viewBox. */
-export const GRAPH_PAD = 8;
+const GRAPH_PAD = 8;
 /** Node titles render at text-xs (12.5px) in svg units. The in-chat block
  *  scales up to fill the column but NEVER past the chat prose size
  *  (--lh-prose-size, 16px — the ladder's reading rung) — the width cap
  *  that makes that hold. */
-export const TEXT_CAP_SCALE = 16 / 12.5;
+const TEXT_CAP_SCALE = 16 / 12.5;
 
 // ─── The owner's arrowhead (plan-graph round 5) ──────────────────────────────
 
@@ -295,10 +295,10 @@ export const TEXT_CAP_SCALE = 16 / 12.5;
  *  collapsed: viewBox 0 0 50.2 104, tip at (50.2, 52), notch mouth at
  *  x 27.2 with a 9.6-tall opening — at full height 104 the tail opening
  *  is ≈10, per the owner's spec. The fill follows the theme token. */
-export const ARROW_HEAD = "M48,55.2C49.4,54.6 50.2,53.4 50.2,52C50.2,50.6 49.4,49.4 48,48.8C38.2,45.6 29.2,38.8 21,28.4C15.2,21.4 11.4,13.2 9.6,3.8C9,1.2 7.4,0 4.8,0C1.6,0 0,1.6 0,5L0.2,5.6C3.6,23 12.6,36.8 27.2,47.2L27.2,56.8C12.6,67.2 3.6,81 0.2,98.4L0,99C0,102.4 1.6,104 4.8,104C7.4,104 9,102.8 9.6,100.2C11.4,90.8 15.2,82.6 21,75.6C29.2,65.2 38.2,58.4 48,55.2Z";
+const ARROW_HEAD = "M48,55.2C49.4,54.6 50.2,53.4 50.2,52C50.2,50.6 49.4,49.4 48,48.8C38.2,45.6 29.2,38.8 21,28.4C15.2,21.4 11.4,13.2 9.6,3.8C9,1.2 7.4,0 4.8,0C1.6,0 0,1.6 0,5L0.2,5.6C3.6,23 12.6,36.8 27.2,47.2L27.2,56.8C12.6,67.2 3.6,81 0.2,98.4L0,99C0,102.4 1.6,104 4.8,104C7.4,104 9,102.8 9.6,100.2C11.4,90.8 15.2,82.6 21,75.6C29.2,65.2 38.2,58.4 48,55.2Z";
 /** Lines + outlines run at the app's standard border weight (owner,
  *  2026-09-26 — same 1px the UI borders use; was 1.5). */
-export const STROKE_W = 1;
+const STROKE_W = 1;
 /** The heads scale by the SAME factor the lines thinned by (owner,
  *  2026-09-26): 16 was the height tuned for 1.5-wide lines, so both sides
  *  of the head:shaft proportion shrink together — the LaTeX ratio (tail
@@ -437,7 +437,7 @@ const MONO_TEXT = "fill-foreground text-xs";
 
 /** The diagram reads the same bundled Computer Modern face through the
  * prose font token in both the transcript and popup. */
-export function PlanDiagram({
+function PlanDiagram({
 	nodes,
 	edges,
 	statusOf,

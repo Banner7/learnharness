@@ -35,7 +35,7 @@ export interface NotifySource {
 	onEvent(name: string, cb: (data: string) => void): void;
 }
 
-export function openEventsChannel(): NotifySource {
+function openEventsChannel(): NotifySource {
 	const es = new EventSource("/api/events");
 	return {
 		close: () => es.close(),

@@ -50,7 +50,7 @@ function graphUsageLabel(costs: Pick<GraphCostSummary, "stages">): string {
  * (The core fold's naming stage was then culled outright — 2026-09-24 —
  * so the recent-runs list carries extraction runs only.)
  */
-export function displayCostTotals(costs: Pick<GraphCostSummary, "stages">): {
+function displayCostTotals(costs: Pick<GraphCostSummary, "stages">): {
 	totalDollars: number;
 	unpricedRuns: number;
 } {

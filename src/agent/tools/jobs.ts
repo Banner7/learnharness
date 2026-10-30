@@ -29,7 +29,7 @@ export interface JobToolContext {
 	searchAvailable?: () => boolean;
 }
 
-export const researchInputSchema = Type.Object({
+const researchInputSchema = Type.Object({
 	question: Type.String({
 		description: "The single research question to answer. Make it specific — the researcher sees nothing else of the lesson.",
 	}),

@@ -65,7 +65,7 @@ export interface EffectiveModelSpec {
 }
 
 /** The concrete appearance view — same shape as the factory's. */
-export type EffectiveAppearance = FactorySettings["appearance"];
+type EffectiveAppearance = FactorySettings["appearance"];
 
 /** The concrete view: every knob resolved, no absent fields. */
 export interface EffectiveSettings {

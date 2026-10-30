@@ -129,7 +129,7 @@ function textCharsOfContent(content: unknown): number {
  * so pre-marker usage is not a valid anchor (pi's "don't trust usage
  * captured before a later compaction" law). Index into messages, or
  * null. */
-export function lastAssistantUsageIndex(
+function lastAssistantUsageIndex(
 	messages: readonly (LhMessage | AgentMessage)[],
 ): number | null {
 	for (let i = messages.length - 1; i >= 0; i--) {

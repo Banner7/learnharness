@@ -65,7 +65,7 @@ export function teacherProseBlocks(messages: ReadonlyArray<LhMessage>): string[]
 }
 
 /** Tokens of a message's view — chars/4, ceil, the app-wide estimate. */
-export function viewTokens(lines: string[]): number {
+function viewTokens(lines: string[]): number {
 	return Math.ceil(lines.join("\n").length / 4);
 }
 
@@ -99,7 +99,7 @@ export function coverageSlots(messages: ReadonlyArray<LhMessage>): CoverageSlot[
 }
 
 /** The covered-fingerprint set for one chat, from the ledger. */
-export function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
+function coveredSet(entries: ReadonlyArray<CoverageEntry>, chatId: string): Set<string> {
 	const out = new Set<string>();
 	for (const e of entries) if (e.chatId === chatId) out.add(e.fp);
 	return out;

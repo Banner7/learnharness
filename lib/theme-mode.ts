@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 
 export type ThemeMode = "system" | "light" | "dark";
 
-export const THEME_STORAGE_KEY = "lh-theme";
+const THEME_STORAGE_KEY = "lh-theme";
 const themeListeners = new Set<() => void>();
 let themeObserver: MutationObserver | null = null;
 let observedDark = false;
@@ -51,7 +51,7 @@ export function readThemeMode(): ThemeMode {
 	}
 }
 
-export function applyThemeMode(mode: ThemeMode): void {
+function applyThemeMode(mode: ThemeMode): void {
 	const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 	document.documentElement.classList.toggle("dark", dark);
 	document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {

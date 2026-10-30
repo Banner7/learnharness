@@ -97,7 +97,7 @@ that in your final message and why.`;
 /** The wire declarations (pi-ai Tool, TypeBox parameters): this loop owns
  *  execution itself — write/edit dispatch inline below, render feeds the
  *  image-in-the-loop message — so the declarations carry no execute. */
-export function createVisualTools(): Record<string, Tool> {
+function createVisualTools(): Record<string, Tool> {
 	return {
 		write_svg: {
 			name: "write_svg",

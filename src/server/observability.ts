@@ -27,7 +27,7 @@ import { listJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
-export { abortExtraction, extractionStatuses, type ExtractionPhase, type RunningExtraction } from "../agent/subagents/extraction.ts";
+export { abortExtraction, extractionStatuses,   } from "../agent/subagents/extraction.ts";
 export { chatStore } from "../store/chats.ts";
 
 /** A running sub-agent job, joined with its chat's title for the dock.

@@ -38,7 +38,7 @@ export * from "./native-messages.ts";
 export * from "./compaction.ts";
 export * from "./input-events.ts";
 export { parseFilePaths, quoteFilePath, filePathLabel } from "./file-paths.ts";
-export type { FilePathPart } from "./file-paths.ts";
+;
 // Wave D (owner-approved 2026-09-26): the client view model — the grouping
 // canon (one continuous assistant document, step separators) ported from
 // the deleted server projection to the client side. Pure, browser-safe.
@@ -48,7 +48,7 @@ export * from "./answer-presentation.ts";
 export * from "./prices.ts";
 export * from "./context-usage.ts";
 export * from "./cost-summary.ts";
-export { CLAUDE_CODE_PROVIDER, CLAUDE_CODE_MINIMUM_VERSION, type ClaudeCodeStatus } from "./contracts/claude-code.ts";
+export { CLAUDE_CODE_PROVIDER,  type ClaudeCodeStatus } from "./contracts/claude-code.ts";
 export * from "./fuzzy.ts";
 // settings.ts + settings-resolution.ts (settings-storage wave, 2026-09-19):
 // the user-settings record's shape/sanitizer (pure) and its fully-resolved
@@ -59,7 +59,7 @@ export * from "./settings.ts";
 // two type-only things from it: the ChatDeleteMode union (the delete
 // dialog's two-option design + the DELETE query param) and the stats
 // shape its success line describes, hence this type-only re-export.
-export type { ChatDeleteMode, ChatDeletionStats } from "./graph-deletion.ts";
+export type { ChatDeleteMode,  } from "./graph-deletion.ts";
 export * from "./settings-resolution.ts";
 export * from "./search.ts"; // search port (search wave, 2026-09-20)
 export * from "./session-find.ts";

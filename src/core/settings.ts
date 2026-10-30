@@ -99,7 +99,7 @@ export const DEFAULT_THINKING_ORDER = [
  *  this JSON; in-band consumers (the job record's error field) carry the
  *  human `error` line. `missing` names the slot TIER(S) the refused
  *  action needs and found unset. */
-export const MODELS_NOT_CONFIGURED_CODE = "models_not_configured" as const;
+const MODELS_NOT_CONFIGURED_CODE = "models_not_configured" as const;
 export interface ModelsNotConfigured {
 	/** Human-readable — safe to render as-is. */
 	error: string;
@@ -352,7 +352,7 @@ export interface AgentSettings {
 }
 
 /** Markdown-rendering knobs — the bare-bones set (owner decision). */
-export interface MdRenderingSettings {
+interface MdRenderingSettings {
 	/** Heading font weight (100–900, default 900). CSS resolves the nearest
 	 *  available weight of the chosen font — no font introspection needed. */
 	headingWeight?: number;

@@ -31,7 +31,7 @@ export const PATHS = {
 // .env stays for secrets (API keys) only. What remains here are ENGINE
 // CONSTRUCTION FACTS: the thinking-level scale and the default order.
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Every agent role in the app. The conversation pair (prober/teacher)
  *  resolves chat.model → strong slot; background roles resolve their own

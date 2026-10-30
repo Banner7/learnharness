@@ -42,7 +42,7 @@ function snapshot(tree: PlanTree, messages: readonly LhMessage[]): PlanBlockData
 
 /** The record's plan-block markers, keyed by the plan_init call they
  *  present — the idempotency set for emission. */
-export function emittedPlanBlockCalls(messages: readonly LhMessage[]): Set<string> {
+function emittedPlanBlockCalls(messages: readonly LhMessage[]): Set<string> {
 	const out = new Set<string>();
 	for (const m of messages) {
 		if ((m as { role?: string }).role !== "custom") continue;

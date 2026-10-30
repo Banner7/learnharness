@@ -289,7 +289,7 @@ export function registerLiveAgent(chatId: string, agent: Agent, allowDeferred = 
 /** A parked user steer: the message plus the agent it was last handed to
  *  (the double-handoff guard — a reconcile keeps it only when its id
  *  never landed in the persisted record). */
-export interface UserSteerEntry {
+interface UserSteerEntry {
 	message: LhMessage;
 	handedTo?: Agent;
 }

@@ -47,7 +47,7 @@ interface FeedUsage extends NonNullable<JobRecord["usage"]> {
 	lastStep?: CallUsage;
 }
 
-export interface FeedJob extends JobRecord {
+interface FeedJob extends JobRecord {
 	/** Read-time server estimate; absent on older transport payloads. */
 	costUsd?: number | null;
 	title: string;

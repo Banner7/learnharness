@@ -206,7 +206,7 @@ export const quizInputBase = Type.Object({
 // path accepts) runs at the CALL BOUNDARY in the tool's execute:
 // quizInputProblems here, the per-session plan-nodeId validation in
 // tools.ts (it reads the live chat record, which this core never touches).
-export const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
+const QUIZ_QUESTION_TYPES = ["predict", "check"] as const;
 export type QuizQuestionType = (typeof QUIZ_QUESTION_TYPES)[number];
 
 /** Normalize a persisted quiz `type` (display seam): old records carry
@@ -383,7 +383,7 @@ export type ExplainToolInput = Static<typeof explainInputObject>;
 
 
 /** A real selected answer, in the order the options were displayed. */
-export interface OptionAnswer {
+interface OptionAnswer {
 	label: string;
 	value: string;
 	index: number; // 1-based display index

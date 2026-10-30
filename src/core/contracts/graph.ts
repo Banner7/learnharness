@@ -198,7 +198,7 @@ export interface CoverageEntry {
 // ─── Extraction findings (extractor output → audit → merger input) ───────────
 
 /** One proposed proposition — a node candidate (or a re-encounter of one). */
-export interface ExtractedProposition {
+interface ExtractedProposition {
 	/** Extractor-local id ("p1", …) referenced by edges. */
 	id: string;
 	/** A very short label — a few words, a compact handle like a glossary
@@ -254,7 +254,7 @@ export interface SessionFindings {
  *  rewordings, and compressions of the same claim MERGE — do not create
  *  a duplicate because the wording differs. Only genuinely distinct
  *  propositions stay apart. */
-export interface IdentityLink {
+interface IdentityLink {
 	id: string;
 	linkTo: string;
 }

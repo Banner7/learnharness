@@ -29,7 +29,7 @@
  */
 import type { PlanEdge, PlanNode } from "@/src/core";
 
-export interface ParsedPlan {
+interface ParsedPlan {
 	nodes: PlanNode[];
 	edges: PlanEdge[];
 }

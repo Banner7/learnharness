@@ -96,7 +96,7 @@ const runDemoInput = Type.Object({
 	),
 });
 
-export function createDemoBuilderTools(
+function createDemoBuilderTools(
 	state: BuilderState,
 	headless: HeadlessApi,
 	onActivity?: (line: string) => void,

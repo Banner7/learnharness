@@ -4,7 +4,7 @@ import { formatDimensionNote, resizeImage } from "./resize.ts";
 import type { ProcessImageOptions, ProcessImageResult } from "./types.ts";
 
 export { detectSupportedImageMimeType, detectSupportedImageMimeTypeFromFile } from "./mime.mjs";
-export type { ModelImageResizeOptions, ProcessImageOptions, ProcessImageResult, ResizedImage, SupportedImageMimeType } from "./types.ts";
+export type { ModelImageResizeOptions, ProcessImageOptions, ProcessImageResult,   } from "./types.ts";
 
 function baseMimeType(mimeType: string): string {
 	return mimeType.split(";")[0]?.trim().toLowerCase() ?? mimeType.toLowerCase();

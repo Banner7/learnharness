@@ -84,7 +84,7 @@ const SEARCH_ENGINES = ["tavily", "brave"] as const;
 
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
-export const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
+const TOGGLE_TOOLS = ["research", "demo", "visual", "pdf"] as const;
 const TOOL_LABELS: Record<(typeof TOGGLE_TOOLS)[number], string> = {
 	research: "Research",
 	demo: "Demo",
@@ -131,7 +131,7 @@ export function composeQuizMechanics(agent: AgentSettings | undefined, mechanics
  *  agent section — never in the tool-toggles map (owner ruling). Absent =
  *  ON (the toggle discipline); the write is explicit either way, so an
  *  explicit-off record stays visible as stored. Pure — exported for tests. */
-export function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
+function composeGraphTools(agent: AgentSettings | undefined, on: boolean): AgentSettings {
 	return { ...agent, graphTools: { enabled: on } };
 }
 

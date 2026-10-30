@@ -23,7 +23,7 @@ import { discardChatDeliveries } from "./jobs.ts";
 
 export const { createChat, getChat, listChats } = stores.chatStore;
 export { titleFromPrompt };
-export type { ChatDeleteMode, ChatDeletionStats } from "../core/graph-deletion.ts";
+export type { ChatDeleteMode,  } from "../core/graph-deletion.ts";
 
 /** How long the wind-down wait may take before the caller gets a retryable
  *  503 (an aborted extraction ends at its next model-call boundary —

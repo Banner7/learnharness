@@ -35,7 +35,7 @@ const SidebarContext = createContext<{
 	close: () => {},
 });
 
-export function useSidebar() {
+function useSidebar() {
 	return useContext(SidebarContext);
 }
 
@@ -598,7 +598,7 @@ export function SessionList({
 /** The three-way kind filter (practice sessions, owner 2026-10-04):
  *  Teaching / All / Practice — a client-side filter over the same
  *  snapshot, persisted in localStorage, defaulting to All. */
-export type SessionKindFilter = "teach" | "all" | "practice";
+type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {

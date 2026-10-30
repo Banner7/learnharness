@@ -52,7 +52,7 @@ export interface SubagentRunResult {
 	text: string;
 }
 
-export function subagentEngine(role: ModelRole, override?: PiEngine): PiEngine {
+function subagentEngine(role: ModelRole, override?: PiEngine): PiEngine {
 	// BYOK (owner, 2026-09-22): no factory pins — the override is the only
 	// real path (the runner injects settings-resolved engines); a missed
 	// injection hits the honest thrower in models.ts instead of a guess.

@@ -13,7 +13,7 @@ import { newHandoffMessage } from "../native-messages.ts";
 // ─── Async sub-agent jobs (vision §2.5; plan.md Wave 0 protocol) ────────────
 
 export type JobKind = "research" | "demo" | "visual" | "pdf";
-export type JobStatus = "running" | "done" | "error";
+type JobStatus = "running" | "done" | "error";
 
 export interface JobRecord {
 	id: string;

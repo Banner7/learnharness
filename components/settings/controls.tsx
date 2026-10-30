@@ -169,7 +169,7 @@ export function Toggle({
 }
 
 /** A thin select — native element, options as given. */
-export function ThinSelect({
+function ThinSelect({
 	value,
 	onChange,
 	children,

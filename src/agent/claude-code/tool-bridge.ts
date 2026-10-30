@@ -24,7 +24,7 @@ export type PendingToolCall = { id: string; name: string; arguments: JsonObject 
 
 type BridgeCallbacks = { onCall(): void; onError(error: Error): void; onCancel?(call: PendingToolCall): void };
 
-export const MCP_IDENTITY_ERROR = "claude CLI compatibility error: MCP calls must include a unique claudecode/toolUseId";
+const MCP_IDENTITY_ERROR = "claude CLI compatibility error: MCP calls must include a unique claudecode/toolUseId";
 
 export type ToolBridge = {
 	mcpConfig: string;

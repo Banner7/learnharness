@@ -73,7 +73,7 @@ async function copyText(text: string): Promise<boolean> {
 
 /** Small copy icon in a Markdown block's top-right corner. Keep it visible
  * for touch as well as pointer use; the icon briefly changes after copying. */
-export function CopyCorner({
+function CopyCorner({
 	getText,
 	label,
 	className,
@@ -324,7 +324,7 @@ export function parseAlertMarker(children: ReactNode): ParsedAlert | null {
 
 /** Redesign (owner, 2026-10-27): highlighted ideas get a quiet card
  * outline in either theme rather than a fixed white stroke. */
-export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraProps) {
+function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraProps) {
 	const { children, node, ...rest } = props;
 	const alert = parseAlertMarker(children);
 	if (!alert) {
@@ -360,7 +360,7 @@ export function MarkdownBlockquote(props: ComponentProps<"blockquote"> & ExtraPr
  *  rules live in globals.css on the data-streamdown attributes) inside a
  *  horizontal-scroller for wide ones, with the corner copy. The copy
  *  serializes the REAL DOM table (the library's own extractor → Markdown). */
-export function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
+function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
 	const { children, node, ...rest } = props;
 	const ref = useRef<HTMLTableElement>(null);
 	return (
@@ -400,7 +400,7 @@ export function MarkdownTable(props: ComponentProps<"table"> & ExtraProps) {
  *  static render). They gain the corner copy (the raw TeX — KaTeX embeds it
  *  in the MathML <annotation>; read from the DOM on click, no re-parse).
  *  Every other span passes through untouched. */
-export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
+function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
 	const { children, className, node, ...rest } = props;
 	const ref = useRef<HTMLSpanElement>(null);
 	if (!className?.includes("katex-display")) {
@@ -435,7 +435,7 @@ export function MathDisplay(props: ComponentProps<"span"> & ExtraProps) {
 
 /** Render semantic bold so screen-reader emphasis and the stylesheet's
  * emphasis token and font weight apply. */
-export function MarkdownStrong(props: ComponentProps<"strong"> & ExtraProps) {
+function MarkdownStrong(props: ComponentProps<"strong"> & ExtraProps) {
 	const { children, className, node, ...rest } = props;
 	return (
 		<strong data-streamdown="strong" className={className} {...rest}>

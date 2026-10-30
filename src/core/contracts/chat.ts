@@ -25,7 +25,7 @@ import type { EmissionStats } from "./graph.ts";
  *  the default and ABSENT on pre-practice records (no migration — absence
  *  reads as teach); "practice" marks an adaptive-practice session — the
  *  practice agent, its two tools, no extraction, no graph writes. */
-export type ChatKind = "teach" | "practice";
+type ChatKind = "teach" | "practice";
 
 export interface ChatRecord {
 	id: string;
