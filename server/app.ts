@@ -111,6 +111,8 @@ app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 
 app.on(["GET", "HEAD"], "*", serveStatic({
 	root: "./dist/client",
+	// Fork (2026-10-30): scripts/build.mjs writes .br/.gz siblings.
+	precompressed: true,
 	onFound: (_path, c) => {
 		// Fork rewrite (2026-10-29): only content-hashed Vite assets are
 		// immutable. HTML must revalidate so deploys pick up the new bundle.
@@ -121,6 +123,7 @@ app.on(["GET", "HEAD"], "*", serveStatic({
 }));
 app.on(["GET", "HEAD"], "*", serveStatic({
 	path: "./dist/client/index.html",
+	precompressed: true,
 	onFound: (_path, c) => { c.header("Cache-Control", "private, no-cache"); },
 }));
 app.notFound((c) => c.json({ error: "Not found" }, 404));

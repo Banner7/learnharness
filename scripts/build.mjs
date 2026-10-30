@@ -1,5 +1,7 @@
 import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
+import { brotliCompress, constants as zlib, gzip } from "node:zlib";
 import { build } from "esbuild";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -67,3 +69,35 @@ async function scanRuntime(dir) {
 await scanRuntime(path.join(root, "dist/runtime"));
 await writeFile(path.join(root, "dist/runtime-packages.json"), `${JSON.stringify([...roots].sort(), null, "\t")}\n`);
 console.log(`runtime packages: ${roots.size} roots`);
+
+// Fork (2026-10-30): neither the server nor Tailscale Serve compressed
+// responses, so the phone downloaded the 1.8 MB entry chunk raw (554 KB
+// gzipped). Compress text assets once here; server/app.ts serves the .br/.gz
+// sibling through serveStatic's `precompressed` option. A variant that saves
+// nothing is skipped and the original is served instead.
+const brotli = promisify(brotliCompress);
+const gzipAsync = promisify(gzip);
+const compressible = new Set([".js", ".mjs", ".css", ".html", ".svg", ".json", ".txt"]);
+let rawBytes = 0;
+let brBytes = 0;
+async function precompress(dir) {
+	for (const entry of await readdir(dir, { withFileTypes: true })) {
+		const file = path.join(dir, entry.name);
+		if (entry.isDirectory()) {
+			await precompress(file);
+			continue;
+		}
+		if (!entry.isFile() || !compressible.has(path.extname(entry.name))) continue;
+		const source = await readFile(file);
+		const [br, gz] = await Promise.all([
+			brotli(source, { params: { [zlib.BROTLI_PARAM_QUALITY]: zlib.BROTLI_MAX_QUALITY, [zlib.BROTLI_PARAM_SIZE_HINT]: source.length } }),
+			gzipAsync(source, { level: zlib.Z_BEST_COMPRESSION }),
+		]);
+		rawBytes += source.length;
+		brBytes += Math.min(br.length, source.length);
+		if (br.length < source.length) await writeFile(`${file}.br`, br);
+		if (gz.length < source.length) await writeFile(`${file}.gz`, gz);
+	}
+}
+await precompress(path.join(root, "dist/client"));
+console.log(`precompressed client: ${(rawBytes / 1e6).toFixed(1)} MB -> ${(brBytes / 1e6).toFixed(1)} MB brotli`);
