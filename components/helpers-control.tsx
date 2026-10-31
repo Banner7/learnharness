@@ -1,0 +1,218 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeftIcon } from "lucide-react";
+import type { ModelCatalogEntry, ModelSlotName, ModelsSettings, UserSettings } from "@/src/core";
+import { prettyModel } from "@/components/usage-format";
+import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
+import { composeSlotModel } from "@/components/settings/agent-section";
+import { MenuShell } from "@/components/menu-shell";
+import { Hint } from "@/components/ui/hint";
+import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
+import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
+import { readSettingsRecord } from "@/components/settings-record";
+import { useModelCatalog } from "@/components/model-picker";
+
+/**
+ * The helpers switcher (owner, 2026-10-31): the cheap and vision slots were
+ * reachable only from Settings → Agent, yet they decide what every research,
+ * demo, grading, drawing and PDF job runs on. One quiet "Helpers" chip sits
+ * beside the strong-slot pickers; its menu edits the same GLOBAL slots
+ * through the same seam Settings uses (PUT /api/settings/models with
+ * composeSlotModel, siblings preserved), then announces the write so the
+ * Settings section and every other reader re-read. One anchored menu with
+ * three views (summary → a slot's model list or thinking list) keeps phone
+ * and desktop on the app's single MenuShell pattern, no nested portals.
+ */
+
+type HelperSlot = Extract<ModelSlotName, "cheap" | "vision">;
+type View = { kind: "summary" } | { kind: "model" | "thinking"; slot: HelperSlot };
+
+const HELPERS: readonly { slot: HelperSlot; label: string; hint: string }[] = [
+	{ slot: "cheap", label: "Cheap", hint: "Research, demos, grading" },
+	{ slot: "vision", label: "Vision", hint: "Drawings and PDFs" },
+];
+
+export function HelpersControl() {
+	const { catalog, refresh } = useModelCatalog();
+	const [models, setModels] = useState<ModelsSettings | undefined>();
+	const [view, setView] = useState<View | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
+
+	const readRecord = useCallback(() => {
+		readSettingsRecord()
+			.then((body) => setModels(body.settings?.models ?? undefined))
+			.catch(() => {
+				/* read-only posture: triggers show "—", same as ModelControl */
+			});
+	}, []);
+	useEffect(() => readRecord(), [readRecord]);
+	useSettingsSaved((section) => {
+		if (section === "models") readRecord();
+	});
+
+	// Pointer and Escape dismissal; the portaled menu body counts as inside.
+	useEffect(() => {
+		if (view === null) return;
+		const onPointerDown = (e: PointerEvent) => {
+			const t = e.target;
+			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
+			if (containerRef.current && t instanceof Node && !containerRef.current.contains(t)) setView(null);
+		};
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Escape") return;
+			// Escape steps back out of a list first, then closes.
+			setView((v) => (v && v.kind !== "summary" ? { kind: "summary" } : null));
+		};
+		document.addEventListener("pointerdown", onPointerDown);
+		document.addEventListener("keydown", onKeyDown);
+		return () => {
+			document.removeEventListener("pointerdown", onPointerDown);
+			document.removeEventListener("keydown", onKeyDown);
+		};
+	}, [view]);
+
+	const save = useCallback(async (next: ModelsSettings) => {
+		setError(null);
+		try {
+			const res = await fetch("/api/settings/models", {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(next),
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { error?: string };
+				setError(body.error ?? `settings rejected (${res.status})`);
+				return;
+			}
+			// Server truth: a level the new model can't run lands clamped.
+			const stored = ((await res.json().catch(() => null)) as { settings?: UserSettings } | null)?.settings?.models;
+			setModels(stored ?? next);
+			setView({ kind: "summary" });
+			notifySettingsSaved("models");
+		} catch {
+			setError("Could not reach the server — try again.");
+		}
+	}, []);
+
+	const slotState = (slot: HelperSlot) => {
+		const stored = models?.[slot];
+		const entry = catalog?.models.find((m) => m.id === stored?.model?.id && m.provider === stored?.model?.provider);
+		const levels = entry?.supportedLevels ?? [];
+		// Legacy display, as in Settings: no stored level shows the level the
+		// engine would resolve; display-only until a pick writes one.
+		const level = stored?.thinkingLevel ?? (entry ? defaultOrderLevel(levels) : undefined);
+		const modelLabel = stored?.model ? (entry?.label ?? prettyModel(stored.model.id)) : undefined;
+		return { stored, entry, levels, level, modelLabel };
+	};
+
+	const toggle = () => {
+		setError(null);
+		setView((v) => (v ? null : { kind: "summary" }));
+	};
+
+	const trigger = "flex min-h-11 min-w-0 items-center gap-1 rounded-md px-2 text-xs transition-colors hover:bg-accent hover:text-foreground";
+
+	return (
+		<div ref={containerRef} className="relative flex items-center" data-testid="helpers-control">
+			<Hint label="Models for research, demos, grading, drawings and PDFs" side="bottom">
+				<button
+					type="button"
+					data-testid="helpers-chip"
+					onClick={toggle}
+					aria-expanded={view !== null}
+					aria-haspopup="dialog"
+					className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
+				>
+					<span className="text-foreground">Helpers</span>
+					<span aria-hidden className="text-xs text-muted-foreground">▾</span>
+				</button>
+			</Hint>
+
+			{view && (
+				<MenuShell
+					anchorRef={containerRef}
+					testid="helpers-menu"
+					preferredSide="up"
+					align="left"
+					menuClass="flex w-[22rem] flex-col rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
+				>
+					{view.kind === "summary" ? (
+						<div role="dialog" aria-label="Helper models" className="flex flex-col gap-1">
+							{HELPERS.map(({ slot, label, hint }) => {
+								const { entry, level, modelLabel } = slotState(slot);
+								return (
+									<div key={slot} className="flex items-center gap-2 rounded-md px-1 py-1" data-testid={`helpers-row-${slot}`}>
+										<div className="min-w-0 flex-1">
+											<div className="text-sm text-foreground">{label}</div>
+											<div className="text-muted-foreground">{hint}</div>
+										</div>
+										<button
+											type="button"
+											data-testid={`helpers-model-${slot}`}
+											aria-label={`${label} model`}
+											onClick={() => { refresh(); setView({ kind: "model", slot }); }}
+											className={`${trigger} w-[6.5rem] shrink-0 justify-end`}
+										>
+											<span className="truncate text-foreground">{modelLabel ?? "—"}</span>
+											<span aria-hidden className="text-muted-foreground">▾</span>
+										</button>
+										<button
+											type="button"
+											data-testid={`helpers-thinking-${slot}`}
+											aria-label={`${label} thinking`}
+											// No model → nothing to set a level for (ModelControl's rule).
+											onClick={() => { if (entry) setView({ kind: "thinking", slot }); }}
+											className={`${trigger} w-[5rem] shrink-0 justify-end`}
+										>
+											<span className="text-foreground">{level === undefined ? "—" : (THINKING_LABEL[level] ?? level)}</span>
+											<span aria-hidden className="text-muted-foreground">▾</span>
+										</button>
+									</div>
+								);
+							})}
+							<div className="px-1 pt-1 text-muted-foreground">Applies to every session; same as Settings → Agent.</div>
+						</div>
+					) : (
+						<div className="flex flex-col">
+							<button
+								type="button"
+								onClick={() => setView({ kind: "summary" })}
+								className="mb-1 flex min-h-9 items-center gap-1 self-start rounded-md px-1 text-muted-foreground hover:text-foreground"
+							>
+								<ChevronLeftIcon className="size-3.5" aria-hidden />
+								{HELPERS.find((h) => h.slot === view.slot)?.label} {view.kind === "model" ? "model" : "thinking"}
+							</button>
+							{view.kind === "model" ? (
+								<ModelMenuList
+									models={catalog?.models}
+									effectiveId={slotState(view.slot).stored?.model?.id}
+									effectiveProvider={slotState(view.slot).stored?.model?.provider}
+									vision={view.slot === "vision"}
+									onPick={(m: ModelCatalogEntry) => {
+										const next = populateLevel(slotState(view.slot).stored?.thinkingLevel, m.supportedLevels);
+										void save(composeSlotModel(models, view.slot, m.provider, m.id, next));
+									}}
+									footer={catalog && catalog.models.length === 0 ? "No models — configure a provider on the server" : "Runs every agent of this tier"}
+								/>
+							) : (
+								<ThinkingMenuList
+									levels={slotState(view.slot).levels.map(String)}
+									effectiveLevel={slotState(view.slot).level}
+									onPick={(level) => {
+										const { stored } = slotState(view.slot);
+										void save(composeSlotModel(models, view.slot, stored?.model?.provider ?? "", stored?.model?.id ?? "", level));
+									}}
+									empty={catalog ? "This model has no thinking levels." : "Loading…"}
+									footer="Levels this model actually supports"
+								/>
+							)}
+						</div>
+					)}
+					{error && <div className="mt-1.5 text-destructive">{error}</div>}
+				</MenuShell>
+			)}
+		</div>
+	);
+}

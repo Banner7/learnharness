@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CLAUDE_CODE_PROVIDER, type ChatSettings, type CliContextWindow, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
+import { HelpersControl } from "@/components/helpers-control";
 
 export function formatContextMeasurement(tokens: number | null, limit: number | null): string {
 	const numerator = tokens === null ? "?" : formatTokens(tokens);
@@ -189,8 +190,15 @@ export function StatsBar({
 				<section aria-label="Model" className="w-full rounded-lg border border-border bg-card p-3">
 					<h3 className="mb-1 text-xs font-medium text-muted-foreground">Model</h3>
 					<ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />
+					<h3 className="mb-1 mt-2 text-xs font-medium text-muted-foreground">Helpers</h3>
+					<HelpersControl />
 				</section>
-			) : <ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />}
+			) : (
+				<div className="flex flex-wrap items-center justify-end gap-1">
+					<ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />
+					<HelpersControl />
+				</div>
+			)}
 		</div>
 	);
 }

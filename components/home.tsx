@@ -10,6 +10,7 @@ import { Composer } from "@/components/composer";
 import { ComposerActions, NodePickerControl } from "@/components/composer-actions";
 import { SidebarToggle } from "@/components/sidebar";
 import { ModelControl } from "@/components/model-picker";
+import { HelpersControl } from "@/components/helpers-control";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
@@ -121,7 +122,7 @@ export function Home() {
 						<ComposerActions picker={(practiceProps.length > 0 || mode === "practice") && (
 							<NodePickerControl count={practiceProps.length} onOpen={() => setChainSelectOpen(true)} onClear={() => setPracticeProps([])} />
 						)} />
-						<div className="text-xs text-muted-foreground"><ModelControl /></div>
+						<div className="flex items-center gap-1 text-xs text-muted-foreground"><ModelControl /><HelpersControl /></div>
 					</div>
 				</section>
 			</MinimalHome>
