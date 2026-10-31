@@ -96,6 +96,13 @@ export function toClaudeArgs(input: ClaudeArgsInput): string[] {
 		input.model,
 		"--effort",
 		input.effort,
+		// Visible thinking (owner, 2026-10-31): since Opus 4.7 the API defaults
+		// thinking to display "omitted" — blocks arrive with empty text, so the
+		// Thinking disclosure showed nothing. CLI 2.1.312 accepts this hidden
+		// flag; measured on the pinned CLI: 0 thinking_delta events without it,
+		// summarized text with it.
+		"--thinking-display",
+		"summarized",
 		"--system-prompt-file",
 		input.systemPromptFile,
 		"--tools",
