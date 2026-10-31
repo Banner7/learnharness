@@ -15,6 +15,7 @@ import { SettingsDialogProvider, useSettingsDialog } from "@/components/settings
 import { Hint } from "@/components/ui/hint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { fuzzyScore } from "@/src/core";
 import { useServerEvent, useServerResync } from "@/components/server-events";
@@ -949,7 +950,7 @@ function SessionsSidebar() {
 					<div className={cn(!desktopOpen && "min-[1100px]:hidden")}><ActivitySection /></div>
 
 					{/* Settings opens the phone section sheet. */}
-					<div className={cn("px-3 pt-1", !desktopOpen && "min-[1100px]:px-1.5")}>
+					<div className={cn("flex items-center gap-1 px-3 pt-1", !desktopOpen && "min-[1100px]:px-1.5")}>
 						<Hint label="Settings" side="right">
 							<button
 								type="button"
@@ -958,12 +959,14 @@ function SessionsSidebar() {
 									openSettings();
 								}}
 								data-testid="settings-entry"
-								className={cn("flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", !desktopOpen && "min-[1100px]:w-11 min-[1100px]:justify-center min-[1100px]:px-0")}
+								className={cn("flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", !desktopOpen && "min-[1100px]:w-11 min-[1100px]:flex-none min-[1100px]:justify-center min-[1100px]:px-0")}
 							>
 								<SettingsIcon className="size-3" />
 								<span className={cn(!desktopOpen && "min-[1100px]:sr-only")}>Settings</span>
 							</button>
 						</Hint>
+						{/* The collapsed icon rail has no room; Settings still has it. */}
+						<div className={cn(!desktopOpen && "min-[1100px]:hidden")}><ThemeToggle side="top" /></div>
 					</div>
 				</div>
 				</div>

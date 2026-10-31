@@ -11,6 +11,7 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { SidebarToggle } from "@/components/sidebar";
 import { ModelControl } from "@/components/model-picker";
 import { HelpersControl } from "@/components/helpers-control";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
@@ -70,9 +71,12 @@ export function Home() {
 		<div className="h-dvh overflow-y-auto min-[1280px]:pr-[300px]">
 			<header className="mx-auto flex max-w-[720px] items-center justify-between px-4 pt-[calc(0.5rem+env(safe-area-inset-top))]">
 				<SidebarToggle />
-				<button type="button" aria-label="Settings" onClick={() => openSettings()} className="flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-					<SettingsIcon className="size-5" />
-				</button>
+				<div className="flex items-center gap-1">
+					<ThemeToggle />
+					<button type="button" aria-label="Settings" onClick={() => openSettings()} className="flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
+						<SettingsIcon className="size-5" />
+					</button>
+				</div>
 			</header>
 			<MinimalHome
 				chainSelectOpen={chainSelectOpen}

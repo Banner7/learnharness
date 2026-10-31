@@ -6,7 +6,6 @@ import type { ModelCatalogEntry, ModelSlotName, ModelsSettings, UserSettings } f
 import { prettyModel } from "@/components/usage-format";
 import { ModelMenuList, ThinkingMenuList } from "@/components/settings/model-menu";
 import { composeSlotModel } from "@/components/settings/agent-section";
-import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
@@ -20,9 +19,9 @@ import { useModelCatalog } from "@/components/model-picker";
  * beside the strong-slot pickers; its menu edits the same GLOBAL slots
  * through the same seam Settings uses (PUT /api/settings/models with
  * composeSlotModel, siblings preserved), then announces the write so the
- * Settings section and every other reader re-read. One anchored menu with
- * three views (summary → a slot's model list or thinking list) keeps phone
- * and desktop on the app's single MenuShell pattern, no nested portals.
+ * Settings section and every other reader re-read. One inline panel with
+ * three views (summary → a slot's model list or thinking list) serves
+ * phone and desktop alike.
  */
 
 type HelperSlot = Extract<ModelSlotName, "cheap" | "vision">;
@@ -52,25 +51,15 @@ export function HelpersControl() {
 		if (section === "models") readRecord();
 	});
 
-	// Pointer and Escape dismissal; the portaled menu body counts as inside.
+	// Escape steps back out of a list first, then collapses the panel.
 	useEffect(() => {
 		if (view === null) return;
-		const onPointerDown = (e: PointerEvent) => {
-			const t = e.target;
-			if (t instanceof Element && t.closest("[data-lh-menu]")) return;
-			if (containerRef.current && t instanceof Node && !containerRef.current.contains(t)) setView(null);
-		};
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
-			// Escape steps back out of a list first, then closes.
 			setView((v) => (v && v.kind !== "summary" ? { kind: "summary" } : null));
 		};
-		document.addEventListener("pointerdown", onPointerDown);
 		document.addEventListener("keydown", onKeyDown);
-		return () => {
-			document.removeEventListener("pointerdown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-		};
+		return () => document.removeEventListener("keydown", onKeyDown);
 	}, [view]);
 
 	const save = useCallback(async (next: ModelsSettings) => {
@@ -115,7 +104,7 @@ export function HelpersControl() {
 	const trigger = "flex min-h-11 min-w-0 items-center gap-1 rounded-md px-2 text-xs transition-colors hover:bg-accent hover:text-foreground";
 
 	return (
-		<div ref={containerRef} className="relative flex items-center" data-testid="helpers-control">
+		<div ref={containerRef} className={`flex flex-col items-start ${view ? "w-full" : ""}`} data-testid="helpers-control">
 			<Hint label="Models for research, demos, grading, drawings and PDFs" side="bottom">
 				<button
 					type="button"
@@ -129,18 +118,18 @@ export function HelpersControl() {
 					    strong-slot pickers; the 44px hit area stays on the button. */}
 					<span className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 transition-colors group-hover:bg-accent">
 						<span className="text-foreground">Helpers</span>
-						<span aria-hidden className="text-muted-foreground">▾</span>
+						<span aria-hidden className={`text-muted-foreground transition-transform ${view ? "rotate-180" : ""}`}>▾</span>
 					</span>
 				</button>
 			</Hint>
 
+			{/* Inline dropdown (owner, 2026-10-31): the panel expands in place
+			    under the chip and pushes what follows down, instead of an
+			    anchored overlay card covering the composer or the rail. */}
 			{view && (
-				<MenuShell
-					anchorRef={containerRef}
-					testid="helpers-menu"
-					preferredSide="up"
-					align="left"
-					menuClass="flex w-[22rem] flex-col rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
+				<div
+					data-testid="helpers-menu"
+					className="mt-1 flex max-h-[min(24rem,60dvh)] w-[22rem] max-w-full flex-col overflow-y-auto rounded-lg border border-border bg-card p-2 text-xs"
 				>
 					{view.kind === "summary" ? (
 						<div role="dialog" aria-label="Helper models" className="flex flex-col gap-1">
@@ -215,7 +204,7 @@ export function HelpersControl() {
 						</div>
 					)}
 					{error && <div className="mt-1.5 text-destructive">{error}</div>}
-				</MenuShell>
+				</div>
 			)}
 		</div>
 	);
