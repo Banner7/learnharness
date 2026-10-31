@@ -14,7 +14,9 @@ LearnHarness uses AI agents to plan and teach lessons from your current understa
 
 Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
 
-![LearnHarness teaching session](docs/assets/teaching-session.png)
+![LearnHarness on a phone: home, a teaching prediction, and the lesson plan](docs/assets/lhs-phone.png)
+
+Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship.
 
 ## How it works
 
@@ -33,12 +35,39 @@ What you are taught accumulates as propositions and reasoning chains: individual
 
 ## What differs from upstream
 
-- **Browser and server:** Vite + React SPA, served with a Hono API/static server (`node dist/server.js`). Docker deployment replaces Next.js and Electron/desktop installers; there is no in-app updater or setup dialog.
-- **Providers:** Claude uses the real Claude Code CLI (`claude -p`), pinned in the Dockerfile, with `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`. Server-managed OpenAI-compatible providers can be defined with `LH_CUSTOM_PROVIDERS`; the upstream [custom-endpoint guide](docs/custom-providers.md) describes a separate settings-backed endpoint and is not a guide to that environment variable. There is no ChatGPT/Copilot/Grok sign-in or in-app API-key editing.
-- **Interface:** A phone-first layout at every viewport width, with an overlay sidebar, transcript questions, and Settings sheets. On iOS, a label over a hidden native switch supplies touch haptics where supported.
-- **Image:** The Docker build is amd64-only. It prunes runtime `node_modules`, installs a version- and SHA-256-pinned Chrome for Testing headless shell for demo verification, and uses resvg for figures.
+This fork is a self-hosted browser app. It keeps upstream's teaching, practice, and knowledge-graph engine and changes the shell around it.
 
-This fork currently incorporates selected changes from upstream 0.4.0 by applying diffs rather than merging upstream releases.
+### Removed from upstream
+
+| Upstream feature | Status in this fork |
+| --- | --- |
+| Electron desktop app, installers, and in-app updater | Removed; no update banner |
+| Next.js app and API routes | Removed |
+| First-run setup dialog | Removed; configure through environment and `data/settings.json` |
+| ChatGPT, Copilot, and Grok subscription sign-in | Removed |
+| In-app API-key editing | Removed; provider credentials stay on the server |
+| Dictation (speech-to-text) | Removed |
+| Visual knowledge-graph page | Removed; the graph is still stored and used, with a chains view |
+| Separate desktop plan window | Removed |
+| Keyboard-shortcut settings and cheat sheet | Removed |
+| Font picker and serif-title toggle | Removed |
+| Desktop file-path drag-and-drop | Removed |
+
+### Swapped in as replacements
+
+| Upstream | This fork |
+| --- | --- |
+| Next.js pages | Vite + React SPA with `wouter` routing |
+| Next.js API routes | Hono API and static server (`node dist/server.js`), serving brotli/gzip assets precompressed at build time |
+| Desktop installers | Docker image (amd64) plus a [Compose template](compose.private.yml) |
+| Desktop app access on the local machine | HTTPS web access gated by origin checks and Basic auth, or an optional Tailscale identity allowlist |
+| Claude Code CLI found on the desktop machine, with an in-app status panel | Claude Code CLI (`claude -p`) pinned in the Dockerfile, authenticated with `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` |
+| Settings-form custom endpoint | Server-managed OpenAI-compatible providers via `LH_CUSTOM_PROVIDERS` |
+| Desktop layout | Phone-first layout at every width: overlay sidebar, plan sheet, transcript questions, Settings sheets, iOS haptics where supported, and a home-screen web-app manifest |
+| Demo checks through the desktop's browser service or system Chrome | Version- and SHA-256-pinned Chrome for Testing headless shell inside the image |
+| Data stays in the desktop app's folder | Optional `scripts/backup-*.sh` (restic over a forced-command SSH tar stream) and `scripts/export-learn.mjs` (sessions as Markdown) |
+
+The upstream [custom-endpoint guide](docs/custom-providers.md) describes the settings-backed endpoint, not `LH_CUSTOM_PROVIDERS`. This fork incorporates selected changes from upstream 0.4.0 by applying diffs rather than merging upstream releases.
 
 ## Self-hosting with Docker Compose
 
