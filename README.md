@@ -6,119 +6,85 @@
   </picture>
 </p>
 
-<p align="center"><strong>An agent harness for learning.</strong></p>
+<p align="center"><strong>An agent harness for learning — self-hosted, in the browser, on phone and desktop.</strong></p>
 
-This is an unofficial, independently maintained fork of [LearnHarness](https://github.com/amosblomqvist/learnharness). It is not supported by the upstream project. For fork-specific issues, use this repository's Issues tab.
+> [!NOTE]
+> Unofficial, independently maintained fork of [LearnHarness](https://github.com/amosblomqvist/learnharness), not supported by upstream. Use this repository's Issues tab for fork-specific problems.
 
 > If you think I read any of its code, you would be dreaming. Haven't opened nvim for a good while.
 
-LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
+LearnHarness teaches from where your understanding ends to your goal: it measures, plans a dependency map, teaches one reasoning step at a time, and sets practice that makes you recall ideas unprompted. What you learn, and the notes you import, accumulate in a knowledge graph of claims and reasoning chains that later lessons and practice build on. Upstream's [README](https://github.com/amosblomqvist/learnharness#readme) explains the method in full; the engine here is the same.
 
-Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
+This fork changes the shell around that engine: a browser app you host yourself, instead of a desktop app.
 
 ![LearnHarness on a phone: home, a teaching prediction, and the lesson plan](docs/assets/lhs-phone.png)
 
-Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship; desktop browsers get their own layout instead:
-
-![LearnHarness in a desktop browser: docked sidebar, a teaching session, and the session rail with stats, model and coverage](docs/assets/lhs-desktop-chat.png)
+![LearnHarness in a desktop browser: docked sidebar, a teaching session, and the session rail](docs/assets/lhs-desktop-chat.png)
 
 ![The desktop-only knowledge graph with a node's statement and source session](docs/assets/lhs-desktop-graph.png)
 
-## How it works
-
-1. **Measure.** Before teaching, the agent finds where your understanding ends on each part the lesson depends on. Your answers, confidence, and thinking show it where to start.
-2. **Plan.** It works out a dependency map from that starting point to your goal. You can see the plan, and the lesson adapts when your understanding turns out different.
-3. **Teach.** Each step builds on something you already understand. You predict, get an explanation, and check your understanding. Confusions are repaired before anything is built on them. The aim is for the goal to feel obviously true, not merely familiar.
-4. **Practice.** Separate sessions pose varied problems that require the right knowledge to come to mind without being named first. Problems and hints adapt to your reasoning.
-
-**Think out loud.** The thinking fields let you explain your reasoning, uncertainties, and reactions in your own words. This is how the agent gets a detailed picture rather than just a record of right and wrong answers.
-
-The agent can also research questions in the background, create visual explanations, and build interactive demonstrations.
-
-## Knowledge that carries forward
-
-What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The stored graph links ideas back to their source sessions and supports future teaching, practice, and note imports. Chains are available on any screen; on desktop viewports (1100px and wider), the Graph link opens a visual map with searchable nodes, saved positions, and display controls. The graph describes knowledge, not a rating of your ability.
-
 ## What differs from upstream
 
-This fork is a self-hosted browser app. It keeps upstream's teaching, practice, and knowledge-graph engine and changes the shell around it.
+| Area | Upstream | This fork |
+| --- | --- | --- |
+| Delivery | Electron desktop app with installers and updater | Browser app: Vite + React SPA served by a Hono server, shipped as a Docker image (amd64) |
+| Access | Local desktop window | HTTPS behind origin checks and Basic auth, or a Tailscale identity allowlist |
+| Layout | Desktop window | Phone: overlay sidebar, plan sheet, home-screen web app. Desktop (≥1100px): docked sidebar with icon rail, Explore panel, visual graph; ≥1280px adds a session rail with stats, model and coverage |
+| Model slots | Settings → Agent | Also a **Helpers** dropdown beside the model picker for the cheap and vision slots; light/dark/auto switch beside Settings |
+| Claude | Claude Code CLI found on the machine | CLI pinned in the image, signed in with `CLAUDE_CODE_OAUTH_TOKEN`; thinking text is requested so it is visible (`--thinking-display summarized`) |
+| Credentials | Edited in the app | Server-side only: environment, `secrets/auth.json`, and OpenAI-compatible providers via `LH_CUSTOM_PROVIDERS` |
+| Data safety | App folder | Atomic, fsynced writes; corrupt records are skipped in lists instead of blanking the app; optional restic backup scripts and Markdown session export (`scripts/`) |
+| Demo checks | Desktop browser service | Version- and SHA-256-pinned headless Chrome inside the image |
 
-### Removed from upstream
+**Removed:** first-run setup dialog, ChatGPT/Copilot/Grok subscription sign-in, in-app API-key editing, dictation, the separate plan window, keyboard-shortcut settings, font picker, desktop file drag-and-drop.
 
-| Upstream feature | Status in this fork |
-| --- | --- |
-| Electron desktop app, installers, and in-app updater | Removed; no update banner |
-| Next.js app and API routes | Removed |
-| First-run setup dialog | Removed; configure through environment and `data/settings.json` |
-| ChatGPT, Copilot, and Grok subscription sign-in | Removed |
-| In-app API-key editing | Removed; provider credentials stay on the server |
-| Dictation (speech-to-text) | Removed |
-| Separate desktop plan window | Removed |
-| Keyboard-shortcut settings and cheat sheet | Removed |
-| Font picker and serif-title toggle | Removed |
-| Desktop file-path drag-and-drop | Removed |
+Upstream releases are ported selectively by applying diffs, not merged. The [custom-endpoint guide](docs/custom-providers.md) is upstream's and describes its settings-based endpoint, not `LH_CUSTOM_PROVIDERS`.
 
-### Swapped in as replacements
+## Self-hosting
 
-| Upstream | This fork |
-| --- | --- |
-| Next.js pages | Vite + React SPA with `wouter` routing |
-| Next.js API routes | Hono API and static server (`node dist/server.js`), serving brotli/gzip assets precompressed at build time |
-| Desktop installers | Docker image (amd64) plus a [Compose template](compose.private.yml) |
-| Desktop app access on the local machine | HTTPS web access gated by origin checks and Basic auth, or an optional Tailscale identity allowlist |
-| Claude Code CLI found on the desktop machine, with an in-app status panel | Claude Code CLI (`claude -p`) pinned in the Dockerfile, authenticated with `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` |
-| Settings-form custom endpoint | Server-managed OpenAI-compatible providers via `LH_CUSTOM_PROVIDERS` |
-| Desktop layout | One browser app with two layouts. Phone widths: overlay sidebar, plan sheet, transcript questions, Settings sheets, iOS haptics where supported, and a home-screen web-app manifest. Desktop widths (1100px and wider): a docked sidebar that collapses to an icon rail, a two-column home with an Explore panel, the visual knowledge graph, and from 1280px a session rail with stats, model, coverage and background agents; `/` focuses the composer |
-| Demo checks through the desktop's browser service or system Chrome | Version- and SHA-256-pinned Chrome for Testing headless shell inside the image |
-| Data stays in the desktop app's folder | Optional `scripts/backup-*.sh` (restic over a forced-command SSH tar stream) and `scripts/export-learn.mjs` (sessions as Markdown) |
+You need Docker on an x64 host, a tailnet-only HTTPS proxy (Tailscale Serve), and — for Claude — a token from `claude setup-token`. The image is [`banner7/learnharness`](https://hub.docker.com/r/banner7/learnharness) (`linux/amd64` only): `latest` follows `main`, and `sha-<commit>` pins a build.
 
-The upstream [custom-endpoint guide](docs/custom-providers.md) describes the settings-backed endpoint, not `LH_CUSTOM_PROVIDERS`. This fork incorporates selected changes from upstream 0.4.0 by applying diffs rather than merging upstream releases.
-
-## Self-hosting with Docker Compose
-
-The included [`compose.private.yml`](compose.private.yml) is a template for a single-owner deployment. Docker on an x64 (amd64) host, an HTTPS tailnet-only reverse proxy, and a Claude Code setup token (if using Claude) are prerequisites. From the repository root, or any directory holding a copy of the template:
-
-The image is published on Docker Hub as [`banner7/learnharness`](https://hub.docker.com/r/banner7/learnharness), x64 (`linux/amd64`) only; ARM hosts are not supported. `latest` follows `main`, and `vX.Y.Z-banner.N` tags pin releases.
-
-1. Create `data/`, `claude/`, and `secrets/`. Give the container's `node` user (UID 1000) write access to `data/` and `claude/`; keep `secrets/` owner-only and readable by that container user. Keep these paths and their contents out of Git.
-2. Create `secrets/runtime.env` with your own values (placeholders below). The web token must be a fresh 64-character hexadecimal secret, for example from `openssl rand -hex 32`; do not use a provider key as the web token.
+1. Create `data/`, `claude/` and `secrets/` next to [`compose.private.yml`](compose.private.yml). `data/` and `claude/` must be writable by UID 1000; keep `secrets/` owner-only. Keep all three out of Git.
+2. Write `secrets/runtime.env`:
 
    ```dotenv
    LH_WEB_ORIGIN=https://your-host.example.ts.net
-   LH_WEB_ACCESS_TOKEN=<64-hex-character-random-secret>
-   CLAUDE_CODE_OAUTH_TOKEN=<token-from-claude-setup-token>
-   # Optional: comma-separated Tailscale login names admitted without Basic auth.
-   # LH_TAILSCALE_USERS=you@example.com
-   # Optional: JSON array of server-managed OpenAI-compatible provider definitions.
+   LH_WEB_ACCESS_TOKEN=<openssl rand -hex 32>
+   CLAUDE_CODE_OAUTH_TOKEN=<token-from-claude-setup-token>   # omit if not using Claude
+   # LH_TAILSCALE_USERS=you@example.com                      # admit these logins without Basic auth
    # LH_CUSTOM_PROVIDERS=[{"id":"example","baseUrl":"https://api.example.com/v1","apiKey":{"env":"EXAMPLE_API_KEY"},"models":[{"id":"model-id","contextWindow":8192,"maxTokens":4096}]}]
-   # EXAMPLE_API_KEY=<provider-key>
    ```
 
-   Omit the Claude token if not using Claude. `LH_CUSTOM_PROVIDERS` accepts provider/model definitions, including optional header values sourced from environment variables; see [`src/agent/custom-providers.ts`](src/agent/custom-providers.ts) for its schema. Do not put real credentials directly in that JSON.
-3. Create `secrets/auth.json` containing `{}` for an empty server credential map; the Compose template mounts `secrets/` and sets `LH_AUTH_FILE=/secrets/auth.json`. Server credentials may alternatively be supplied through supported environment variables. No browser form edits provider credentials.
-4. Start the stack: `docker compose -f compose.private.yml up -d`. Compose pulls `banner7/learnharness:latest` if it is not present; run `docker compose -f compose.private.yml pull` to update, or add `--build` to build from this checkout instead. Compose publishes host loopback port 3000 by default; set `LH_HOST_PORT` in the shell (or a Compose `.env` file) to choose another host port. Configure Tailscale Serve to terminate HTTPS at `LH_WEB_ORIGIN` and proxy to that host-loopback port; preserve the public `Host` header. Grant access through your tailnet policy, not Funnel. The server listens on port 3000 inside the container.
-5. To use Claude, enable it in `data/settings.json` with `"claudeCode": {"enabled": true}` in the settings object and restart the service. Pick installed/configured models in the app's Settings. Keep the mounted `claude/` directory writable by UID 1000 for CLI state.
+   The schema for `LH_CUSTOM_PROVIDERS` is in [`src/agent/custom-providers.ts`](src/agent/custom-providers.ts); reference keys by env name, never inline.
+3. Write `secrets/auth.json` as `{}`.
+4. Start it: `docker compose -f compose.private.yml up -d` (add `--build` to build from the checkout). It listens on host loopback port 3000 (`LH_HOST_PORT` changes it). Point Tailscale Serve at that port with the `Host` header preserved.
+5. For Claude, add `"claudeCode": {"enabled": true}` to `data/settings.json`, restart, and pick models in Settings.
+
+> [!TIP]
+> To check the server from the host itself, send Basic auth (`learnharness` / the web token) plus `Host` and `Origin` matching `LH_WEB_ORIGIN` to `http://127.0.0.1:3000` — requests to `localhost` without them are refused by design.
+
+> [!WARNING]
+> Restarting the container aborts any running note import or extraction. Let background agents finish first.
 
 ## Security
 
-The server fails closed without `LH_WEB_ORIGIN` and `LH_WEB_ACCESS_TOKEN`. It checks the public Host and origin on requests; mutations require the matching `Origin`. An optional `LH_TAILSCALE_USERS` comma-separated allowlist admits matching `Tailscale-User-Login` identities from Tailscale Serve; otherwise use HTTP Basic username `learnharness` and the web token as password. The identity header is only trustworthy when the host port stays bound to loopback behind Serve. This is a single-owner gate, not multi-user authorization. Keep the service behind HTTPS, authentication, and restrictive tailnet policy; do not expose its container port or use Funnel.
+The server refuses to start without `LH_WEB_ORIGIN` and `LH_WEB_ACCESS_TOKEN`, checks Host and Origin on every request, and requires a matching `Origin` for writes. It is a single-owner gate, not multi-user authorization: keep it behind HTTPS and a restrictive tailnet policy, never Funnel, and keep the host port on loopback so the Tailscale identity header can be trusted.
 
-Demo verification launches Chrome with `--no-sandbox` to run model-written HTML. Treat the host and the content as untrusted together: do not give the service access to host secrets beyond what it needs, and do not expose it to untrusted users. Keep provider credentials and conversation data private; model requests and optional web search contact external services.
+Demo checks run model-written HTML in Chrome with `--no-sandbox`. Give the container nothing beyond what it needs. Model requests and optional web search reach external services.
 
 ## Development
 
 ```bash
 npm ci
-npm run dev        # Vite at localhost:5173; API at localhost:3000
-npm run build      # build client and server
-npm start          # serve dist/server.js (requires configured browser access)
-npm test           # node:test via tsx
-npm run lint       # ESLint
-npm run typecheck  # TypeScript
+npm run dev        # Vite on :5173, API on :3000 (reads .env.local)
+npm run build
+npm test
+npm run lint
+npm run typecheck
 ```
 
-For local development, set `LH_WEB_ORIGIN=http://localhost:5173` and a dedicated `LH_WEB_ACCESS_TOKEN` in `.env.local`; `npm run dev` loads that file. Vite is a development server, not the authenticated production static server.
+For local development put `LH_WEB_ORIGIN=http://127.0.0.1:5173` and a dedicated `LH_WEB_ACCESS_TOKEN` in `.env.local`. More in [docs/development.md](docs/development.md).
 
 ## License
 
-[AGPL-3.0-only](LICENSE), as in the upstream project. If you modify this software and let users interact with it over a network, the AGPL requires you to offer those users the corresponding source code of your modified version.
+[AGPL-3.0-only](LICENSE), as upstream. If you run a modified version for others over a network, you must offer them its source.
