@@ -18,7 +18,7 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 ![LearnHarness on a phone: home, a teaching prediction, and the lesson plan](docs/assets/lhs-phone.png)
 
-Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship.
+Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship; desktop browsers get their own layout instead (see below).
 
 ## How it works
 
@@ -64,7 +64,7 @@ This fork is a self-hosted browser app. It keeps upstream's teaching, practice, 
 | Desktop app access on the local machine | HTTPS web access gated by origin checks and Basic auth, or an optional Tailscale identity allowlist |
 | Claude Code CLI found on the desktop machine, with an in-app status panel | Claude Code CLI (`claude -p`) pinned in the Dockerfile, authenticated with `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` |
 | Settings-form custom endpoint | Server-managed OpenAI-compatible providers via `LH_CUSTOM_PROVIDERS` |
-| Desktop layout | Phone-first layout at every width: overlay sidebar, plan sheet, transcript questions, Settings sheets, iOS haptics where supported, and a home-screen web-app manifest |
+| Desktop layout | One browser app with two layouts. Phone widths: overlay sidebar, plan sheet, transcript questions, Settings sheets, iOS haptics where supported, and a home-screen web-app manifest. Desktop widths (1100px and wider): a docked sidebar that collapses to an icon rail, a two-column home with an Explore panel, the visual knowledge graph, and from 1280px a session rail with stats, model, coverage and background agents; `/` focuses the composer |
 | Demo checks through the desktop's browser service or system Chrome | Version- and SHA-256-pinned Chrome for Testing headless shell inside the image |
 | Data stays in the desktop app's folder | Optional `scripts/backup-*.sh` (restic over a forced-command SSH tar stream) and `scripts/export-learn.mjs` (sessions as Markdown) |
 
