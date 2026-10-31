@@ -2,11 +2,13 @@
 
 /** Home session list, map summary, import action, chain picker, and extraction costs. */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "wouter";
 import { useRouter } from "@/web/navigation";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { planCostLabel } from "@/components/usage-format";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { ActivitySection } from "@/components/activity-dock";
 import { SessionList } from "@/components/sidebar";
 import { Hint } from "@/components/ui/hint";
 import type { ChatListItem, GraphCostSummary, GraphSnapshot } from "@/src/core";
@@ -200,6 +202,9 @@ export function MinimalHome({
 	const [costs, setCosts] = useState<GraphCostSummary | null>(null);
 	const [chats, setChats] = useState<ChatListItem[]>([]);
 	const [chainsOpen, setChainsOpen] = useState(false);
+	useEffect(() => {
+		if (new URLSearchParams(window.location.search).get("chains") === "1") setChainsOpen(true);
+	}, []);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const readState = useCallback(() => {
@@ -246,7 +251,7 @@ export function MinimalHome({
 	const recent = [...chats].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
 
 	return (
-		<div className="relative mx-auto max-w-[720px] px-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+		<div className="relative mx-auto max-w-[720px] px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] min-[1100px]:grid min-[1100px]:max-w-[1080px] min-[1100px]:grid-cols-[minmax(0,1.78fr)_minmax(0,1fr)] min-[1100px]:items-start min-[1100px]:gap-x-12">
 			<input
 				ref={fileInputRef}
 				type="file"
@@ -259,6 +264,7 @@ export function MinimalHome({
 				}}
 			/>
 
+			<div className="min-w-0">
 			{children}
 			<section className="mt-9 border-t border-border pt-7">
 				<h2 className="mb-2 font-title text-xl text-foreground">Continue</h2>
@@ -273,19 +279,31 @@ export function MinimalHome({
 					/>
 				)}
 			</section>
-			<div className="mt-7">
-				<KnowledgeSummary
-					propositions={snapshot?.propositions.length ?? 0}
-					chains={snapshot?.chains.length ?? 0}
-				/>
-				<div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-					<button type="button" data-testid="open-chain-table" onClick={() => setChainsOpen(true)} className="min-h-11 underline underline-offset-2">Chains</button>
-					<button type="button" data-testid="import-notes" disabled={importing} onClick={() => fileInputRef.current?.click()} className="min-h-11 underline underline-offset-2 disabled:opacity-50">{importing ? "Importing…" : "Import notes"}</button>
-					{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
+			</div>
+			{/* Desktop layout (2026-10-31): existing footer actions share the
+			    right column with activity; the home snapshot remains unchanged. */}
+			<div className="min-w-0 min-[1100px]:flex min-[1100px]:flex-col min-[1100px]:items-stretch min-[1100px]:pt-7">
+				<div className="hidden min-[1100px]:order-5 min-[1100px]:block">
+					<ActivitySection />
 				</div>
-				<NotesImportErrors errors={notesImport.errors} />
+				<div className="mt-7 min-[1100px]:contents">
+					<div>
+						<KnowledgeSummary
+							propositions={snapshot?.propositions.length ?? 0}
+							chains={snapshot?.chains.length ?? 0}
+						/>
+					</div>
+				<h2 className="hidden min-[1100px]:order-1 min-[1100px]:mt-5 min-[1100px]:block min-[1100px]:text-xs min-[1100px]:font-medium min-[1100px]:text-muted-foreground">Explore</h2>
+				<div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground min-[1100px]:contents">
+					<button type="button" data-testid="open-chain-table" onClick={() => setChainsOpen(true)} className="min-h-11 underline underline-offset-2 min-[1100px]:order-2 min-[1100px]:self-start min-[1100px]:text-left">Chains</button>
+					<Link href="/graph" className="hidden min-h-11 items-center underline underline-offset-2 min-[1100px]:order-3 min-[1100px]:inline-flex min-[1100px]:self-start">Graph</Link>
+					<button type="button" data-testid="import-notes" disabled={importing} onClick={() => fileInputRef.current?.click()} className="min-h-11 underline underline-offset-2 disabled:opacity-50 min-[1100px]:order-4 min-[1100px]:self-start min-[1100px]:text-left">{importing ? "Importing…" : "Import notes"}</button>
+					{costs && costs.runs.length > 0 && <div className="min-[1100px]:order-6"><GraphCostControl costs={costs} /></div>}
+				</div>
+				<div className="min-[1100px]:order-7"><NotesImportErrors errors={notesImport.errors} /></div>
 			</div>
 
+			</div>
 			{/* Keep the chain table as the final child so it covers the home controls. */}
 			<ChainTableOverlay
 				open={chainsOpen && (snapshot?.propositions.length ?? 0) > 0}

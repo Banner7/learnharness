@@ -67,7 +67,7 @@ it("real route plus in-memory ledgers and faux stages reprocess identical import
 		upsertSource: (source) => { sources.set(source.id, { ...source, extractions: sources.get(source.id)?.extractions ?? [] }); },
 		readSources: () => [...sources.values()],
 		appendSourceUsage: (id, usage) => { sources.get(id)!.extractions!.push(usage); },
-		rewriteLedgers: () => {},
+		rewriteLedgers: () => {}, readPositions: () => ({}), writePositions: () => {},
 	};
 	let calls = 0;
 	const pipeline = createExtractionPipeline({ chatStore: stores.chatStore, graphStore,

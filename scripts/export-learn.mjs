@@ -120,6 +120,11 @@ if (!dataDir || !exportDir) {
 			graphNote.push(`## ${node.name}`, "", node.statement, "", `Source: ${[...new Set(node.provenance.map((point) => point.chatId))].map((id) => sessionIds.has(id) ? `[[lh/${id}|${id}]]` : id).join(", ")}`, "");
 		}
 		await writeFile(path.join(outputDir, "Propositions.md"), `${graphNote.join("\n").trimEnd()}\n`, { mode: 0o600 });
+	} else {
+		// A fresh zero-node graph must also remove an earlier export.
+		await unlink(path.join(outputDir, "Propositions.md")).catch((error) => {
+			if (error.code !== "ENOENT") throw error;
+		});
 	}
 	const index = ["# LearnHarness sessions", "", ...links, ...(nodes.size ? ["", "- [[lh/Propositions|Extracted propositions]]"] : []), ""].join("\n");
 	await writeFile(path.join(outputDir, "index.md"), index, { mode: 0o600 });

@@ -207,6 +207,15 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
 		coverage,
 		checkpoints,
 	});
+	// Graph page restored for desktop (2026-10-31): stale positions must
+	// not survive a session cascade that removed their node or argument.
+	const liveChainIds = new Set(outChains.map((chain) => chain.id));
+	const positions = graphStore.readPositions();
+	const prunedPositions = Object.fromEntries(
+		Object.entries(positions).filter(([id]) => !deadNodes.has(id) && (!id.startsWith("arg_") || liveChainIds.has(id))),
+	);
+	if (Object.keys(prunedPositions).length !== Object.keys(positions).length)
+		graphStore.writePositions(prunedPositions);
 
 	return stats;
 }
@@ -234,9 +243,8 @@ export function deleteChatTraces(graphStore: GraphStore, chatId: string, mode: C
  * provenance, aliases, and sessions are untouched (full death is
  * NODE-scoped, not session-scoped), and the source records of notes
  * imports stay (the import's bookkeeping; deleting one proposition is not
- * deleting the file). The birth-session partition derives from the
- * surviving provenance on each read; no separate layout or positions
- * data needs pruning.
+ * deleting the file). The birth-session partition derives from surviving
+ * provenance; dead nodes' and chains' saved positions are pruned.
  *
  * Synchronous, one rewriteLedgers call, no awaits (the same atomicity
  * argument as the chat cascade); idempotent in the wave-6 sense — a
@@ -271,6 +279,11 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 		const outChains = chainLines.filter((line) => line.id !== nodeId);
 		if (outChains.length === chainLines.length) return null; // unknown argument
 		graphStore.rewriteLedgers({ chains: outChains });
+		const positions = graphStore.readPositions();
+		if (positions[nodeId] !== undefined) {
+			const { [nodeId]: _dead, ...rest } = positions;
+			graphStore.writePositions(rest);
+		}
 		return { chainsRemoved: chainLines.length - outChains.length };
 	}
 
@@ -288,6 +301,16 @@ export function deleteNodeTraces(graphStore: GraphStore, nodeId: string): NodeDe
 		nodes: outNodes,
 		...(outChains.length !== chainLines.length ? { chains: outChains } : {}),
 	});
+	// A deleted proposition also kills any derived argument that used it.
+	const deadChainIds = new Set(chainLines
+		.filter((line) => line.conclusion === nodeId || line.premises.includes(nodeId))
+		.map((line) => line.id));
+	const positions = graphStore.readPositions();
+	const prunedPositions = Object.fromEntries(
+		Object.entries(positions).filter(([id]) => id !== nodeId && !deadChainIds.has(id)),
+	);
+	if (Object.keys(prunedPositions).length !== Object.keys(positions).length)
+		graphStore.writePositions(prunedPositions);
 
 	return {
 		chainsRemoved: chainLines.length - outChains.length,

@@ -62,9 +62,10 @@ import type {
 	GraphNode,
 	ProvenancePoint,
 	GraphSnapshot,
+	Cluster,
 } from "./contracts.ts";
 import { formatChainLine } from "./chains.ts";
-import { birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
+import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -534,6 +535,18 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		if (ids.length > 0) nodeSessions[nodeId] = ids;
 	}
 
+	// Graph page restored for desktop (2026-10-31): birth-session regions
+	// and their saved resting positions share the snapshot the phone reads.
+	const clusters: Cluster[] = birthSessionPartition(graph.nodes)
+		.filter((community) => community.members.length >= 3)
+		.map((community) => ({
+			id: community.id,
+			label: sessions[community.id] ?? fileSources[community.id] ?? null,
+			members: community.members,
+		}));
+	attachImpToCommunities(clusters, graph.nodes, graph.chains);
+	const positions = deps.graphStore.readPositions();
+
 	return {
 		nodes,
 		propositions: graph.nodes,
@@ -544,6 +557,8 @@ export function graphSnapshot(deps: GraphDeps): GraphSnapshot {
 		sessions,
 		fileSources,
 		nodeSessions,
+		clusters,
+		...(Object.keys(positions).length > 0 ? { positions } : {}),
 	};
 }
 

@@ -26,7 +26,8 @@ import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
 import { JobsContext } from "@/components/jobs-context";
 import { StatsBar } from "@/components/stats-bar";
-import { useServerEvent, useServerResync } from "@/components/server-events";
+import { ActivitySection } from "@/components/activity-dock";
+import { useServerEvent, useServerInitialRead } from "@/components/server-events";
 import {
 	isProviderKeyRefusal,
 	derivePlanStatuses,
@@ -59,7 +60,7 @@ import {
 	CompactionMomentDivider,
 	type CompactionDividerData,
 } from "@/components/compaction-divider";
-import { CoverageRing } from "@/components/extraction-coverage";
+import { CoverageRing, type SessionCoverage } from "@/components/extraction-coverage";
 import { Button } from "@/components/ui/button";
 import {
 	activeProblemOf,
@@ -76,8 +77,8 @@ import {
 import { ReadingThinkingField } from "@/components/reading-thinking";
 
 
-/** A single readable column at every window width. */
-const COLUMN = "mx-auto w-full max-w-[640px] px-4";
+/** Desktop reading stays narrow; phone keeps the original 640px column. */
+const COLUMN = "mx-auto w-full max-w-[640px] px-4 min-[1100px]:max-w-[720px]";
 
 /**
  * Server-sync channel for artifact renderers: the CENTRAL jobs poll in Chat
@@ -174,6 +175,10 @@ export function Chat({
 	initialPrompt,
 	initiallyInFlight,
 	initiallyCompacting = false,
+	initialTurns,
+	initialPricing,
+	initialSettings,
+	initialCoverage,
 	kind = "teach",
 }: {
 	chatId: string;
@@ -194,6 +199,11 @@ export function Chat({
 	 * compaction-changed event already fired). The transcript spinner
 	 * and send gates key on it. */
 	initiallyCompacting?: boolean;
+	/** Initial record data when this view follows ChatPage's full GET. */
+	initialTurns?: TurnUsage[];
+	initialPricing?: SessionPricing;
+	initialSettings?: ChatSettings;
+	initialCoverage?: SessionCoverage | null;
 }) {
 	// Reattach plumbing (background-turn runner wave): the hook holds the
 	// settled terminal's callback — a stable ref assigned below, once
@@ -702,14 +712,19 @@ export function Chat({
 		[planTree],
 	);
 
-	// ── Session usage (wave-4 stats bar) ──
-	// The money channel: the record's turns log and read-time server Pi
-	// pricing projection. Seeded once on mount (the page doesn't carry turns),
-	// refreshed when the local stream settles (each turn appends to the log
-	// server-side), and kept fresh by syncFromServer whenever it already
-	// fetches the record. No turns yet → the bar renders "—" everywhere.
-	const [turns, setTurns] = useState<TurnUsage[]>([]);
-	const [pricing, setPricing] = useState<SessionPricing | undefined>();
+	// Initial record hydration (2026-10-31): ChatPage already read the entire
+	// priced record; a second mount GET just to fill this bar repeats it.
+	// Later turn settles still reread fresh server pricing and usage.
+	const [turns, setTurns] = useState<TurnUsage[]>(initialTurns ?? []);
+	const [pricing, setPricing] = useState<SessionPricing | undefined>(initialPricing);
+	const initialSessionRef = useRef(initialTurns === undefined ? undefined : { settings: initialSettings });
+	const initialCoverageRef = useRef(initialCoverage);
+	// A responsive rail can remount its data readers later. The original
+	// page snapshot is only a mount seed, not truth after a turn or settings write.
+	useEffect(() => {
+		initialSessionRef.current = undefined;
+		initialCoverageRef.current = undefined;
+	}, []);
 	// The per-chat model control state (model-picker writes via PUT; the
 	// record is the source of truth, lifted here so the stats bar re-renders).
 	const mobileQuestionSlotRef = useRef<HTMLDivElement>(null);
@@ -724,9 +739,11 @@ export function Chat({
 			// transient blip: stats stay on the last known figures
 		}
 	}, [chatId]);
+	// Direct Chat consumers without a page snapshot retain the old initial
+	// read; the routed view already has server turns/pricing in hand.
 	useEffect(() => {
-		void syncTurns();
-	}, [syncTurns]);
+		if (initialTurns === undefined) void syncTurns();
+	}, [initialTurns, syncTurns]);
 	// After the learner's own turn ends the log has a fresh entry — and the
 	// Post-turn settle (the SLIMMED watch — push-architecture S3,
 	// 2026-10-02): our own stream just ended. Two instant LOCAL actions
@@ -826,10 +843,6 @@ export function Chat({
 	// (The dispatch nudge effect that lived here — refreshActivity per new
 	// dispatch tool part — died at S5: the store announces jobs-changed at
 	// the dispatch write; the dock subscribes.)
-	// First-fetch guard (the old first-tick guard): the initial read adopts
-	// existing history (jobs recorded before mount) without nudging — a
-	// nudge is only owed for a running job the feed hasn't seen THIS session.
-	const firstFetchRef = useRef(true);
 	// The trailing debounce for jobs-changed announcements (one timer), and
 	// the ref the timer fires through (a stale closure must never fetch an
 	// old chatId).
@@ -861,7 +874,6 @@ export function Chat({
 				}
 				jobStatusRef.current.set(j.id, j.status);
 			}
-			firstFetchRef.current = false;
 			if (
 				pendingSyncRef.current &&
 				!localStreamRef.current &&
@@ -880,14 +892,8 @@ export function Chat({
 		}
 	}, [chatId, syncFromServer, adoptAppendOnly]);
 	fetchJobsRef.current = () => void fetchJobs();
-	// Mount + chat switch: the IMMEDIATE (non-debounced) initial read. The
-	// firstFetch guard resets with the old rule — true only when this
-	// session has never seen a job (a chat switch keeps the map: job ids
-	// are unique per chat, and a newly-seen running job may still nudge).
-	useEffect(() => {
-		firstFetchRef.current = jobStatusRef.current.size === 0;
-		void fetchJobs();
-	}, [fetchJobs]); // identity changes exactly on chatId
+	// The channel's first open (or its bounded fallback) reads jobs once;
+	// event reconnects retain their resync reads without doubling mount traffic.
 	useServerEvent("jobs-changed", (p) => {
 		if (p.chatId != null && p.chatId !== chatId) return; // ours or unattributed
 		if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -897,7 +903,7 @@ export function Chat({
 		}, 250);
 	});
 	// Reconnect catch-up: events missed while the channel was down.
-	useServerResync(() => fetchJobsRef.current());
+	useServerInitialRead(() => fetchJobsRef.current());
 	useEffect(
 		() => () => {
 			if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -1016,6 +1022,18 @@ export function Chat({
 		doSend();
 	};
 
+	// Desktop's initial rail (2026-10-31): match the viewport on first
+	// render so the seeded mobile readers do not mount and refetch on flip.
+	const [wideRail, setWideRail] = useState(() =>
+		typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches,
+	);
+	useEffect(() => {
+		const media = window.matchMedia("(min-width: 1280px)");
+		const onChange = () => setWideRail(media.matches);
+		onChange();
+		media.addEventListener("change", onChange);
+		return () => media.removeEventListener("change", onChange);
+	}, []);
 	return (
 		<ChatActionsContext.Provider
 			value={{
@@ -1108,7 +1126,7 @@ export function Chat({
 					<span data-testid="phase-chip" data-phase={kind === "practice" ? "practice" : phases.at(-1) ?? "probe"} className="sr-only">
 						{kind === "practice" ? "Practice" : `Phase: ${phases.at(-1) ?? "probe"}`}
 					</span>
-					{kind !== "practice" && <CoverageRing chatId={chatId} refreshKey={coverageTick} />}
+					{kind !== "practice" && !wideRail && <CoverageRing chatId={chatId} refreshKey={coverageTick} initialCoverage={initialCoverageRef.current} />}
 					<button type="button" aria-label="Search this session" onClick={() => setFindOpen(true)} className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
 						<SearchIcon className="size-4" />
 					</button>
@@ -1399,6 +1417,7 @@ export function Chat({
 				</ConversationContent>
 				{/* Questions render into the transcript slot; controls follow the scroller. */}
 				<BottomControls
+					rail={wideRail}
 					pending={pending}
 
 					practice={activeProblem}
@@ -1410,6 +1429,7 @@ export function Chat({
 					contextTokens={contextTokens}
 					cliContextWindow={cliContextWindowOf(nativeMessages)}
 					pricing={pricing}
+					initialSession={initialSessionRef.current}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					composer={
 						<Composer
@@ -1451,6 +1471,17 @@ export function Chat({
 				<AbortTurnDialog mode={abortAsk} onClose={() => setAbortAsk(null)} onConfirm={confirmAbort} busy={busy} />
 				</div>
 			</div>
+			{/* Desktop rail (2026-10-31): reuse the existing session data and
+			    activity feed without mounting duplicate coverage readers. */}
+			{wideRail && (
+				<aside aria-label="Session details" className="flex h-full w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border px-4 py-6">
+					<StatsBar rail turns={turns} contextTokens={contextTokens} cliContextWindow={cliContextWindowOf(nativeMessages)} pricing={pricing} chatId={chatId} initialSession={initialSessionRef.current} />
+					{kind !== "practice" && <CoverageRing rail chatId={chatId} refreshKey={coverageTick} initialCoverage={initialCoverageRef.current} />}
+					<div className="rounded-lg border border-border bg-card [&_[data-testid=activity-section]]:border-t-0">
+						<ActivitySection />
+					</div>
+				</aside>
+			)}
 		</div>
 		</JobsContext.Provider>
 		</SessionMermaidContext.Provider>
@@ -1477,7 +1508,7 @@ export function initialPromptOwed(messages: readonly { role: string }[], prompt:
 
 function BottomControls({
 	pending, practice, compactionRunning, onSubmitThinking, turns, contextTokens, cliContextWindow,
-	pricing, composer, onRequestAbort, chatId, queuedSteers,
+	pricing, initialSession, composer, onRequestAbort, chatId, queuedSteers, rail,
 }: {
 	pending: PendingQuestion | null;
 	practice: { toolCallId: string; input: unknown } | null;
@@ -1487,6 +1518,8 @@ function BottomControls({
 	contextTokens: number | null;
 	cliContextWindow: CliContextWindow | null;
 	pricing?: SessionPricing;
+	initialSession?: { settings?: ChatSettings };
+	rail: boolean;
 	composer: React.ReactNode;
 	onRequestAbort: (mode: AbortMode) => void;
 	chatId: string;
@@ -1529,7 +1562,7 @@ function BottomControls({
 						</>
 					) : composer}
 				</div>
-				<StatsBar turns={turns} contextTokens={contextTokens} cliContextWindow={cliContextWindow} pricing={pricing} chatId={chatId} />
+				{!rail && <StatsBar turns={turns} contextTokens={contextTokens} cliContextWindow={cliContextWindow} pricing={pricing} chatId={chatId} initialSession={initialSession} />}
 				<ConversationScrollButton className="bottom-full mb-2" />
 			</div>
 		</div>

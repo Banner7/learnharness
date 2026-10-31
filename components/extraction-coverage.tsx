@@ -1,5 +1,6 @@
 "use client";
 
+import { readSettingsRecord } from "@/components/settings-record";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActivity } from "@/components/activity-dock";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
@@ -66,9 +67,7 @@ export interface GraphRead {
  *  raw settings delta to the factory-true graph section. */
 export async function fetchGraphRead(): Promise<GraphRead | null> {
 	try {
-		const res = await fetch("/api/settings");
-		if (!res.ok) return null;
-		const body = (await res.json()) as { settings?: Parameters<typeof resolveSettings>[0] };
+		const body = await readSettingsRecord();
 		const graph = resolveSettings(body.settings ?? null).graph;
 		return { enabled: graph.enabled, chunkTokens: graph.extractionChunkTokens };
 	} catch {
@@ -237,13 +236,14 @@ export function ringFill(uncoveredTokens: number, chunkTokens: number): number {
  * (resets as the fold drains coverage) + the settings signal (the
  * threshold/kill-switch re-read live).
  */
-export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refreshKey?: number }) {
+export function CoverageRing({ chatId, refreshKey = 0, initialCoverage, rail = false }: { chatId: string; refreshKey?: number; initialCoverage?: SessionCoverage | null; rail?: boolean }) {
 	const [graph, setGraph] = useState<GraphRead | null>(null);
-	const [coverage, setCoverage] = useState<SessionCoverage | null>(null);
+	const [coverage, setCoverage] = useState<SessionCoverage | null>(initialCoverage ?? null);
 	const [open, setOpen] = useState(false);
 	const [nonce, setNonce] = useState(0);
 	const rootRef = useRef<HTMLDivElement>(null);
 	usePopoverDismiss(rootRef, open, () => setOpen(false));
+	const initialReadSeeded = useRef(initialCoverage !== undefined);
 
 	// Runs may start from another tab, the sidebar or the turn pipeline;
 	// refresh this session's coverage when its activity changes.
@@ -263,6 +263,12 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 	}, [nonce]);
 
 	useEffect(() => {
+		// The page's record already contains coverage (2026-10-31). Skip
+		// only this first read; extraction and turn-settle still refresh it.
+		if (initialReadSeeded.current) {
+			initialReadSeeded.current = false;
+			return;
+		}
 		let alive = true;
 		void fetchCoverage(chatId).then((c) => alive && setCoverage(c));
 		return () => {
@@ -292,28 +298,25 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 
 	const fill = ringFill(coverage.uncoveredTokens, graph.chunkTokens);
 	return (
-		<div ref={rootRef} className="relative shrink-0">
-			<Hint
-				// Trimmed (owner, subtlety round 2026-09-25).
-				label="How much of this session isn't mapped yet"
-				side="bottom"
-			>
-				<button
-					type="button"
-					data-testid="coverage-ring"
-					onClick={() => setOpen((o) => !o)}
-					aria-expanded={open}
-					className="relative flex size-5 cursor-pointer items-center justify-center transition-opacity hover:opacity-80"
-				>
-					{/* The donut: track + fill. The whole ring pulses while a run
-					    is in flight (motion = the working-state signal). */}
-					<CoverageRingGlyph fill={fill} running={coverage.running} />
-				</button>
-			</Hint>
-			{open && (
+		<div ref={rootRef} className={rail ? "relative w-full rounded-lg border border-border bg-card p-3" : "relative shrink-0"}>
+			{rail ? (
+				<div className="flex items-center gap-3 text-xs font-medium text-muted-foreground">
+					<span className="block size-[72px] shrink-0">
+						<CoverageRingGlyph fill={fill} running={coverage.running} hideEmptyArc />
+					</span>
+					Coverage
+				</div>
+			) : (
+				<Hint label="How much of this session isn't mapped yet" side="bottom">
+					<button type="button" data-testid="coverage-ring" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="relative flex size-5 cursor-pointer items-center justify-center transition-opacity hover:opacity-80">
+						<CoverageRingGlyph fill={fill} running={coverage.running} />
+					</button>
+				</Hint>
+			)}
+			{(open || rail) && (
 				<div
 					data-testid="coverage-ring-popover"
-					className="absolute top-full right-0 z-40 mt-1.5 w-64 rounded-lg border border-border bg-card p-3 font-ui text-xs"
+					className={rail ? "mt-2 font-ui text-xs" : "absolute top-full right-0 z-40 mt-1.5 w-64 rounded-lg border border-border bg-card p-3 font-ui text-xs"}
 				>
 					<CoverageRingDetail coverage={coverage} chunkTokens={graph.chunkTokens} />
 				</div>
@@ -325,7 +328,7 @@ export function CoverageRing({ chatId, refreshKey = 0 }: { chatId: string; refre
 /** The donut itself (exported for static-render tests): a hairline track
  *  plus the fill arc — uncovered/chunk of the circumference, starting at
  *  12 o'clock. The whole ring pulses while a run is in flight. */
-export function CoverageRingGlyph({ fill, running }: { fill: number; running: boolean }) {
+export function CoverageRingGlyph({ fill, running, hideEmptyArc = false }: { fill: number; running: boolean; hideEmptyArc?: boolean }) {
 	const C = 2 * Math.PI * 6; // r=6 in the 16px viewBox
 	return (
 		<svg
@@ -334,7 +337,7 @@ export function CoverageRingGlyph({ fill, running }: { fill: number; running: bo
 			aria-hidden="true"
 		>
 			<circle cx="8" cy="8" r="6" fill="none" strokeWidth="2.5" className="stroke-border" />
-			<circle
+			{(!hideEmptyArc || fill > 0) && <circle
 				cx="8"
 				cy="8"
 				r="6"
@@ -344,7 +347,7 @@ export function CoverageRingGlyph({ fill, running }: { fill: number; running: bo
 				strokeDasharray={`${fill * C} ${C}`}
 				strokeLinecap="round"
 				transform="rotate(-90 8 8)"
-			/>
+			/>}
 		</svg>
 	);
 }

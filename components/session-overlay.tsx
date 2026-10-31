@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { MaximizeIcon, MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fitGraphView, fitZoomFor, zoomedGraphView, type Viewport } from "@/components/pan-zoom";
-import { renderMermaid } from "@/components/mermaid-render";
+import { renderMermaidOnDemand } from "@/components/mermaid-loader";
 import { MermaidError } from "@/components/mermaid-error";
 import { Hint } from "@/components/ui/hint";
 import { useIsDarkTheme } from "@/lib/theme-mode";
@@ -98,7 +98,7 @@ export function MermaidOverlay({
 		let cancelled = false;
 		setSvg(null);
 		setError(null);
-		renderMermaid(chart)
+		renderMermaidOnDemand(chart)
 			.then((s) => {
 				if (!cancelled) setSvg(s);
 			})

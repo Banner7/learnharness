@@ -18,6 +18,10 @@
 export * from "./contracts.ts";
 export * from "./ports.ts";
 export * from "./chains.ts";
+// Graph page restored for desktop (2026-10-31): pure layout and render
+// controls share one contract between canvas, storage and the graph API.
+export * from "./layout.ts";
+export * from "./render-settings.ts";
 
 export * from "./question-core.ts";
 // The event bus (push architecture, 2026-10-02): vocabulary + emit/subscribe

@@ -30,7 +30,7 @@
  * Pure server-side provenance derivation. The phone's practice picker
  * groups propositions by their birth session.
  */
-import type { GraphNode } from "./contracts.ts";
+import type { GraphChain, GraphNode } from "./contracts.ts";
 
 /** One birth session and its sorted proposition ids. */
 export interface BirthSessionCluster {
@@ -70,3 +70,42 @@ export function birthSessionPartition(nodes: readonly GraphNode[]): BirthSession
 		.sort((a, b) => b.members.length - a.members.length || (a.id < b.id ? -1 : 1));
 }
 
+
+/** Derived implication nodes inherit the majority birth-session among
+ * their premises, with the chain's own birth resolving a tie. */
+export function impClusterKey(
+	chain: Pick<GraphChain, "premises" | "provenance">,
+	birthOf: (nodeId: string) => string | null,
+): string | null {
+	const counts = new Map<string, number>();
+	for (const premise of chain.premises) {
+		const birth = birthOf(premise);
+		if (birth !== null) counts.set(birth, (counts.get(birth) ?? 0) + 1);
+	}
+	const own = chain.provenance[0]?.chatId ?? null;
+	if (counts.size === 0) return own;
+	let max = 0;
+	for (const n of counts.values()) if (n > max) max = n;
+	const winners: string[] = [];
+	for (const [key, n] of counts) if (n === max) winners.push(key);
+	if (winners.length === 1) return winners[0]!;
+	return own ?? winners.sort()[0]!;
+}
+
+/** Attach derived argument nodes only to existing, live communities. */
+export function attachImpToCommunities(
+	communities: Array<{ id: string; members: string[] }>,
+	propositions: ReadonlyArray<Pick<GraphNode, "id" | "provenance">>,
+	chains: ReadonlyArray<Pick<GraphChain, "id" | "premises" | "conclusion" | "provenance">>,
+): void {
+	const birthById = new Map(propositions.map((node) => [node.id, birthSessionOf(node)]));
+	const live = new Set(propositions.map((node) => node.id));
+	for (const chain of chains) {
+		if (chain.premises.length < 2) continue;
+		if (!live.has(chain.conclusion) || !chain.premises.every((p) => live.has(p))) continue;
+		const key = impClusterKey(chain, (id) => birthById.get(id) ?? null);
+		const community = key === null ? undefined : communities.find((c) => c.id === key);
+		if (community) community.members.push(chain.id);
+	}
+	for (const community of communities) community.members.sort();
+}

@@ -623,3 +623,19 @@ body {
 	outline: 1px solid var(--border);
 	border-radius: 0.25rem;
 }
+
+/* Desktop reading (2026-10-31): the prose column stays 720px while
+   exceptionally wide blocks use the free space before the detail rail.
+   Phone markdown remains governed by the original scrollers above. */
+@media (min-width: 1100px) {
+	[data-testid="session-row"]:hover,
+	[data-testid="session-row"]:focus-visible {
+		background-color: var(--accent);
+	}
+}
+@media (min-width: 1280px) {
+	[data-session-find-root] .lh-source-passage [data-testid="md-table"],
+	[data-session-find-root] .lh-source-passage [data-testid="md-mermaid"] {
+		width: max(100%, min(860px, calc(50vw - var(--lh-sidebar-half) + 190px)));
+	}
+}

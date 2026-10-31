@@ -19,11 +19,15 @@
  * from the pipeline's module for the abort route to call.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { PATHS } from "../../config.ts";
 import { extractionStatuses, type ExtractionPhase } from "../agent/subagents/extraction.ts";
 import { chatStore } from "../store/chats.ts";
+import { jobStore } from "../store/jobs.ts";
 import { graphRevision } from "./graph.ts";
 import { catalogContextLimits } from "./model-catalog.ts";
-import { listJobs } from "./jobs.ts";
+import { recoverStaleJobs } from "./jobs.ts";
 import { jobCost } from "./pricing.ts";
 import type { JobRecord } from "../core/contracts.ts";
 
@@ -66,24 +70,67 @@ export interface ActivityExtraction {
  *  graph changed underneath me" (a merge landed, a deletion purged) and
  *  refetch clusters/layout. Reads never move it; the DELETE response
  *  returns the same stamp. */
+/** Activity index (2026-10-31): the dock only renders running jobs. Keep
+ * file stamps for terminal jobs, not their often-large result payloads;
+ * changed files reread, deleted files leave the index on the next feed. */
+const jobFiles = new Map<string, { stamp: string; running: JobRecord | null }>();
+
+function runningJobs(): JobRecord[] {
+	const dir = path.join(PATHS.data, "jobs");
+	let files: string[];
+	try {
+		fs.mkdirSync(dir, { recursive: true });
+		files = fs.readdirSync(dir).filter((file) => file.endsWith(".json"));
+	} catch {
+		return [];
+	}
+	const seen = new Set(files);
+	const running: JobRecord[] = [];
+	for (const file of files) {
+		const fullPath = path.join(dir, file);
+		try {
+			const { mtimeMs, size } = fs.statSync(fullPath);
+			const stamp = `${mtimeMs}:${size}`;
+			let entry = jobFiles.get(file);
+			if (!entry || entry.stamp !== stamp) {
+				const job = jobStore.getJob(file.slice(0, -5));
+				entry = { stamp, running: job?.status === "running" ? job : null };
+				jobFiles.set(file, entry);
+			}
+			if (entry.running) running.push(entry.running);
+		} catch (error) {
+			// Activity isolation (2026-10-31): one broken record must not hide
+			// the healthy running jobs in this feed.
+			console.error(`[activity] unable to read job ${file}:`, error);
+			jobFiles.delete(file);
+		}
+	}
+	for (const file of jobFiles.keys()) if (!seen.has(file)) jobFiles.delete(file);
+	return running;
+}
+
 export function activityFeed(): {
 	jobs: ActivityJob[];
 	extractions: ActivityExtraction[];
 	graphRevision: number;
 } {
 	const chats = chatStore.listChats();
+	if (process.env.NODE_ENV !== "test") recoverStaleJobs();
 	const limits = catalogContextLimits();
 	const jobs: ActivityJob[] = [];
+	const running = runningJobs();
 	for (const chat of chats) {
-		for (const job of listJobs(chat.id)) {
-			if (job.status === "running") {
-				jobs.push({
-					...job,
-					costUsd: jobCost(job),
-					title: chat.title ?? chat.id,
-					contextLimit: job.usage ? (limits.get(job.usage.model) ?? null) : null,
-				});
-			}
+		// Feed order (2026-10-31): listJobs sorted each chat newest-first
+		// before the dock's final oldest-first sort, including equal-time rows.
+		const forChat = running.filter((job) => job.chatId === chat.id)
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		for (const job of forChat) {
+			jobs.push({
+				...job,
+				costUsd: jobCost(job),
+				title: chat.title ?? chat.id,
+				contextLimit: job.usage ? (limits.get(job.usage.model) ?? null) : null,
+			});
 		}
 	}
 	const extractions: ActivityExtraction[] = extractionStatuses().map((run) => ({

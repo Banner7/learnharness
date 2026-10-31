@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import type { CallUsage, JobKind, JobRecord } from "@/src/core";
 import { isModelsRefusal, isProviderKeyRefusal } from "@/src/core";
 import { formatTokens, planCostLabel } from "@/components/usage-format";
-import { useServerEvent, useServerResync } from "@/components/server-events";
+import { useServerEvent, useServerInitialRead } from "@/components/server-events";
 
 /**
  * THE BACKGROUND-AGENTS SECTION (owner, sidebar round — the successor of
@@ -102,6 +102,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
 	useEffect(() => {
+		if (nonce === 0) return; // initial channel open (or bounded fallback) owns the first GET
 		let alive = true;
 		void (async () => {
 			try {
@@ -131,7 +132,7 @@ export function ActivityProvider({ children }: { children: React.ReactNode }) {
 	useServerEvent("activity-changed", scheduleAnnouncedFetch);
 	useServerEvent("jobs-changed", scheduleAnnouncedFetch);
 	// Reconnect catch-up: events missed while the channel was down.
-	useServerResync(() => refreshRef.current());
+	useServerInitialRead(() => refreshRef.current());
 
 	// The visibility nudge: returning to the tab refetches immediately —
 	// anything missed while hidden lands at once.

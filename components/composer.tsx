@@ -4,7 +4,7 @@ import { CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tap } from "@/lib/haptics";
 import { HapticLabel } from "@/components/ui/haptic";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -46,6 +46,22 @@ export function Composer({
 	variant?: "home" | "session";
 	actions?: ReactNode;
 }) {
+	const localInputRef = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		// Desktop composer shortcut (2026-10-31): leave phone keyboard
+		// behavior and every already-focused editable field untouched.
+		const focusComposer = (event: KeyboardEvent) => {
+			if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || !window.matchMedia("(min-width: 1100px)").matches) return;
+			const target = event.target;
+			if (target instanceof Element && (target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])") || target.closest('[role="textbox"]'))) return;
+			const editor = inputRef?.current ?? localInputRef.current;
+			if (!editor) return;
+			event.preventDefault();
+			editor.focus();
+		};
+		window.addEventListener("keydown", focusComposer);
+		return () => window.removeEventListener("keydown", focusComposer);
+	}, [inputRef]);
 	const act = () => {
 		if (busy && !canSend) onStop();
 		else if (canSend) onSend();
@@ -61,7 +77,7 @@ export function Composer({
 			}}
 		>
 			<PathInput
-				ref={inputRef}
+				ref={inputRef ?? localInputRef}
 				value={value}
 				onValueChange={onChange}
 				defaultDropTarget

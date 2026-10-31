@@ -398,12 +398,14 @@ export async function handleChatInput(
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
 	};
-	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
-	// session builds the practitioner from turn 1 — no prober→teacher
-	// split, no plan/question/job tools; the whole registry is
-	// problem + conclude. buildAgent stays honored (the test seam is
-	// uniform across kinds).
-	const constructed: TeachingAgent = buildAgent
+	try {
+		// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
+		// session builds the practitioner from turn 1 — no prober→teacher
+		// split, no plan/question/job tools; the whole registry is
+		// problem + conclude. buildAgent stays honored (the test seam is
+		// uniform across kinds). Construction must live inside this cleanup
+		// guard: a throwing factory must release the claimed turn.
+		const constructed: TeachingAgent = buildAgent
 		? buildAgent({ ...agentOpts, teaching })
 		: record.kind === "practice"
 			? createPracticeAgent(
@@ -461,10 +463,9 @@ export async function handleChatInput(
 					agentOpts,
 				);
 
-	// A test-injected agent gets no usage collector (tests assert the
-	// transcript, not the money channel); when it's ours, usage flows through
-	// the factory's subscription (wired above via onUsage).
-	try {
+		// A test-injected agent gets no usage collector (tests assert the
+		// transcript, not the money channel); when it's ours, usage flows through
+		// the factory's subscription (wired above via onUsage).
 		// THE TURN AS A BACKGROUND OBJECT (owner ruling, 2026-09-25):
 		// runPiTurn executes decoupled from this response — the POST stream
 		// is just the FIRST subscriber (a view). A client disconnect can no

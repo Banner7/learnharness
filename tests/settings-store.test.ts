@@ -68,9 +68,16 @@ describe("the settings store", () => {
 		assert.deepEqual(out.graph, { enabled: true }); // siblings survive
 	});
 
-	it("corrupt settings.json → null (first-boot semantics), never throws", () => {
+	// Corruption is not first boot (integrity fixes, 2026-10-31): treating a
+	// damaged file as absent let the next save silently replace every setting.
+	// Writes are atomic now, so a corrupt file means outside damage — surface it.
+	it("corrupt settings.json throws instead of reading as first boot", () => {
 		fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
 		fs.writeFileSync(SETTINGS_FILE, "{not json", "utf-8");
+		assert.throws(() => readSettings(), SyntaxError);
+	});
+	it("missing settings.json is first boot → null", () => {
+		fs.rmSync(SETTINGS_FILE, { force: true });
 		assert.equal(readSettings(), null);
 	});
 });

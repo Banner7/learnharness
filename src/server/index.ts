@@ -8,6 +8,8 @@ export * from "./chat-handler.ts";
 export * from "./events-stream.ts";
 export * from "./chats.ts";
 export * from "./graph.ts";
+export { commitPositions } from "./commit-positions.ts";
+export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export * from "./jobs.ts";
 export * from "./stores.ts";

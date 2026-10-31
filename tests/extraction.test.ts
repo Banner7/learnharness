@@ -116,6 +116,8 @@ function memoryLedgers() {
 			if (next.coverage) coverage.splice(0, coverage.length, ...next.coverage.map((c) => ({ ...c })));
 			if (next.checkpoints) checkpoints.splice(0, checkpoints.length, ...next.checkpoints.map((c) => ({ ...c })));
 		},
+		readPositions: () => ({}),
+		writePositions: () => {},
 	} satisfies GraphStore;
 }
 

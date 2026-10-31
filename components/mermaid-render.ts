@@ -9,6 +9,7 @@
 
 import { createMermaidPlugin } from "@streamdown/mermaid";
 import type { MermaidConfig } from "mermaid";
+import { MERMAID_FONT_SIZE } from "@/components/mermaid-loader";
 
 /** The chart's base font size (px) — mermaid sizes ALL text relative to
  *  this, so it's the number the display-width cap (md-blocks) divides by:
@@ -16,7 +17,6 @@ import type { MermaidConfig } from "mermaid";
  *  Pinned explicitly so a mermaid default change can't silently shift the
  *  cap (owner rule, chrome-melt tweaks wave, 2026-09-19: chart text must
  *  never render larger than the session's own text). */
-export const MERMAID_FONT_SIZE = 16;
 
 // Redesign (owner, 2026-10-27): the app has light and dark modes, so the
 // mermaid theme is read from <html class="dark"> at each render — "dark" for

@@ -26,6 +26,7 @@ import type {
 import { getGraph, mergeFindings, type DerivedGraph, type EmissionStats, type GraphDeps } from "../../core/graph.ts";
 import type { GraphStore } from "../../core/ports.ts";
 import { emit } from "../../core/events.ts";
+import { settleGraphLayout } from "../../core/layout-settle.ts";
 import { batchRuns, coverageOf, messageViewLines } from "../../core/coverage.ts";
 import { failedOutputCallIds, type LhMessage } from "../../core/native-messages.ts";
 import { auditorGraphTools } from "../tools/graph.ts";
@@ -1195,6 +1196,9 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 										.filter((slot) => slot.tokens > 0)
 										.map((slot) => ({ chatId, fp: slot.fp, tokens: slot.tokens, foldedAt })),
 								});
+								// The restored desktop graph's ledger settles before
+								// each finished chunk becomes visible (2026-10-31).
+								settleGraphLayout(graphStore);
 								console.info(
 									`[extraction ${jobKey}] merged: ${batchStats.nodes} nodes, ${batchStats.chains ?? 0} chains`,
 								);
@@ -1362,6 +1366,7 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 								mergedStats.chains! += merged.chains ?? 0;
 								if (merged.droppedChains)
 									mergedStats.droppedChains = (mergedStats.droppedChains ?? 0) + merged.droppedChains;
+								settleGraphLayout(graphStore);
 								console.info(`[extraction ${jobKey}] merged: ${merged.nodes} nodes, ${merged.chains ?? 0} chains`);
 								return merged;
 							});

@@ -271,6 +271,20 @@ export interface AuditVerdicts {
 	links: IdentityLink[];
 }
 
+
+/** One graph node's persisted world-space resting position. */
+export interface Position {
+	x: number;
+	y: number;
+}
+
+/** A birth-session region; derived implication nodes join the region of
+ * their premises after the proposition-only minimum size is applied. */
+export interface Cluster {
+	id: string;
+	label: string | null;
+	members: string[];
+}
 /** GET /api/graph payload: persisted evidence plus derived graph data. */
 
 export interface GraphSnapshot {
@@ -300,6 +314,10 @@ export interface GraphSnapshot {
 	fileSources: Record<string, string>;
 	/** nodeId → chatIds that touched the node (click-through provenance). */
 	nodeSessions: Record<string, string[]>;
+	/** Birth-session regions shown by the desktop graph canvas. */
+	clusters: Cluster[];
+	/** Persisted resting layout; absent before the first graph settle. */
+	positions?: Record<string, Position>;
 }
 
 /** The auto-title's character cap (owner, 2026-10-06): long enough to

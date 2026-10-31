@@ -33,7 +33,7 @@ The agent can also research questions in the background, create visual explanati
 
 ## Knowledge that carries forward
 
-What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The stored graph links ideas back to their source sessions and supports future teaching, practice, and note imports. It is knowledge data, not a visual graph page or a rating of your ability.
+What you are taught accumulates as propositions and reasoning chains: individual claims and the premises that lead to them. The stored graph links ideas back to their source sessions and supports future teaching, practice, and note imports. Chains are available on any screen; on desktop viewports (1100px and wider), the Graph link opens a visual map with searchable nodes, saved positions, and display controls. The graph describes knowledge, not a rating of your ability.
 
 ## What differs from upstream
 
@@ -49,7 +49,6 @@ This fork is a self-hosted browser app. It keeps upstream's teaching, practice, 
 | ChatGPT, Copilot, and Grok subscription sign-in | Removed |
 | In-app API-key editing | Removed; provider credentials stay on the server |
 | Dictation (speech-to-text) | Removed |
-| Visual knowledge-graph page | Removed; the graph is still stored and used, with a chains view |
 | Separate desktop plan window | Removed |
 | Keyboard-shortcut settings and cheat sheet | Removed |
 | Font picker and serif-title toggle | Removed |

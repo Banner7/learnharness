@@ -12,7 +12,7 @@ import { ToolCallIdUniquifier } from "./call-ids.ts";
  *   data: {"type":"agent_start"}\n\n
  *   data: {"type":"message_update","message":{…}}\n\n
  *   …
- *   data: {"type":"agent_end","messages":[…]}\n\n
+ *   data: {"type":"agent_end"}\n\n
  *   data: [DONE]\n\n
  *
  * Load-bearing protocol facts (verified against pi-agent-core):
@@ -61,11 +61,12 @@ import { ToolCallIdUniquifier } from "./call-ids.ts";
  * costs the content once, never the chunk count.
  */
 
-/** The wire event: a pi AgentEvent (with our slim message_update — see the
- * WIRE DIET note above), or one of the two app events. */
+/** The wire event: pi's AgentEvent with redundant settled payloads removed,
+ *  plus the two app events. */
 type TurnWireEvent =
 	| AgentEvent
 	| { type: "message_update"; message: AgentMessage }
+	| { type: "agent_end" }
 	| { type: "error"; errorText: string };
 
 export interface PiTurnSpec {
@@ -239,14 +240,18 @@ export function runPiTurn(spec: PiTurnSpec): PiTurnHandle {
 	const handle = (event: AgentEvent) => {
 		if (settled) return;
 		// THE LACAN FIX: ids uniquify HERE, before any view — the one seam
-		// every consumer downstream shares. No uniquifier → verbatim.
-		const uniqued = uniquifier ? uniquifier.event(event) : event;
-		// WIRE DIET: slim the one event pi double-stuffs — our views read
-		// `message`, never `assistantMessageEvent` (same full partial twice).
+		// every consumer downstream shares. The terminal transcript is
+		// remapped once at settlement, never here just to discard it.
+		const uniqued = uniquifier && event.type !== "agent_end" ? uniquifier.event(event) : event;
+		// WIRE DIET (2026-10-31): views read message_update.message but never
+		// agent_end.messages. Settlement still reads agent.state.messages below;
+		// sending that transcript again costs a full serialization per view.
 		const wire: TurnWireEvent =
 			uniqued.type === "message_update"
 				? { type: "message_update", message: uniqued.message }
-				: uniqued;
+				: uniqued.type === "agent_end"
+					? { type: "agent_end" }
+					: uniqued;
 		send(wire);
 		if (event.type === "message_end") {
 			const m = event.message as { role?: string; stopReason?: string } | undefined;

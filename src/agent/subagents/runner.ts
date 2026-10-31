@@ -366,9 +366,9 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 		// Per-job PDF dir (researcher PDF wave, 2026-10-07): web_fetch_pdf
 		// downloads land here; every pdf tool is scoped to it; it dies with
 		// the job (never enters the record).
-		const pdfDir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-research-"));
-
+		let pdfDir: string | undefined;
 		try {
+			pdfDir = await fs.mkdtemp(path.join(os.tmpdir(), "lh-research-"));
 			jobStore.updateJob(jobId, { activity: "researching" });
 			const brief = await runResearcherAgent(prompt, {
 				engine: model,
@@ -399,7 +399,7 @@ export function createJobRunner(deps: JobRunnerDeps): JobRunner {
 			if (stillRunning(jobId)) jobStore.updateJob(jobId, { error: reason });
 			await finishJob(jobId, { brief: `Research failed: ${reason}`, sources: [] });
 		} finally {
-			await fs.rm(pdfDir, { recursive: true, force: true });
+			if (pdfDir) await fs.rm(pdfDir, { recursive: true, force: true });
 		}
 	}
 

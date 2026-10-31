@@ -34,8 +34,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { LEDGER_FILES, SOURCES_FILE } from "../../config.ts";
+import { LEDGER_FILES, POSITIONS_FILE, SOURCES_FILE } from "../../config.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
+import { fsyncDirectory, isMissingFile, writeAtomicFile } from "./atomic-file.ts";
 import type {
 	GraphChain,
 	GraphNode,
@@ -44,14 +45,83 @@ import type {
 	ProvenancePoint,
 	CoverageEntry,
 	SessionCheckpoint,
+	Position,
 } from "../core/contracts.ts";
 import type { GraphStore } from "../core/ports.ts";
 
 // ─── JSONL primitives ────────────────────────────────────────────────────────
 
+// A committed rewrite journal replays an interrupted multi-ledger deletion.
+const REWRITE_JOURNAL = path.join(path.dirname(LEDGER_FILES.nodes), "rewrite-pending.json");
+const ledgerPaths = {
+	nodes: LEDGER_FILES.nodes,
+	chains: LEDGER_FILES.chains,
+	coverage: LEDGER_FILES.coverage,
+	checkpoints: LEDGER_FILES.sessions,
+} as const;
+
+function recoverPendingRewrite(): void {
+	let raw: string;
+	try {
+		raw = fs.readFileSync(REWRITE_JOURNAL, "utf-8");
+	} catch (err) {
+		if (isMissingFile(err)) return;
+		throw err;
+	}
+	const pending: unknown = JSON.parse(raw);
+	if (typeof pending !== "object" || pending === null || Array.isArray(pending))
+		throw new Error(`Invalid graph rewrite journal: ${REWRITE_JOURNAL}`);
+	for (const [key, records] of Object.entries(pending)) {
+		if (!(key in ledgerPaths) || !Array.isArray(records))
+			throw new Error(`Invalid graph rewrite journal: ${REWRITE_JOURNAL}`);
+		const body = records.map((record: unknown) => JSON.stringify(record)).join("\n");
+		writeAtomicFile(ledgerPaths[key as keyof typeof ledgerPaths], body ? `${body}\n` : "");
+	}
+	fs.unlinkSync(REWRITE_JOURNAL);
+	fsyncDirectory(path.dirname(REWRITE_JOURNAL));
+}
+
+/** Scan backward in blocks so each append only checks the torn final line. */
+function truncateTornTail(file: string): void {
+	let fd: number;
+	try {
+		fd = fs.openSync(file, "r+");
+	} catch (err) {
+		if (isMissingFile(err)) return;
+		throw err;
+	}
+	try {
+		const size = fs.fstatSync(fd).size;
+		if (size === 0) return;
+		const last = Buffer.allocUnsafe(1);
+		fs.readSync(fd, last, 0, 1, size - 1);
+		if (last[0] === 10) return;
+		const chunk = Buffer.allocUnsafe(4096);
+		let end = size;
+		while (end > 0) {
+			const start = Math.max(0, end - chunk.length);
+			const length = end - start;
+			fs.readSync(fd, chunk, 0, length, start);
+			const newline = chunk.lastIndexOf(10, length - 1);
+			if (newline !== -1) {
+				fs.ftruncateSync(fd, start + newline + 1);
+				fs.fsyncSync(fd);
+				return;
+			}
+			end = start;
+		}
+		fs.ftruncateSync(fd, 0);
+		fs.fsyncSync(fd);
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
 function appendLine<T>(file: string, record: T): void {
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
+	recoverPendingRewrite();
+	truncateTornTail(file);
 	fs.appendFileSync(file, `${JSON.stringify(record)}\n`, "utf-8");
 }
 
@@ -59,8 +129,9 @@ function readRawLines(file: string): unknown[] {
 	let raw: string;
 	try {
 		raw = fs.readFileSync(file, "utf-8");
-	} catch {
-		return []; // no ledger yet — nothing has ever been emitted
+	} catch (err) {
+		if (isMissingFile(err)) return []; // no ledger yet
+		throw err;
 	}
 	const out: unknown[] = [];
 	for (const line of raw.split("\n")) {
@@ -68,9 +139,8 @@ function readRawLines(file: string): unknown[] {
 		if (trimmed.length === 0) continue;
 		try {
 			out.push(JSON.parse(trimmed));
-		} catch {
-			// Corrupt line: skip rather than fail the whole read — a torn
-			// append must never take the home graph down with it.
+		} catch (err) {
+			console.error(`[graph-store] invalid JSONL in ${file}:`, err);
 		}
 	}
 	return out;
@@ -85,7 +155,12 @@ const isString = (v: unknown): v is string => typeof v === "string";
 /** Strict shape guards — anything not matching a W4 ledger shape is skipped. */
 function readValid<T>(file: string, isValid: (v: unknown) => v is T): T[] {
 	assertGraphFormat(); // honest refusal on a newer-stamped data dir
-	return readRawLines(file).filter(isValid);
+	recoverPendingRewrite();
+	return readRawLines(file).filter((record) => {
+		if (isValid(record)) return true;
+		console.error(`[graph-store] invalid record in ${file}`);
+		return false;
+	}) as T[];
 }
 
 /** Provenance points are (chatId, messageId) pairs — message-granular. */
@@ -184,43 +259,50 @@ export const graphStore: GraphStore = {
 		writeSourceMap(all);
 	},
 
-	/** THE DESTRUCTIVE SEAM (wave 6 session deletion): atomic full-content
-	 *  replacement per provided ledger — write a uniquely-named temp file
-	 *  beside the ledger, then rename over it (POSIX-atomic: a crash mid-
-	 *  write leaves the original ledger and an orphan .tmp-*, never a torn
-	 *  ledger). Empty arrays write an empty file — a purged ledger reads
-	 *  as "nothing yet", same as never-emitted. */
+	// The layout ledger is a whole-record map, not a JSONL evidence stream.
+	readPositions(): Record<string, Position> {
+		assertGraphFormat();
+		let raw: string;
+		try {
+			raw = fs.readFileSync(POSITIONS_FILE, "utf-8");
+		} catch (err) {
+			if (isMissingFile(err)) return {};
+			throw err;
+		}
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !("positions" in parsed))
+			throw new Error(`Invalid graph positions record: ${POSITIONS_FILE}`);
+		const values = parsed.positions;
+		if (typeof values !== "object" || values === null || Array.isArray(values))
+			throw new Error(`Invalid graph positions record: ${POSITIONS_FILE}`);
+		const positions: Record<string, Position> = {};
+		for (const [id, value] of Object.entries(values)) {
+			if (!isRecord(value) || typeof value.x !== "number" || !Number.isFinite(value.x)
+				|| typeof value.y !== "number" || !Number.isFinite(value.y)) continue;
+			positions[id] = { x: value.x, y: value.y };
+		}
+		return positions;
+	},
+	writePositions(positions: Record<string, Position>): void {
+		ensureGraphFormat();
+		writeAtomicFile(POSITIONS_FILE, JSON.stringify({ positions, updatedAt: new Date().toISOString() }, null, "\t"));
+	},
+
+	/** THE DESTRUCTIVE SEAM (wave 6 session deletion): commit the complete
+	 *  intended rewrite to a durable journal before replacing any ledger.
+	 *  A crash between ledger renames replays the transaction on the next
+	 *  read or append, rather than leaving half the deleted chat's graph.
+	 *  Each file replacement is atomic and fsynced. */
 	rewriteLedgers(next: {
 		nodes?: GraphNode[];
 		chains?: GraphChain[];
 		coverage?: CoverageEntry[];
 		checkpoints?: SessionCheckpoint[];
 	}): void {
-		const files = {
-			nodes: LEDGER_FILES.nodes,
-			chains: LEDGER_FILES.chains,
-			coverage: LEDGER_FILES.coverage,
-			checkpoints: LEDGER_FILES.sessions,
-		} as const;
-		for (const [key, records] of Object.entries(next) as [keyof typeof files, unknown[]][]) {
-			const file = files[key];
-			fs.mkdirSync(path.dirname(file), { recursive: true });
-			const tmp = `${file}.tmp-${crypto.randomUUID().slice(0, 8)}`;
-			try {
-				// JSONL: one record per line, trailing newline — a reader
-				// must see exactly what appendLine would have written.
-				const body = records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : "");
-				fs.writeFileSync(tmp, body, "utf-8");
-				fs.renameSync(tmp, file);
-			} catch (err) {
-				try {
-					fs.unlinkSync(tmp);
-				} catch {
-					/* the rename either already happened or the tmp never existed */
-				}
-				throw err;
-			}
-		}
+		ensureGraphFormat();
+		recoverPendingRewrite();
+		writeAtomicFile(REWRITE_JOURNAL, JSON.stringify(next));
+		recoverPendingRewrite();
 	},
 };
 
@@ -231,26 +313,23 @@ function readSourceMap(): Record<string, NotesSource> {
 	let raw: string;
 	try {
 		raw = fs.readFileSync(SOURCES_FILE, "utf-8");
-	} catch {
-		return {};
+	} catch (err) {
+		if (isMissingFile(err)) return {};
+		throw err;
 	}
-	try {
-		const parsed: unknown = JSON.parse(raw);
-		if (!isRecord(parsed)) return {};
-		const out: Record<string, NotesSource> = {};
-		for (const [id, value] of Object.entries(parsed)) {
-			if (isNotesSource(value)) out[id] = value;
-		}
-		return out;
-	} catch {
-		return {};
+	const parsed: unknown = JSON.parse(raw);
+	if (!isRecord(parsed) || Array.isArray(parsed)) throw new Error(`Invalid graph sources record: ${SOURCES_FILE}`);
+	const out: Record<string, NotesSource> = {};
+	for (const [id, value] of Object.entries(parsed)) {
+		if (!isNotesSource(value)) throw new Error(`Invalid graph source ${id} in ${SOURCES_FILE}`);
+		out[id] = value;
 	}
+	return out;
 }
 
 function writeSourceMap(map: Record<string, NotesSource>): void {
-	fs.mkdirSync(path.dirname(SOURCES_FILE), { recursive: true });
 	ensureGraphFormat(); // the lazy format stamp (graph-format.ts)
-	fs.writeFileSync(SOURCES_FILE, JSON.stringify(map, null, "\t"), "utf-8");
+	writeAtomicFile(SOURCES_FILE, JSON.stringify(map, null, "\t"));
 }
 
 // ─── one-way purges at adapter load: dead ledgers are exactly the confusion

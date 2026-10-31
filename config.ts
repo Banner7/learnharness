@@ -68,6 +68,10 @@ export const LEDGER_FILES = {
  */
 export const SOURCES_FILE = path.join(PATHS.graph, "sources.json");
 
+/** The restored desktop graph's resting layout and display controls. */
+export const POSITIONS_FILE = path.join(PATHS.graph, "positions.json");
+export const RENDER_SETTINGS_FILE = path.join(PATHS.graph, "render-settings.json");
+
 /** The graph-family FORMAT STAMP sidecar (schema-versioning wave,
  *  2026-10-10): one version for the four JSONL ledgers and sources.json.
  *  LAZY v1: absent = v1; the first graph-family write creates it. */

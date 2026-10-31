@@ -25,6 +25,7 @@ import type {
 	TurnUsage,
 	NotesSource,
 } from "./contracts.ts";
+import type { Position } from "./contracts/graph.ts";
 import type { UserSettings } from "./settings.ts";
 
 // ─── ChatStore — the session record's home (data/chats) ─────────────────────
@@ -103,6 +104,11 @@ export interface GraphStore {
 	/** Append one run's usage to a source record — idempotent per
 	 *  startedAt, mirroring ChatRecord.extractions. */
 	appendSourceUsage(id: string, entry: ExtractionRunUsage): void;
+
+	/** Resting positions of the canvas's stored and derived nodes. */
+	readPositions(): Record<string, Position>;
+	/** Replace the full layout ledger after a drag or incremental settle. */
+	writePositions(positions: Record<string, Position>): void;
 
 	/** THE DESTRUCTIVE SEAM (session-deletion wave 6, owner 2026-09-22 —
 	 *  the first non-append operation on these ledgers): atomically

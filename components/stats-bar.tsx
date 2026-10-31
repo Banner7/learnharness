@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CLAUDE_CODE_PROVIDER, type CliContextWindow, type SessionPricing, type TurnUsage } from "@/src/core";
+import { CLAUDE_CODE_PROVIDER, type ChatSettings, type CliContextWindow, type SessionPricing, type TurnUsage } from "@/src/core";
 import { formatTokens, formatUsd, planCostLabel, prettyModel } from "@/components/usage-format";
 import { ModelControl, catalogLimits, useModelCatalog } from "@/components/model-picker";
 
@@ -43,7 +43,9 @@ export function StatsBar({
 	cliContextWindow = null,
 	pricing,
 	chatId,
+	initialSession,
 	leadingSlot,
+	rail = false,
 }: {
 	turns: TurnUsage[];
 	contextTokens?: number | null;
@@ -54,6 +56,9 @@ export function StatsBar({
 	 *  record; absent on the draft surfaces, where it binds the strong
 	 *  slot (the new-session default). */
 	chatId?: string;
+	initialSession?: { settings?: ChatSettings };
+	/** Persistent desktop rail presents the same detail without a popover. */
+	rail?: boolean;
 	/** The row's LEFT edge (practice sessions, 2026-10-04): the home
 	 *  composer's teach | practice switch rides here — before the session
 	 *  data (which renders nothing pre-chat on that surface). */
@@ -64,7 +69,7 @@ export function StatsBar({
 	// Close the popover on pointerdown outside the bar.
 	const barRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
-		if (!open) return;
+		if (rail || !open) return;
 		const onPointerDown = (e: PointerEvent) => {
 			if (barRef.current && !barRef.current.contains(e.target as Node)) setOpen(false);
 		};
@@ -72,7 +77,7 @@ export function StatsBar({
 		return () => {
 			document.removeEventListener("pointerdown", onPointerDown);
 		};
-	}, [open]);
+	}, [open, rail]);
 	// The picker reports its effective selection. CLI windows are session-
 	// scoped; unknown metadata always means usage-only, never a guessed maximum.
 	const { catalog } = useModelCatalog();
@@ -94,7 +99,7 @@ export function StatsBar({
 			// (so its transparent gradient area never blocks scrolling) — this row
 			// must re-enable events or every control on it is dead (the model-
 			// control wave caught this live: buttons rendered, clicks never landed).
-			className="pointer-events-auto relative flex flex-wrap items-center justify-between gap-x-3 px-3 pt-1 text-xs text-muted-foreground"
+			className={rail ? "pointer-events-auto relative flex w-full flex-col items-stretch gap-3 text-xs text-muted-foreground" : "pointer-events-auto relative flex flex-wrap items-center justify-between gap-x-3 px-3 pt-1 text-xs text-muted-foreground"}
 		>
 			{/* The summary button + its popover: the popover anchors to this
 			    wrapper, CENTERED over the button itself (owner, stats round 2)
@@ -108,25 +113,23 @@ export function StatsBar({
 			{/* The left side: the session-data summary — only once a session
 			    exists (turns). Pre-chat renders nothing (see the header). */}
 			{(chatId || turns.length > 0) && (
-			<div ref={barRef} className="relative min-w-0">
+			<div ref={barRef} className={rail ? "relative w-full min-w-0" : "relative min-w-0"}>
 				{/* No tooltip — the numbers describe themselves and the popover
 			    speaks on click (owner, subtlety round 2026-09-25). */}
-			<button
+			{!rail && <button
 				type="button"
 				onClick={() => setOpen((o) => !o)}
 				aria-expanded={open}
 				data-testid="stats-summary"
 				className="flex min-h-11 items-center gap-3 tabular-nums transition-colors hover:text-foreground"
 			>
-				<span data-testid="stats-context">
-					{contextLabel}
-				</span>
+				<span data-testid="stats-context">{contextLabel}</span>
 				<span data-testid="stats-cost">{costLabel}</span>
-			</button>
-				{open && (
+			</button>}
+				{(open || rail) && (
 					<div
 						data-testid="stats-detail"
-						className="absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-xs shadow-lg"
+						className={rail ? "w-full rounded-lg border border-border bg-card p-3 text-xs" : "absolute bottom-full left-1/2 z-40 mb-1.5 w-72 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-xs shadow-lg"}
 					>
 						<div className="mb-2 text-xs font-medium text-muted-foreground">
 							Session stats
@@ -182,7 +185,12 @@ export function StatsBar({
 			{/* The model + thinking control — one controller for the conversation
 			    agents (prober/teacher); the record's `turns` above still folds
 			    the ACTUAL models billed, regardless of what the picker says. */}
-			<ModelControl chatId={chatId} onModelChange={setSelectedModel} />
+			{rail ? (
+				<section aria-label="Model" className="w-full rounded-lg border border-border bg-card p-3">
+					<h3 className="mb-1 text-xs font-medium text-muted-foreground">Model</h3>
+					<ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />
+				</section>
+			) : <ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />}
 		</div>
 	);
 }

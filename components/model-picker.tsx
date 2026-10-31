@@ -10,6 +10,7 @@ import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { notifySettingsSaved, onSettingsSaved, useSettingsSaved } from "@/components/settings-signal";
 import { defaultOrderLevel, populateLevel, THINKING_LABEL } from "@/components/thinking-default";
+import { readSettingsRecord } from "@/components/settings-record";
 
 /** GET /api/models is cached per page load for instant menu opens, but
  *  the server's configured providers can change out-of-band. ModelControl
@@ -74,15 +75,16 @@ export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Ma
  * changing the new-session default. Unpicked reads "—" (the
  * no-factory-fallback language: the UI never presents a default model).
  */
-export function ModelControl({ chatId, onModelChange }: { chatId?: string; onModelChange?: (model: string | undefined) => void }) {
+export function ModelControl({ chatId, initialSession, onModelChange }: { chatId?: string; initialSession?: { settings?: ChatSettings }; onModelChange?: (model: string | undefined) => void }) {
 	const { catalog, refresh } = useModelCatalog();
 	const [models, setModels] = useState<ModelsSettings | undefined>();
 	// A successful read with no settings is a legacy session; undefined
 	// means no session record is known yet, not permission to inherit Strong.
-	const [session, setSession] = useState<{ settings?: ChatSettings }>();
+	const [session, setSession] = useState<{ settings?: ChatSettings } | undefined>(initialSession);
 	const [open, setOpen] = useState<"model" | "thinking" | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const initialReadSeeded = useRef(initialSession !== undefined);
 
 	// The record read — BOTH mount and the cross-surface signal land
 	// here (fix wave: another surface's models write re-reads into the
@@ -93,15 +95,19 @@ export function ModelControl({ chatId, onModelChange }: { chatId?: string; onMod
 	// reads the models section alone.
 	const readRecord = useCallback(() => {
 		if (chatId) {
-			fetch(`/api/chats/${chatId}`)
-				.then((r) => { if (!r.ok) throw new Error(`session read failed: ${r.status}`); return r.json() as Promise<{ settings?: ChatSettings }>; })
-				.then((body) => setSession({ settings: body.settings }))
-				.catch(() => {
-					/* same read-only posture as a models-section failure */
-				});
+			// Initial record seed (2026-10-31): ChatPage already fetched the
+			// per-session model. A settings write must fetch new truth instead.
+			if (initialReadSeeded.current) initialReadSeeded.current = false;
+			else {
+				fetch(`/api/chats/${chatId}`)
+					.then((r) => { if (!r.ok) throw new Error(`session read failed: ${r.status}`); return r.json() as Promise<{ settings?: ChatSettings }>; })
+					.then((body) => setSession({ settings: body.settings }))
+					.catch(() => {
+						/* same read-only posture as a models-section failure */
+					});
+			}
 		}
-		fetch("/api/settings")
-			.then((r) => r.json() as Promise<{ settings: { models?: ModelsSettings } | null }>)
+		readSettingsRecord()
 			.then((body) => setModels(body.settings?.models ?? undefined))
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only

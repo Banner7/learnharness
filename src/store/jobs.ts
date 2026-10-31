@@ -15,6 +15,7 @@ import { emit } from "../core/events.ts";
 import type { JobStore } from "../core/ports.ts";
 import type { CreateJobInit, JobPatch } from "../core/ports.ts";
 import type { JobRecord } from "../core/contracts.ts";
+import { isMissingFile, writeAtomicFile } from "./atomic-file.ts";
 
 /** Background jobs (data/jobs). Not in config.ts PATHS (orchestrator-owned). */
 const JOBS_DIR = path.join(PATHS.data, "jobs");
@@ -42,16 +43,29 @@ function createJob(init: CreateJobInit): JobRecord {
 		updatedAt: now,
 	};
 	fs.mkdirSync(JOBS_DIR, { recursive: true });
-	fs.writeFileSync(jobFile(record.id), JSON.stringify(record, null, "\t"), "utf-8");
+	writeAtomicFile(jobFile(record.id), JSON.stringify(record, null, "\t"));
 	emit("jobs-changed", { chatId: init.chatId });
 	return record;
 }
 
 function getJob(id: string): JobRecord | null {
 	try {
-		return JSON.parse(fs.readFileSync(jobFile(id), "utf-8")) as JobRecord;
-	} catch {
-		return null;
+		const parsed: unknown = JSON.parse(fs.readFileSync(jobFile(id), "utf-8"));
+		if (
+			typeof parsed !== "object" || parsed === null || Array.isArray(parsed) ||
+			!("id" in parsed) || parsed.id !== id ||
+			!("kind" in parsed) || !["research", "demo", "visual", "pdf"].includes(String(parsed.kind)) ||
+			!("chatId" in parsed) || typeof parsed.chatId !== "string" ||
+			!("toolCallId" in parsed) || typeof parsed.toolCallId !== "string" ||
+			!("status" in parsed) || !["running", "done", "error"].includes(String(parsed.status)) ||
+			!("activity" in parsed) || typeof parsed.activity !== "string" ||
+			!("createdAt" in parsed) || typeof parsed.createdAt !== "string" ||
+			!("updatedAt" in parsed) || typeof parsed.updatedAt !== "string"
+		) throw new Error(`Invalid job record: ${id}`);
+		return parsed as JobRecord;
+	} catch (err) {
+		if (isMissingFile(err)) return null;
+		throw err; // broken job records must not appear absent to dedup/deletion
 	}
 }
 
@@ -62,7 +76,7 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	const record = getJob(id);
 	if (!record) return null;
 	const next: JobRecord = { ...record, ...patch, updatedAt: patch.updatedAt ?? new Date().toISOString() };
-	fs.writeFileSync(jobFile(id), JSON.stringify(next, null, "\t"), "utf-8");
+	writeAtomicFile(jobFile(id), JSON.stringify(next, null, "\t"));
 	// EVERY write, not just status flips: progress-line updates must reach
 	// the dispatch cards (the view debounces the fetch bursts). A missing id
 	// wrote nothing and stays silent.
@@ -70,24 +84,36 @@ function updateJob(id: string, patch: JobPatch): JobRecord | null {
 	return next;
 }
 
-/** All jobs for a chat, newest activity first. */
-function listJobs(chatId: string): JobRecord[] {
+/** All jobs for a chat, newest activity first. Lists skip damaged records
+ *  after logging; mutation paths use strict mode so damage cannot silently
+ *  duplicate a job or leave one behind during chat deletion. */
+function listJobs(chatId: string, strict = false): JobRecord[] {
 	try {
 		fs.mkdirSync(JOBS_DIR, { recursive: true });
 		return fs
 			.readdirSync(JOBS_DIR)
 			.filter((f) => f.endsWith(".json"))
-			.map((f) => getJob(f.slice(0, -5)))
+			.map((f) => {
+				const id = f.slice(0, -5);
+				try {
+					return getJob(id);
+				} catch (err) {
+					console.error(`[job ${id}] cannot read record:`, err);
+					if (strict) throw err; // deletion/dedup must not ignore damaged jobs
+					return null;
+				}
+			})
 			.filter((j): j is JobRecord => j !== null && j.chatId === chatId)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-	} catch {
-		return [];
+	} catch (err) {
+		console.error("[job-store] cannot list jobs:", err);
+		throw err;
 	}
 }
 
 /** The job fulfilling a given tool part, if any (spawn-hook dedup). */
 function findJobByToolCallId(chatId: string, toolCallId: string): JobRecord | null {
-	return listJobs(chatId).find((j) => j.toolCallId === toolCallId) ?? null;
+	return listJobs(chatId, true).find((j) => j.toolCallId === toolCallId) ?? null;
 }
 
 /** Delete every job record file for a chat (session-deletion wave 6) —
@@ -96,12 +122,12 @@ function findJobByToolCallId(chatId: string, toolCallId: string): JobRecord | nu
  *  jobs are still running, so every record here is terminal. */
 function deleteJobsForChat(chatId: string): number {
 	let removed = 0;
-	for (const job of listJobs(chatId)) {
+	for (const job of listJobs(chatId, true)) {
 		try {
 			fs.unlinkSync(jobFile(job.id));
 			removed++;
-		} catch {
-			/* already gone — the count is best-effort truth */
+		} catch (err) {
+			if (!isMissingFile(err)) throw err;
 		}
 	}
 	// Only when something actually died — a zero-file delete wrote nothing

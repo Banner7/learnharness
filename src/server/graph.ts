@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
-import { LEDGER_FILES } from "../../config.ts";
-import type { GraphSnapshot } from "../core/contracts.ts";
+import { GRAPH_FORMAT_FILE, LEDGER_FILES, PATHS, POSITIONS_FILE } from "../../config.ts";
+import type { ExtractionRunUsage, GraphSnapshot, NotesSource } from "../core/contracts.ts";
 import type { GraphCostSummary } from "../core/cost-summary.ts";
 import { graphCostSummary } from "../core/cost-summary.ts";
 import { graphSnapshot } from "../core/graph.ts";
+import { danglingQuestionOf } from "../core/native-messages.ts";
+import { phaseAt3Lh } from "../core/phases.ts";
 import { birthSessionPartition } from "../core/session-clusters.ts";
 import {
 	deleteNodeTraces,
@@ -13,23 +15,81 @@ import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { callCost } from "./pricing.ts";
 
+/** Ledger cache (2026-10-31): view projections copy rows before merging;
+ * changed ledger stamps invalidate the parsed lines, while format-stamp
+ * changes still run the store's downgrade refusal. Source labels stay fresh
+ * per request because a renamed chat needs no ledger write. */
+function cachedLedger<T>(file: string, read: () => T[]): () => T[] {
+	let stamp: string | undefined;
+	let rows: T[] = [];
+	return () => {
+		let next = "absent";
+		try {
+			const { mtimeMs, ctimeMs, size, ino } = fs.statSync(file);
+			next = `${mtimeMs}:${ctimeMs}:${size}:${ino}`;
+		} catch {
+			// An absent ledger reads empty, including after deletion.
+		}
+		try {
+			const { mtimeMs, size } = fs.statSync(GRAPH_FORMAT_FILE);
+			next += `:format:${mtimeMs}:${size}`;
+		} catch {
+			next += ":format:absent";
+		}
+		if (next !== stamp) {
+			rows = read();
+			stamp = next;
+		}
+		return rows;
+	};
+}
+
+const readNodes = cachedLedger(LEDGER_FILES.nodes, () => stores.graphStore.readNodes());
+const readChains = cachedLedger(LEDGER_FILES.chains, () => stores.graphStore.readChains());
+
 /** Read-only graph snapshot for GET /api/graph: home and practice use it
  * while agent tools read the same graph store. Extraction writes separately. */
 export function graphView(): GraphSnapshot {
-	return graphSnapshot(stores);
+	let sources: NotesSource[] | undefined;
+	return graphSnapshot({
+		...stores,
+		graphStore: {
+			...stores.graphStore,
+			readNodes,
+			readChains,
+			readSources: () => (sources ??= stores.graphStore.readSources()),
+		},
+	});
 }
 
 /** Cost data for the home knowledge summary, folded from extraction runs
  * in chats and notes. Model prices are applied at read time. */
 export function graphCosts(): GraphCostSummary {
-	const chats = stores.chatStore
-		.listChats()
-		.flatMap((summary) => {
-			const record = stores.chatStore.getChat(summary.id);
-			return record?.extractions?.length
-				? [{ title: record.title ?? summary.id, extractions: record.extractions }]
-				: [];
-		});
+	// Cost read (2026-10-31): listChats strips extraction logs. Read each
+	// record once, keeping its projection guard and updatedAt order so
+	// equal-time recent runs retain their old order.
+	let chats: Array<{ title: string; extractions: ExtractionRunUsage[]; updatedAt: string }> = [];
+	try {
+		fs.mkdirSync(PATHS.chats, { recursive: true });
+		for (const file of fs.readdirSync(PATHS.chats)) {
+			if (!file.endsWith(".json")) continue;
+			const record = stores.chatStore.getChat(file.slice(0, -5));
+			if (!record) continue;
+			try {
+				phaseAt3Lh(record.messages);
+				danglingQuestionOf(record.messages);
+			} catch (err) {
+				console.error(`[chat ${record.id}] summary projection failed:`, err);
+				continue;
+			}
+			if (record.extractions?.length) {
+				chats.push({ title: record.title ?? record.id, extractions: record.extractions, updatedAt: record.updatedAt });
+			}
+		}
+		chats.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+	} catch {
+		chats = [];
+	}
 	const sources = stores.graphStore
 		.readSources()
 		.filter((s) => s.extractions?.length)
@@ -46,6 +106,7 @@ export function graphRevision(): number {
 		LEDGER_FILES.chains,
 		LEDGER_FILES.sessions,
 		LEDGER_FILES.coverage,
+		POSITIONS_FILE,
 	]) {
 		try {
 			revision = Math.max(revision, fs.statSync(file).mtimeMs);

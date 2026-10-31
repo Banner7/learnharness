@@ -13,6 +13,7 @@
  * readers filter on what they actually read.
  */
 import { useEffect, useRef } from "react";
+import { invalidateSettingsRead } from "@/components/settings-record";
 
 export const SETTINGS_SAVED_EVENT = "lh:settings-saved";
 
@@ -22,6 +23,7 @@ export type SettingsSection = "agent" | "models" | "appearance" | "graph" | "com
 /** Writers call this after the PUT resolves ok — never before (a failed
  *  write notifies nothing; the record is unchanged). */
 export function notifySettingsSaved(section: SettingsSection): void {
+	invalidateSettingsRead();
 	window.dispatchEvent(
 		new CustomEvent(SETTINGS_SAVED_EVENT, { detail: { section } }),
 	);

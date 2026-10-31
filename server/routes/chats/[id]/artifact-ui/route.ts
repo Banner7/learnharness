@@ -14,8 +14,6 @@ import { getChat, stores } from "@/src/server";
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
 	const { id } = await ctx.params;
-	const chat = getChat(id);
-	if (!chat) return Response.json({ error: "Unknown chat" }, { status: 404 });
 
 	const body = (await req.json().catch(() => null)) as { input?: unknown } | null;
 	const input = body?.input as { messageId?: unknown; inverted?: unknown } | null | undefined;
@@ -27,6 +25,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 	) {
 		return Response.json({ error: "input must be { messageId: string, inverted: boolean }" }, { status: 400 });
 	}
+	// Read only after the body has arrived: a settling turn may have saved
+	// new messages while req.json() was pending.
+	const chat = getChat(id);
+	if (!chat) return Response.json({ error: "Unknown chat" }, { status: 404 });
 
 	// Honesty: the target must actually be a demo/figure steer.
 	const target = chat.messages.find((m) => m.id === input.messageId);

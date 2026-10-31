@@ -17,6 +17,7 @@ import { CURRENT_CHAT_VERSION } from "../core/contracts.ts";
 import type { LhMessage } from "../core/native-messages.ts";
 import { activeProblemOf, danglingQuestionOf } from "../core/native-messages.ts";
 import { phaseAt3Lh } from "../core/phases.ts";
+import { isMissingFile, writeAtomicFile } from "./atomic-file.ts";
 
 function chatFile(id: string): string {
 	if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new Error(`Invalid chat id: ${id}`);
@@ -55,16 +56,27 @@ function createChat(title: string, kind?: "practice"): ChatRecord {
  *  lazy migration means existing files only get stamped on their next write.
  *  A future-version guard lives on the read side (getChat). */
 function writeChat(record: ChatRecord): void {
-	fs.writeFileSync(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"), "utf-8");
+	writeAtomicFile(chatFile(record.id), JSON.stringify({ ...record, version: CURRENT_CHAT_VERSION }, null, "\t"));
+}
+
+function isChatRecord(value: unknown, id: string): value is ChatRecord {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const record = value as Record<string, unknown>;
+	return record.id === id && typeof record.title === "string" &&
+		typeof record.createdAt === "string" && typeof record.updatedAt === "string" &&
+		Array.isArray(record.messages);
 }
 
 function getChat(id: string): ChatRecord | null {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(fs.readFileSync(chatFile(id), "utf-8"));
-	} catch {
-		return null;
+	} catch (err) {
+		if (isMissingFile(err)) return null;
+		throw err; // corrupt records must never masquerade as missing chats
 	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+		throw new Error(`Invalid chat record: ${id}`);
 	// Honest refusal (owner ruling 2026-10-10): a record stamped NEWER than
 	// this build (the downgrade scenario) reads as absent, never misparsed —
 	// the next read-modify-write must not rewrite what it doesn't understand.
@@ -73,7 +85,8 @@ function getChat(id: string): ChatRecord | null {
 		console.error(`[chat ${id}] record stamped with schema version ${v} > ${CURRENT_CHAT_VERSION} — this app build is older; refusing to read it`);
 		return null;
 	}
-	return parsed as ChatRecord;
+	if (!isChatRecord(parsed, id)) throw new Error(`Invalid chat record: ${id}`);
+	return parsed;
 }
 
 function listChats(): ChatSummary[] {
@@ -82,13 +95,19 @@ function listChats(): ChatSummary[] {
 		return fs
 			.readdirSync(PATHS.chats)
 			.filter((f) => f.endsWith(".json"))
-			.map((f) => getChat(f.slice(0, -5)))
+			.map((f) => {
+				const id = f.slice(0, -5);
+				try {
+					return getChat(id);
+				} catch (err) {
+					console.error(`[chat ${id}] cannot read record:`, err);
+					return null;
+				}
+			})
 			.filter((r): r is ChatRecord => r !== null)
 			.map(({ messages, tree, turns, extractions, ...summary }) => {
-				// Per-record isolation (Wave B): a record whose messages fail the
-				// projection (e.g. pre-Wave-B UIMessage-format scratch — the
-				// zero-back-compat wipe makes these "corrupt") must not blank the
-				// whole sidebar — same isolation getChat's per-file catch gives.
+				// A valid record with an unprojectable legacy transcript is
+				// isolated here; malformed files are logged by the read above.
 				try {
 					return {
 						// turns and extractions stay out of the list payload (list =
@@ -115,8 +134,9 @@ function listChats(): ChatSummary[] {
 			})
 			.filter((s): s is ChatSummary => s !== null)
 			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-	} catch {
-		return [];
+	} catch (err) {
+		console.error("[chat-store] cannot list chats:", err);
+		throw err;
 	}
 }
 

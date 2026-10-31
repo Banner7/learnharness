@@ -284,7 +284,10 @@ export async function ensureCompacted(deps: CompactionDeps, chatId: string): Pro
 	const record = deps.chatStore.getChat(chatId);
 	if (!record) return;
 	if (projectedContextTokens(record.messages, deps.systemPromptTokens) <= deps.thresholdTokens) return;
-	if (state().inFlight.has(chatId)) return; // a concurrent caller started it while we awaited
+	if (state().inFlight.has(chatId)) { // a concurrent caller started it while we awaited
+		await awaitCompaction(chatId);
+		return;
+	}
 	const run = compact(deps, chatId);
 	state().inFlight.set(chatId, run);
 	try {

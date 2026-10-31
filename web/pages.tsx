@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, Redirect, Route, Switch } from "wouter";
-import { Chat } from "@/components/chat";
 import { Home } from "@/components/home";
 import { NewSession } from "@/components/new-session";
-import type { LhMessage } from "@/src/core";
+import type { ChatSettings, LhMessage, SessionPricing, TurnUsage } from "@/src/core";
 import { useRefreshRevision, useSearchParams } from "./navigation";
+import type { SessionCoverage } from "@/components/extraction-coverage";
+// The home split (2026-10-31): a static Chat import puts transcript markdown
+// and diagrams into home JS; load the chat surface only after navigation.
+const Chat = lazy(() => import("@/components/chat").then(({ Chat }) => ({ default: Chat })));
+// Graph route (2026-10-31): static import would ship the canvas with home;
+// the wrapper itself defers desktop-only rendering on narrow screens.
+const GraphPage = lazy(() => import("@/components/graph-page").then(({ GraphPage }) => ({ default: GraphPage })));
 
 interface ChatSnapshot {
 	id: string;
@@ -14,6 +20,10 @@ interface ChatSnapshot {
 	turnInFlight: boolean;
 	compacting: boolean;
 	turnFailure: string | null;
+	turns?: TurnUsage[];
+	pricing?: SessionPricing;
+	settings?: ChatSettings;
+	coverage?: SessionCoverage | null;
 }
 
 type ChatLoad =
@@ -39,6 +49,12 @@ function ChatPage({ id }: { id: string }) {
 
 	useEffect(() => {
 		const controller = new AbortController();
+		// Parallel route assets (2026-10-31): waiting until the record GET
+		// finishes to start the chat chunk would make navigation a waterfall.
+		void import("@/components/chat").catch(() => {
+			// A failed preload is not the route's verdict; lazy() retries the
+			// import when the actual chat surface renders.
+		});
 		setLoad({ status: "loading" });
 		void (async () => {
 			try {
@@ -68,17 +84,23 @@ function ChatPage({ id }: { id: string }) {
 	}
 	const { chat } = load;
 	return (
-		<Chat
-			key={chat.id}
-			chatId={chat.id}
-			title={chat.title}
-			kind={chat.kind ?? "teach"}
-			initialMessages={chat.messages}
-			initialError={chat.turnFailure ?? undefined}
-			initialPrompt={searchParams.get("prompt") ?? undefined}
-			initiallyInFlight={chat.turnInFlight}
-			initiallyCompacting={chat.compacting}
-		/>
+		<Suspense fallback={<p role="status" className="p-4 text-muted-foreground">Loading session…</p>}>
+			<Chat
+				key={chat.id}
+				chatId={chat.id}
+				title={chat.title}
+				kind={chat.kind ?? "teach"}
+				initialMessages={chat.messages}
+				initialError={chat.turnFailure ?? undefined}
+				initialPrompt={searchParams.get("prompt") ?? undefined}
+				initiallyInFlight={chat.turnInFlight}
+				initiallyCompacting={chat.compacting}
+				initialTurns={chat.turns ?? []}
+				initialPricing={chat.pricing}
+				initialSettings={chat.settings}
+				initialCoverage={chat.coverage ?? null}
+			/>
+		</Suspense>
 	);
 }
 
@@ -91,6 +113,7 @@ export function Pages() {
 	return (
 		<Switch>
 			<Route path="/"><Home /></Route>
+			<Route path="/graph"><Suspense fallback={<p role="status" className="p-4 text-muted-foreground">Loading graph…</p>}><GraphPage /></Suspense></Route>
 			<Route path="/chat/new"><NewSessionPage /></Route>
 			<Route path="/chat/:id">{({ id }) => <ChatPage key={id} id={id} />}</Route>
 			<Route path="/settings"><Redirect to="/chat/new" replace /></Route>

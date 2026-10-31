@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "@/web/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { ActivityIcon, DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -21,16 +21,18 @@ import { useServerEvent, useServerResync } from "@/components/server-events";
 import type { ChatListItem } from "@/src/core";
 import { useSwipeReveal } from "@/components/use-swipe-reveal";
 
-/** Navigation always uses a dismissible drawer, regardless of window width. */
-
-
+/** Phone navigation stays a drawer; desktop navigation occupies its own column. */
 
 const SidebarContext = createContext<{
 	open: boolean;
+	desktop: boolean;
+	desktopOpen: boolean;
 	toggle: () => void;
 	close: () => void;
 }>({
 	open: false,
+	desktop: false,
+	desktopOpen: true,
 	toggle: () => {},
 	close: () => {},
 });
@@ -41,6 +43,8 @@ function useSidebar() {
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
 	const [open, setOpen] = useState(false);
+	const [desktop, setDesktop] = useState(false);
+	const [desktopOpen, setDesktopOpen] = useState(true);
 	const pathname = usePathname();
 	const close = useCallback(() => setOpen(false), []);
 	useEffect(() => {
@@ -50,13 +54,27 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 	useEffect(() => {
 		setMounted(true);
+		const media = window.matchMedia("(min-width: 1100px)");
+		const onChange = () => setDesktop(media.matches);
+		onChange();
+		media.addEventListener("change", onChange);
+		setDesktopOpen(window.localStorage.getItem("lh:desktop-sidebar-open") !== "false");
+		return () => media.removeEventListener("change", onChange);
 	}, []);
 
-	const toggle = useCallback(() => setOpen((value) => !value), []);
+	// Desktop layout (2026-10-31): the drawer state is independent of the
+	// remembered dock width, so switching viewport never opens a phone scrim.
+	const toggle = useCallback(() => {
+		if (desktop) setDesktopOpen((value) => {
+			window.localStorage.setItem("lh:desktop-sidebar-open", String(!value));
+			return !value;
+		});
+		else setOpen((value) => !value);
+	}, [desktop]);
 
 	return (
-		<SidebarContext.Provider value={{ open, toggle, close }}>
-			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")}>{children}</div>
+		<SidebarContext.Provider value={{ open, desktop, desktopOpen, toggle, close }}>
+			<div className={cn("flex h-dvh", mounted && "[&_.sidebar-motion]:transition-[width,margin,opacity]")} style={{ "--lh-sidebar-half": desktopOpen ? "130px" : "28px" } as React.CSSProperties}>{children}</div>
 		</SidebarContext.Provider>
 	);
 }
@@ -64,23 +82,24 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 /** Drawer toggle keeps its layout slot mounted through open/close so
  * the header does not jump while the drawer animates. */
 export function SidebarToggle() {
-	const { open, toggle } = useSidebar();
+	const { open, desktop, desktopOpen, toggle } = useSidebar();
+	const hidden = desktop ? desktopOpen : open;
 	return (
 		<span
 			className={cn(
 				"sidebar-motion relative flex h-11 shrink-0 overflow-hidden duration-200",
-				open ? "w-0 -mr-3" : "w-11 mr-0",
+				hidden ? "w-0 -mr-3" : "w-11 mr-0",
 			)}
 		>
-			<Hint label="Open sidebar">
+			<Hint label={desktop ? "Expand sidebar" : "Open sidebar"}>
 			<Button
 				variant="ghost"
 				size="icon"
-				aria-label="Open sidebar"
-				aria-hidden={open}
-				tabIndex={open ? -1 : 0}
+				aria-label={desktop ? "Expand sidebar" : "Open sidebar"}
+				aria-hidden={hidden}
+				tabIndex={hidden ? -1 : 0}
 				onClick={toggle}
-				className={cn("sidebar-motion size-11 duration-200", open ? "pointer-events-none opacity-0" : "opacity-100")}
+				className={cn("sidebar-motion size-11 duration-200", hidden ? "pointer-events-none opacity-0" : "opacity-100")}
 			>
 				{/* Owner, round 6: size-4, SAME as the close glyph — the toggle
 				    must not grow when the sidebar is closed (it did: size-5 here).
@@ -602,16 +621,16 @@ type SessionKindFilter = "teach" | "all" | "practice";
 const KIND_FILTER_KEY = "lh:session-kind-filter";
 
 function SessionsSidebar() {
-	const { open, toggle, close } = useSidebar();
+	const { open, desktop, desktopOpen, toggle, close } = useSidebar();
 	const drawerRef = useRef<HTMLElement>(null);
 	useEffect(() => {
-		if (!open) return;
+		if (!open || desktop) return;
 		const previous = document.activeElement as HTMLElement | null;
 		drawerRef.current?.querySelector<HTMLButtonElement>('[aria-label="Close sidebar"]')?.focus();
 		return () => {
 			if (previous?.isConnected) previous.focus();
 		};
-	}, [open]);
+	}, [open, desktop]);
 	const [chats, setChats] = useState<ChatListItem[] | null>(null);
 	const [query, setQuery] = useState("");
 	const [kindFilter, setKindFilter] = useState<SessionKindFilter>("all");
@@ -727,7 +746,11 @@ function SessionsSidebar() {
 	const refreshRef = useRef(refresh);
 	refreshRef.current = refresh;
 	const eventDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+	// Closed navigation (2026-10-31): only the phone drawer or visible
+	// desktop dock needs live list reads; opening either refetches missed truth.
+	const listVisible = open || (desktop && desktopOpen);
 	const scheduleEventRefresh = () => {
+		if (!listVisible) return;
 		if (eventDebounceRef.current) clearTimeout(eventDebounceRef.current);
 		eventDebounceRef.current = setTimeout(() => {
 			eventDebounceRef.current = undefined;
@@ -738,7 +761,7 @@ function SessionsSidebar() {
 	useServerEvent("turn-started", scheduleEventRefresh);
 	useServerEvent("turn-settled", scheduleEventRefresh);
 	useServerEvent("compaction-changed", scheduleEventRefresh);
-	useServerResync(() => void refreshRef.current());
+	useServerResync(() => { if (listVisible) void refreshRef.current(); });
 	useEffect(
 		() => () => {
 			if (eventDebounceRef.current) clearTimeout(eventDebounceRef.current);
@@ -749,39 +772,40 @@ function SessionsSidebar() {
 
 
 	useEffect(() => {
-		if (!open) return;
+		if (!listVisible) return;
 		void refresh();
-		// Opening + navigation refetch; while open, the events channel owns
-		// freshness (S6) — no interval, nothing standing.
-	}, [open, pathname, refresh]);
+		// Opening + navigation refetch; while visible, the events channel
+		// owns freshness (S6) — no interval, nothing standing.
+	}, [listVisible, pathname, refresh]);
 
 	return (
 		<>
-		{open && (
+		{open && !desktop && (
 			<button
 				type="button"
 				aria-label="Close sidebar backdrop"
 				tabIndex={-1}
 				onClick={close}
-				className="fixed inset-0 z-40 bg-background/70"
+				className="fixed inset-0 z-40 bg-background/70 min-[1100px]:hidden"
 			/>
 		)}
 		<aside
 			ref={drawerRef}
 			className={cn(
-				"sidebar-motion fixed inset-y-0 left-0 z-50 shrink-0 overflow-hidden duration-200",
+				"sidebar-motion fixed inset-y-0 left-0 z-50 shrink-0 overflow-hidden duration-200 min-[1100px]:relative min-[1100px]:inset-auto min-[1100px]:z-auto",
 				open ? "w-72 max-w-[calc(100vw-2rem)]" : "w-0",
+				desktopOpen ? "min-[1100px]:w-[260px]" : "min-[1100px]:w-14",
 			)}
-			role="dialog"
-			aria-modal={open ? true : undefined}
+			role={desktop ? "navigation" : "dialog"}
+			aria-modal={!desktop && open ? true : undefined}
 			aria-label="Navigation"
-			aria-hidden={!open}
-			inert={!open}
+			aria-hidden={!desktop && !open}
+			inert={!desktop && !open}
 		>
-			<div className="flex h-full w-72 max-w-full flex-col border-r bg-background">
+			<div className="flex h-full w-72 max-w-full flex-col border-r bg-background min-[1100px]:w-[260px]">
 				{/* Wordmark and drawer close toggle. */}
 				<div
-					className="flex items-center justify-between px-4 py-3"
+					className={cn("flex items-center justify-between px-4 py-3", !desktopOpen && "min-[1100px]:px-1.5")}
 					style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}
 				>
 					{/* The wordmark remains the home link. */}
@@ -801,28 +825,28 @@ function SessionsSidebar() {
 						<Button
 							variant="ghost"
 							size="icon"
-							aria-label="Close sidebar"
+							aria-label={desktop ? "Collapse sidebar" : "Close sidebar"}
 							onClick={toggle}
+							className={cn(!desktopOpen && "min-[1100px]:hidden")}
 						>
 							<PanelLeftCloseIcon className="size-4" />
 						</Button>
 					</Hint>
 				</div>
 
-				{/* Two doors, STACKED (owner round 8, 2026-10-05 — was a
-				    half/half row): full-width rows read cleaner and give the
-				    labels room; teaching keeps the original draft route,
-				    practice carries its mode. */}
-				<div className="mx-3 mb-2 flex flex-col gap-1.5">
+				{/* Two doors, STACKED (owner round 8, 2026-10-05):
+				    desktop's collapsed rail preserves both create actions. */}
+				<div className={cn("mx-3 mb-2 flex flex-col gap-1.5", !desktopOpen && "min-[1100px]:mx-0 min-[1100px]:items-start")}>
 					<button
 						type="button"
 						data-testid="new-session"
 						onClick={() => void newSession()}
-						className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						aria-label="New teaching session"
+						title={!desktopOpen && desktop ? "New teaching session" : undefined}
+						className={cn("flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", !desktopOpen && "min-[1100px]:ml-1.5 min-[1100px]:w-11 min-[1100px]:justify-center min-[1100px]:px-0")}
 					>
 						<PlusIcon className="size-3" />
-						Teaching
-						<span className="sr-only">create a new teaching session</span>
+						<span className={cn(!desktopOpen && "min-[1100px]:sr-only")}>Teaching</span>
 					</button>
 					<button
 						type="button"
@@ -831,15 +855,20 @@ function SessionsSidebar() {
 							close();
 							router.push("/chat/new?mode=practice");
 						}}
-						className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+						aria-label="New practice session"
+						title={!desktopOpen && desktop ? "New practice session" : undefined}
+						className={cn("flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", !desktopOpen && "min-[1100px]:ml-1.5 min-[1100px]:w-11 min-[1100px]:justify-center min-[1100px]:px-0")}
 					>
 						<DumbbellIcon className="size-3" />
-						Practice
-						<span className="sr-only">create a new practice session</span>
+						<span className={cn(!desktopOpen && "min-[1100px]:sr-only")}>Practice</span>
 					</button>
 				</div>
+				<Link href="/graph" aria-label="Graph" title="Graph" className={cn("mx-3 mb-2 hidden min-h-11 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground min-[1100px]:flex", !desktopOpen && "min-[1100px]:mx-1.5 min-[1100px]:w-11 min-[1100px]:justify-center min-[1100px]:px-0")}>
+					<WaypointsIcon className="size-4 shrink-0" />
+					<span className={cn(!desktopOpen && "min-[1100px]:sr-only")}>Graph</span>
+				</Link>
 
-				<div className="mx-3 mb-2 flex items-center gap-2">
+				<div className={cn("mx-3 mb-2 flex items-center gap-2", !desktopOpen && "min-[1100px]:hidden")}>
 					<span className="text-sm text-muted-foreground">Sessions</span>
 					<Hint label="Search sessions" side="bottom">
 					<span className="relative flex-1">
@@ -863,7 +892,7 @@ function SessionsSidebar() {
 				    Practice / All — the real modes first, "All" as the escape
 				    hatch on the right, mirroring the create-buttons above.
 				    Persisted client-side. */}
-				<div className="mx-3 flex items-center gap-0.5 rounded-md bg-muted p-0.5" data-testid="session-kind-filter">
+				<div className={cn("mx-3 flex items-center gap-0.5 rounded-md bg-muted p-0.5", !desktopOpen && "min-[1100px]:hidden")} data-testid="session-kind-filter">
 					{(["teach", "practice", "all"] as const).map((f) => (
 						<button
 							key={f}
@@ -882,7 +911,7 @@ function SessionsSidebar() {
 					))}
 				</div>
 
-				{shown === null ? (
+				{!desktopOpen && desktop ? <div className="min-h-0 flex-1" /> : shown === null ? (
 					<div className="flex-1 overflow-y-auto p-2">
 						<div className="px-2 py-4 text-xs text-muted-foreground">Loading…</div>
 					</div>
@@ -890,7 +919,7 @@ function SessionsSidebar() {
 					<SessionList
 						chats={shown}
 						activeId={pathname.startsWith("/chat/") ? pathname.slice("/chat/".length) : null}
-						className="flex-1 overflow-y-auto px-3 py-2"
+						className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
 						grouped
 						empty={
 							<div className="px-2 py-4 text-xs text-muted-foreground">
@@ -905,16 +934,22 @@ function SessionsSidebar() {
 					/>
 				)}
 
+				{!desktopOpen && desktop && (
+					<button type="button" onClick={toggle} aria-label="Background agents" title="Background agents" className="ml-1.5 flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+						<ActivityIcon className="size-4" />
+					</button>
+				)}
+
 				<div className="shrink-0" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
 					{/* Background agents (owner, sidebar round): the section is
 					    ALWAYS here — empty means empty (the header sits alone); it
 					    populates and grows when processes run. The session list is
 					    flex-1, so this pins to the bottom. Sidebar closed = the
 					    learner opted out (no ambient signal, user decision). */}
-					<ActivitySection />
+					<div className={cn(!desktopOpen && "min-[1100px]:hidden")}><ActivitySection /></div>
 
 					{/* Settings opens the phone section sheet. */}
-					<div className="px-3 pt-1">
+					<div className={cn("px-3 pt-1", !desktopOpen && "min-[1100px]:px-1.5")}>
 						<Hint label="Settings" side="right">
 							<button
 								type="button"
@@ -923,10 +958,10 @@ function SessionsSidebar() {
 									openSettings();
 								}}
 								data-testid="settings-entry"
-								className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+								className={cn("flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", !desktopOpen && "min-[1100px]:w-11 min-[1100px]:justify-center min-[1100px]:px-0")}
 							>
 								<SettingsIcon className="size-3" />
-								Settings
+								<span className={cn(!desktopOpen && "min-[1100px]:sr-only")}>Settings</span>
 							</button>
 						</Hint>
 					</div>
@@ -938,13 +973,13 @@ function SessionsSidebar() {
 	);
 }
 
-/** The app frame: overlay drawer and full-width content. */
+/** The app frame: a phone overlay or a docked desktop navigation column. */
 export function AppShell({ children }: { children: React.ReactNode }) {
-	const { open } = useSidebar();
+	const { open, desktop } = useSidebar();
 	return (
 		<SettingsDialogProvider>
 			<SessionsSidebar />
-			<main className="min-w-0 flex-1" inert={open}>{children}</main>
+			<main className="min-w-0 flex-1" inert={!desktop && open}>{children}</main>
 		</SettingsDialogProvider>
 	);
 }

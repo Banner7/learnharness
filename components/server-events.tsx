@@ -55,7 +55,9 @@ function openEventsChannel(): NotifySource {
 export function createNotifyHub() {
 	const byType = new Map<string, Set<(data: never) => void>>();
 	const resyncs = new Set<() => void>();
+	let hasOpened = false;
 	return {
+		hasOpened: () => hasOpened,
 		subscribe<K extends ServerEventType>(type: K, cb: (payload: ServerEvents[K]) => void) {
 			const set = byType.get(type) ?? new Set<(data: never) => void>();
 			byType.set(type, set);
@@ -93,6 +95,7 @@ export function createNotifyHub() {
 			}
 		},
 		fireOpen() {
+			hasOpened = true;
 			for (const cb of [...resyncs]) {
 				try {
 					cb();
@@ -151,5 +154,35 @@ export function useServerResync(cb: () => void): void {
 		return () => {
 			off();
 		};
+	}, [hub]);
+}
+
+/** The first-open read (2026-10-31): an eagerly mounted reader can otherwise
+ * GET once before the channel connects and immediately GET again on open.
+ * Read after connection instead; if connection stalls, a bounded fallback
+ * still shows data. A later open re-reads even after that fallback: an event
+ * could have fallen into the gap before the channel attached. */
+export function useServerInitialRead(cb: () => void): void {
+	const readRef = useRef(cb);
+	readRef.current = cb;
+	const openedRef = useRef(false);
+	useServerResync(() => {
+		openedRef.current = true;
+		readRef.current();
+	});
+	const hub = useContext(EventsContext);
+	if (!hub) throw new Error("useServerInitialRead requires <ServerEventsProvider>");
+	useEffect(() => {
+		// A route mounted after the channel opened needs an immediate first
+		// read, not the fallback delay. Its later reconnect still resyncs.
+		if (hub.hasOpened()) {
+			if (!openedRef.current) readRef.current();
+			return;
+		}
+		const fallback = setTimeout(() => {
+			if (openedRef.current) return;
+			readRef.current();
+		}, 1000);
+		return () => clearTimeout(fallback);
 	}, [hub]);
 }
