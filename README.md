@@ -18,7 +18,11 @@ Instead of just giving you an explanation, it uses your answers and thinking to 
 
 ![LearnHarness on a phone: home, a teaching prediction, and the lesson plan](docs/assets/lhs-phone.png)
 
-Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship; desktop browsers get their own layout instead (see below).
+Screenshots are from this fork running in a phone-width browser. Upstream's README shows its desktop app, which this fork does not ship; desktop browsers get their own layout instead:
+
+![LearnHarness in a desktop browser: docked sidebar, a teaching session, and the session rail with stats, model and coverage](docs/assets/lhs-desktop-chat.png)
+
+![The desktop-only knowledge graph with a node's statement and source session](docs/assets/lhs-desktop-graph.png)
 
 ## How it works
 
