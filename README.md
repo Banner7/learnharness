@@ -10,6 +10,8 @@
 
 This is an unofficial, independently maintained fork of [LearnHarness](https://github.com/amosblomqvist/learnharness). It is not supported by the upstream project. For fork-specific issues, use this repository's Issues tab.
 
+> If you think I read any of its code, you would be dreaming. Haven't opened nvim for a good while.
+
 LearnHarness uses AI agents to plan and teach lessons from your current understanding to your goal. It builds a detailed picture of what you understand and how you reason. That picture is updated as you learn.
 
 Instead of just giving you an explanation, it uses your answers and thinking to decide what you need next. Teaching builds understanding one reasoning step at a time. Practice makes it usable. A persistent knowledge graph carries it across sessions.
