@@ -2,7 +2,6 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "@/web/navigation";
-import { SettingsIcon } from "lucide-react";
 import { tap } from "@/lib/haptics";
 import { HapticLabel } from "@/components/ui/haptic";
 import { MinimalHome } from "@/components/minimal-home";
@@ -11,15 +10,12 @@ import { ComposerActions, NodePickerControl } from "@/components/composer-action
 import { SidebarToggle } from "@/components/sidebar";
 import { ModelControl } from "@/components/model-picker";
 import { HelpersControl } from "@/components/helpers-control";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 import { OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { SessionStarter } from "@/components/start-session";
 
 /** Redesign (owner, 2026-10-27): one composer-led home for both color modes. */
 export function Home() {
 	const router = useRouter();
-	const { open: openSettings } = useSettingsDialog();
 	const [topic, setTopic] = useState("");
 	const topicRef = useRef("");
 	const [busy, setBusy] = useState(false);
@@ -69,14 +65,10 @@ export function Home() {
 
 	return (
 		<div className="h-dvh overflow-y-auto min-[1280px]:pr-[300px]">
-			<header className="mx-auto flex max-w-[720px] items-center justify-between px-4 pt-[calc(0.5rem+env(safe-area-inset-top))]">
+			{/* One Settings entry (owner, 2026-10-31): the sidebar's Settings row,
+			    with the theme switch beside it, is the only one; no header gear. */}
+			<header className="mx-auto flex max-w-[720px] items-center px-4 pt-[calc(0.5rem+env(safe-area-inset-top))]">
 				<SidebarToggle />
-				<div className="flex items-center gap-1">
-					<ThemeToggle />
-					<button type="button" aria-label="Settings" onClick={() => openSettings()} className="flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
-						<SettingsIcon className="size-5" />
-					</button>
-				</div>
 			</header>
 			<MinimalHome
 				chainSelectOpen={chainSelectOpen}
