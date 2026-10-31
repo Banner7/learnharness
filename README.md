@@ -30,7 +30,8 @@ This fork changes the shell around that engine: a browser app you host yourself,
 | Delivery | Electron desktop app with installers and updater | Browser app: Vite + React SPA served by a Hono server, shipped as a Docker image (amd64) |
 | Access | Local desktop window | HTTPS behind origin checks and Basic auth, or a Tailscale identity allowlist |
 | Layout | Desktop window | Phone: overlay sidebar, plan sheet, home-screen web app. Desktop (≥1100px): docked sidebar with icon rail, Explore panel, visual graph; ≥1280px adds a session rail with stats, model and coverage |
-| Model slots | Settings → Agent | Also a **Helpers** dropdown beside the model picker for the cheap and vision slots; light/dark/auto switch beside Settings |
+| Look | Upstream theme | "Kanagawa Kasumi" community palette in both modes: a sand light skin (accents darkened to pass 4.5:1 contrast) and Kasumi dark as published; Atkinson Hyperlegible Next and JetBrains Mono. Light/dark/auto switch beside Settings |
+| Model slots | Settings → Agent | Also a **Helpers** dropdown beside the model picker for the cheap and vision slots |
 | Claude | Claude Code CLI found on the machine | CLI pinned in the image, signed in with `CLAUDE_CODE_OAUTH_TOKEN`; thinking text is requested so it is visible (`--thinking-display summarized`) |
 | Credentials | Edited in the app | Server-side only: environment, `secrets/auth.json`, and OpenAI-compatible providers via `LH_CUSTOM_PROVIDERS` |
 | Data safety | App folder | Atomic, fsynced writes; corrupt records are skipped in lists instead of blanking the app; optional restic backup scripts and Markdown session export (`scripts/`) |
