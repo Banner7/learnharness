@@ -3,7 +3,7 @@
 	"short_name": "LearnHarness",
 	"start_url": "/",
 	"display": "standalone",
-	"background_color": "#e5d8be",
+	"background_color": "#1a2026",
 	"theme_color": "#e5d8be",
 	"icons": [
 		{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
