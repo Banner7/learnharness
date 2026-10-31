@@ -123,10 +123,14 @@ export function HelpersControl() {
 					onClick={toggle}
 					aria-expanded={view !== null}
 					aria-haspopup="dialog"
-					className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
+					className="group flex min-h-11 items-center text-xs"
 				>
-					<span className="text-foreground">Helpers</span>
-					<span aria-hidden className="text-xs text-muted-foreground">▾</span>
+					{/* Filled pill (owner, 2026-10-31): sets Helpers apart from the bare
+					    strong-slot pickers; the 44px hit area stays on the button. */}
+					<span className="flex items-center gap-1 rounded-md bg-muted px-2 py-1 transition-colors group-hover:bg-accent">
+						<span className="text-foreground">Helpers</span>
+						<span aria-hidden className="text-muted-foreground">▾</span>
+					</span>
 				</button>
 			</Hint>
 

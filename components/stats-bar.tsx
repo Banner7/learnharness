@@ -190,8 +190,7 @@ export function StatsBar({
 				<section aria-label="Model" className="w-full rounded-lg border border-border bg-card p-3">
 					<h3 className="mb-1 text-xs font-medium text-muted-foreground">Model</h3>
 					<ModelControl chatId={chatId} initialSession={initialSession} onModelChange={setSelectedModel} />
-					<h3 className="mb-1 mt-2 text-xs font-medium text-muted-foreground">Helpers</h3>
-					<HelpersControl />
+					<div className="mt-1"><HelpersControl /></div>
 				</section>
 			) : (
 				<div className="flex flex-wrap items-center justify-end gap-1">

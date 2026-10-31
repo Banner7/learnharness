@@ -67,7 +67,7 @@ export function Home() {
 	};
 
 	return (
-		<div className="h-dvh overflow-y-auto">
+		<div className="h-dvh overflow-y-auto min-[1280px]:pr-[300px]">
 			<header className="mx-auto flex max-w-[720px] items-center justify-between px-4 pt-[calc(0.5rem+env(safe-area-inset-top))]">
 				<SidebarToggle />
 				<button type="button" aria-label="Settings" onClick={() => openSettings()} className="flex size-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -122,7 +122,9 @@ export function Home() {
 						<ComposerActions picker={(practiceProps.length > 0 || mode === "practice") && (
 							<NodePickerControl count={practiceProps.length} onOpen={() => setChainSelectOpen(true)} onClear={() => setPracticeProps([])} />
 						)} />
-						<div className="flex items-center gap-1 text-xs text-muted-foreground"><ModelControl /><HelpersControl /></div>
+						{/* Helpers on its own line (owner, 2026-10-31): the strong pickers
+						    name this session; Helpers names the background tiers. */}
+						<div className="flex flex-col items-start text-xs text-muted-foreground"><ModelControl /><HelpersControl /></div>
 					</div>
 				</section>
 			</MinimalHome>
