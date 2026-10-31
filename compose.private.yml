@@ -1,9 +1,10 @@
 # Template only; deployment and server credentials require separate approval.
 services:
   learnharness:
+    image: banner7/learnharness:latest
+    # Pulled from Docker Hub when absent; `up --build` builds this checkout instead.
+    pull_policy: missing
     build: .
-    image: learnharness:local
-    pull_policy: never
     init: true
     restart: unless-stopped
     ports:

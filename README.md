@@ -73,7 +73,9 @@ The upstream [custom-endpoint guide](docs/custom-providers.md) describes the set
 
 ## Self-hosting with Docker Compose
 
-The included [`compose.private.yml`](compose.private.yml) is a template for a single-owner deployment. Docker on an amd64 host, an HTTPS tailnet-only reverse proxy, and a Claude Code setup token (if using Claude) are prerequisites. From the repository root:
+The included [`compose.private.yml`](compose.private.yml) is a template for a single-owner deployment. Docker on an x64 (amd64) host, an HTTPS tailnet-only reverse proxy, and a Claude Code setup token (if using Claude) are prerequisites. From the repository root, or any directory holding a copy of the template:
+
+The image is published on Docker Hub as [`banner7/learnharness`](https://hub.docker.com/r/banner7/learnharness), x64 (`linux/amd64`) only; ARM hosts are not supported. `latest` follows `main`, and `vX.Y.Z-banner.N` tags pin releases.
 
 1. Create `data/`, `claude/`, and `secrets/`. Give the container's `node` user (UID 1000) write access to `data/` and `claude/`; keep `secrets/` owner-only and readable by that container user. Keep these paths and their contents out of Git.
 2. Create `secrets/runtime.env` with your own values (placeholders below). The web token must be a fresh 64-character hexadecimal secret, for example from `openssl rand -hex 32`; do not use a provider key as the web token.
@@ -91,7 +93,7 @@ The included [`compose.private.yml`](compose.private.yml) is a template for a si
 
    Omit the Claude token if not using Claude. `LH_CUSTOM_PROVIDERS` accepts provider/model definitions, including optional header values sourced from environment variables; see [`src/agent/custom-providers.ts`](src/agent/custom-providers.ts) for its schema. Do not put real credentials directly in that JSON.
 3. Create `secrets/auth.json` containing `{}` for an empty server credential map; the Compose template mounts `secrets/` and sets `LH_AUTH_FILE=/secrets/auth.json`. Server credentials may alternatively be supplied through supported environment variables. No browser form edits provider credentials.
-4. Start the stack: `docker compose -f compose.private.yml up -d --build`. Compose publishes host loopback port 3000 by default; set `LH_HOST_PORT` in the shell (or a Compose `.env` file) to choose another host port. Configure Tailscale Serve to terminate HTTPS at `LH_WEB_ORIGIN` and proxy to that host-loopback port; preserve the public `Host` header. Grant access through your tailnet policy, not Funnel. The server listens on port 3000 inside the container.
+4. Start the stack: `docker compose -f compose.private.yml up -d`. Compose pulls `banner7/learnharness:latest` if it is not present; run `docker compose -f compose.private.yml pull` to update, or add `--build` to build from this checkout instead. Compose publishes host loopback port 3000 by default; set `LH_HOST_PORT` in the shell (or a Compose `.env` file) to choose another host port. Configure Tailscale Serve to terminate HTTPS at `LH_WEB_ORIGIN` and proxy to that host-loopback port; preserve the public `Host` header. Grant access through your tailnet policy, not Funnel. The server listens on port 3000 inside the container.
 5. To use Claude, enable it in `data/settings.json` with `"claudeCode": {"enabled": true}` in the settings object and restart the service. Pick installed/configured models in the app's Settings. Keep the mounted `claude/` directory writable by UID 1000 for CLI state.
 
 ## Security
