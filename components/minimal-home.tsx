@@ -7,7 +7,7 @@ import { useRouter } from "@/web/navigation";
 import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { planCostLabel } from "@/components/usage-format";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
-import { NotesImportControl, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import { ActivitySection } from "@/components/activity-dock";
 import { SessionList } from "@/components/sidebar";
 import { Hint } from "@/components/ui/hint";
@@ -222,8 +222,6 @@ export function MinimalHome({
 	}, []);
 	useEffect(() => {
 		readState();
-	}, [readState]);
-	useEffect(() => {
 		window.addEventListener("lh:graph-revision", readState);
 		return () => window.removeEventListener("lh:graph-revision", readState);
 	}, [readState]);
@@ -286,13 +284,14 @@ export function MinimalHome({
 					</div>
 				</div>
 				<NotesImportErrors errors={notesImport.errors} />
+				<NotesImportNotices notices={notesImport.notices} />
 				<div className="hidden rounded-lg border border-border bg-card min-[1100px]:block [&_[data-testid=activity-section]]:border-t-0">
 					<ActivitySection />
 				</div>
 			</aside>
 			{/* Keep the chain table as the final child so it covers the home controls. */}
 			<ChainTableOverlay
-				open={chainsOpen && (snapshot?.propositions.length ?? 0) > 0}
+				open={chainsOpen}
 				nodes={snapshot?.propositions ?? []}
 				chains={snapshot?.chains ?? []}
 				sessions={snapshot?.sessions ?? {}}

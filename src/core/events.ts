@@ -38,6 +38,8 @@ export interface ServerEvents {
 	"activity-changed": Record<string, never>;
 	/** The session list changed (create, delete, title). */
 	"chats-changed": Record<string, never>;
+	/** Source inventory, display names, or organizational folders changed. */
+	"sources-changed": Record<string, never>;
 	/** A chat's record changed WITHOUT a turn (the silent dismissal write).
 	 *  Same notify-then-fetch contract as the turn events: open views of
 	 *  the chat refetch and adopt the durable record. */
@@ -61,6 +63,7 @@ export const SERVER_EVENT_TYPES = [
 	"jobs-changed",
 	"activity-changed",
 	"chats-changed",
+	"sources-changed",
 	"record-changed",
 	"compaction-changed",
 ] as const satisfies readonly ServerEventType[];

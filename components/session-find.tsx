@@ -44,6 +44,22 @@ function publishHighlights(ranges: readonly Range[], index: number): void {
 	CSS.highlights.set(SESSION_FIND_ACTIVE_HIGHLIGHT, active);
 }
 
+/** One-Esc law: a surfaced menu/dialog/cheat sheet outranks this non-modal
+ * bar, regardless of where focus happened to be left. Closed Radix exits
+ * must not block Find once they have stopped being a surfaced layer.
+ * Restored for the 0.4.1 port (fork, 2026-10-31): chains keyboard
+ * navigation uses it so arrow keys never act under an open menu. */
+export function sessionFindHasForegroundLayer(doc: Document): boolean {
+	return Array.from(doc.querySelectorAll(
+		'[data-lh-menu], [data-radix-popper-content-wrapper], [role="menu"], [role="dialog"], [data-testid="cheat-sheet"]',
+	)).some((element) => {
+		if (element.getAttribute("data-state") === "closed" || element.hasAttribute("hidden")) return false;
+		const view = doc.defaultView;
+		if (typeof view?.getComputedStyle !== "function") return true;
+		const style = view.getComputedStyle(element);
+		return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+	});
+}
 
 /** Mounted for the lifetime of ONE Chat (which is keyed by chatId). Closing
  * keeps the query/reading position; changing sessions resets all local state.

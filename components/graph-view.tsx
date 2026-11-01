@@ -64,7 +64,7 @@
  */
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { NotesImportControl, NotesImportErrors, useNotesImport } from "@/components/notes-import.tsx";
+import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import { Link } from "wouter";
 import { GraphCostControl } from "./minimal-home";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
@@ -722,8 +722,7 @@ export function GraphChromeRow({
 			)}
 			{/* The chain table (chains overlay, owner plan 2026-09-29). Own
 			    container (36px band), between the search and Import. */}
-			{!isEmpty && (
-				<div className="shrink-0 rounded-md border border-border bg-card px-1 py-[3px]">
+			<div className="shrink-0 rounded-md border border-border bg-card px-1 py-[3px]">
 					<Hint label="Every reasoning chain" side="bottom">
 						<button
 							type="button"
@@ -736,7 +735,6 @@ export function GraphChromeRow({
 						</button>
 					</Hint>
 				</div>
-			)}
 			{/* Import notes — its own container (36px, header band); ALWAYS
 			    rendered (the empty-graph ruling above — the entry point). */}
 			<NotesImportControl importing={importing} onImportFiles={onImportFiles} />
@@ -782,14 +780,8 @@ export function GraphView({
 
 	// Search panel state: the query text + the settings section toggle.
 	const [query, setQuery] = useState("");
-	// ⌘F (shortcut wave C): the find event focuses the node search —
-	// surface-scoped, dispatched as lh:kbd-find (only this page listens).
+	// Surface-scoped Find: the chains overlay owns it while open.
 	const searchInputRef = useRef<HTMLInputElement>(null);
-	useEffect(() => {
-		const onFind = () => searchInputRef.current?.focus();
-		window.addEventListener("lh:kbd-find", onFind);
-		return () => window.removeEventListener("lh:kbd-find", onFind);
-	}, []);
 	// Render settings: SERVER-persisted (data/render-settings.json via
 	// /api/graph/render-settings) — sizes AND the region/physics sections
 	// (user-facing since 2026-09-13; the dev-session era is over). Loaded
@@ -873,6 +865,12 @@ export function GraphView({
 	// The chain table overlay (chains-overlay plan, 2026-09-29) —
 	// component-local: a browsing surface, not graph state.
 	const [chainsOpen, setChainsOpen] = useState(false);
+	useEffect(() => {
+		if (chainsOpen) return;
+		const onFind = () => searchInputRef.current?.focus();
+		window.addEventListener("lh:kbd-find", onFind);
+		return () => window.removeEventListener("lh:kbd-find", onFind);
+	}, [chainsOpen]);
 	// PRACTICE SELECT (2026-10-04): the parent's chip drives the select
 	// mode; closing (either the picker's confirm or its X) reports back so
 	// the chip's open state and the table's never disagree.
@@ -1023,8 +1021,15 @@ export function GraphView({
 			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
 			setLabelTick((t) => t + 1);
 		};
+		const onSourceRenamed = (event: Event) => {
+			const { id, title } = (event as CustomEvent<{ id?: string; title?: string }>).detail ?? {};
+			if (typeof id !== "string" || typeof title !== "string") return;
+			// Label-only channel: never rebuild geometry or rewrite fileSources.
+			rendererRef.current?.setClusterLabels(new Map([[id, title]]));
+		};
 		window.addEventListener("lh:chat-renamed", onRenamed);
-		return () => window.removeEventListener("lh:chat-renamed", onRenamed);
+		window.addEventListener("lh:source-renamed", onSourceRenamed);
+		return () => { window.removeEventListener("lh:chat-renamed", onRenamed); window.removeEventListener("lh:source-renamed", onSourceRenamed); };
 	}, []);
 
 	// The node context menu (node interlude): right-click a node → Delete.
@@ -1382,6 +1387,7 @@ export function GraphView({
 			</div>
 
 			<NotesImportErrors errors={notesImport.errors} />
+			<NotesImportNotices notices={notesImport.notices} />
 			{/* Top-right tail (owner, 2026-09-20): the pipeline cost number —
 			    just a number, hover-highlighted, dropdown breakdown — then
 			    the running-pipeline pills under it. Lives BELOW the actions
@@ -1449,7 +1455,7 @@ export function GraphView({
 			{/* Chain browsing remains in the graph area; its overlay owns
 			    its selection and closes independently of the canvas. */}
 			<ChainTableOverlay
-				open={chainsOpen && !isEmpty}
+				open={chainsOpen}
 				nodes={snapshot?.propositions ?? []}
 				chains={snapshot?.chains ?? []}
 				sessions={snapshot?.sessions ?? {}}

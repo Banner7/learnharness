@@ -51,6 +51,8 @@ const readChains = cachedLedger(LEDGER_FILES.chains, () => stores.graphStore.rea
  * while agent tools read the same graph store. Extraction writes separately. */
 export function graphView(): GraphSnapshot {
 	let sources: NotesSource[] | undefined;
+	const organization = stores.sourceOrganizationStore.read();
+	const names = Object.fromEntries(Object.entries(organization.placements).flatMap(([id, p]) => p.name === undefined ? [] : [[id, p.name]]));
 	return graphSnapshot({
 		...stores,
 		graphStore: {
@@ -59,7 +61,7 @@ export function graphView(): GraphSnapshot {
 			readChains,
 			readSources: () => (sources ??= stores.graphStore.readSources()),
 		},
-	});
+	}, names);
 }
 
 /** Cost data for the home knowledge summary, folded from extraction runs

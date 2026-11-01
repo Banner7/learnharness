@@ -10,7 +10,11 @@ export * from "./chats.ts";
 export * from "./graph.ts";
 export { commitPositions } from "./commit-positions.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
+export * from "./source-organization.ts";
+export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
+export { convertPdf } from "../agent/subagents/pdf-ops.ts";
+export { joinPages } from "../agent/subagents/pdf-markdown.ts";
 export * from "./jobs.ts";
 export * from "./stores.ts";
 // The settings record + prompt overrides (settings-storage wave, 2026-09-19).

@@ -21,6 +21,9 @@ export * from "./chains.ts";
 // Graph page restored for desktop (2026-10-31): pure layout and render
 // controls share one contract between canvas, storage and the graph API.
 export * from "./layout.ts";
+export * from "./source-organization.ts";
+export * from "./source-selection.ts";
+export * from "./source-label.ts";
 export * from "./render-settings.ts";
 
 export * from "./question-core.ts";
