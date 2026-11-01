@@ -781,6 +781,9 @@ export interface ExtractionPipeline {
 	 *  path, so re-importing the same file re-runs extraction against the
 	 *  same source identity (mappings dedupe by it). */
 	importNotes(input: NotesImportInput): Promise<EmissionStats>;
+	/** Vault library (fork, 2026-11-01): the same run for a followed vault
+	 *  note under its stored, rename-stable source id. */
+	extractVaultNote(input: NotesImportInput & { id: string }): Promise<EmissionStats>;
 }
 
 /** pi's per-step usage, flattened to the persisted CallUsage fields
@@ -1430,13 +1433,23 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 	 * auditor and usage history remain source-scoped; this is not exactly-once. */
 	async function importNotes(input: NotesImportInput): Promise<EmissionStats> {
 		const id = `src_${crypto.createHash("sha256").update(input.filePath).digest("hex").slice(0, 12)}`;
+		return extractSource(id, input);
+	}
+
+	/** Vault library (fork, 2026-11-01): the same run under the vault
+	 * source's minted id — a vault note's id is opaque, never its path. */
+	function extractVaultNote(input: NotesImportInput & { id: string }): Promise<EmissionStats> {
+		return extractSource(input.id, input);
+	}
+
+	async function extractSource(id: string, input: NotesImportInput): Promise<EmissionStats> {
 		// Acquire BEFORE source upsert: overlapping contents must not alter metadata.
 		if (inFlight.has(id)) throw new NotesImportError("busy", { nodes: 0, chains: 0 }, "This file is already being imported. Try again when it finishes.");
 		inFlight.add(id);
 		try {
 			const importedAt = new Date().toISOString();
 			graphStore.upsertSource({ id, filePath: input.filePath, importedAt });
-			return await runNotesExtraction({ id, ...input, importedAt });
+			return await runNotesExtraction({ id, filePath: input.filePath, text: input.text, importedAt });
 		} catch (err) {
 			if (err instanceof NotesImportError || err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError) throw err;
 			throw new NotesImportError("failed", { nodes: 0, chains: 0 }, err instanceof Error ? err.message : String(err), { cause: err });
@@ -1445,6 +1458,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	return { runExtraction, importNotes };
+	return { runExtraction, importNotes, extractVaultNote };
 }
 

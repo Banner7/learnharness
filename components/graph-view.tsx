@@ -65,6 +65,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
+import { useLibrary } from "@/components/library";
 import { Link } from "wouter";
 import { GraphCostControl } from "./minimal-home";
 import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
@@ -693,6 +694,9 @@ export function GraphChromeRow({
 	 *  2026-09-29). */
 	onOpenChains: () => void;
 }) {
+	// Vault library (fork, 2026-11-01): the vault supplies notes; the one-off
+	// upload moved to Settings → Library.
+	const vaultLibrary = useLibrary().status?.enabled ?? false;
 	return (
 		<>
 			{!isEmpty && (
@@ -735,9 +739,9 @@ export function GraphChromeRow({
 						</button>
 					</Hint>
 				</div>
-			{/* Import notes — its own container (36px, header band); ALWAYS
-			    rendered (the empty-graph ruling above — the entry point). */}
-			<NotesImportControl importing={importing} onImportFiles={onImportFiles} />
+			{/* Import notes — its own container (36px, header band); always
+			    rendered without a vault (the empty-graph entry point). */}
+			{!vaultLibrary && <NotesImportControl importing={importing} onImportFiles={onImportFiles} />}
 			{!isEmpty && (
 				// Rendering settings — own component; the gear toggles it. The
 				// gear sits at the far right (owner, round 3) so its panel drops

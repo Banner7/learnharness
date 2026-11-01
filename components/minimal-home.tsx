@@ -8,6 +8,7 @@ import { ChainTableOverlay } from "@/components/chain-table.tsx";
 import { planCostLabel } from "@/components/usage-format";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
+import { useLibrary } from "@/components/library";
 import { ActivitySection } from "@/components/activity-dock";
 import { SessionList } from "@/components/sidebar";
 import { Hint } from "@/components/ui/hint";
@@ -244,6 +245,9 @@ export function MinimalHome({
 	// Refetch even after incomplete imports: earlier writes and spend remain.
 	const notesImport = useNotesImport({ onFinish: readState });
 	const { importing, onImportFiles } = notesImport;
+	// Vault library (fork, 2026-11-01): with a vault configured, notes arrive
+	// from the vault; the one-off upload lives in Settings → Library.
+	const vaultLibrary = useLibrary().status?.enabled ?? false;
 
 	const recent = [...chats].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
 
@@ -279,7 +283,7 @@ export function MinimalHome({
 					<div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground min-[1100px]:mt-1 min-[1100px]:flex-col min-[1100px]:items-start min-[1100px]:gap-0">
 						<button type="button" data-testid="open-chain-table" onClick={() => setChainsOpen(true)} className="min-h-11 underline underline-offset-2 min-[1100px]:min-h-9 min-[1100px]:text-left">Chains</button>
 						<Link href="/graph" className="hidden min-h-9 items-center underline underline-offset-2 min-[1100px]:inline-flex">Graph</Link>
-						<NotesImportControl variant="link" importing={importing} onImportFiles={onImportFiles} />
+						{!vaultLibrary && <NotesImportControl variant="link" importing={importing} onImportFiles={onImportFiles} />}
 						{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 					</div>
 				</div>

@@ -419,6 +419,15 @@ export interface CompactionSettings {
 	thresholdTokens?: number;
 }
 
+/** Vault library (fork, 2026-11-01). Only meaningful when the server runs
+ *  with LH_VAULT_DIR. `autoExtract` off by default: the learner presses
+ *  Sync now until they trust the unattended spend. `exclude` replaces the
+ *  server's LH_VAULT_EXCLUDE seed once saved ("folder/" or "exact/path.md"). */
+export interface LibrarySettings {
+	autoExtract?: boolean;
+	exclude?: string[];
+}
+
 /** THE record. Every section optional (delta); unknown top-level keys are
  *  preserved verbatim by the sanitizer (forward-compat with newer records). */
 export interface UserSettings {
@@ -435,6 +444,7 @@ export interface UserSettings {
 	appearance?: AppearanceSettings;
 	graph?: GraphSettings;
 	compaction?: CompactionSettings;
+	library?: LibrarySettings;
 	[key: string]: unknown;
 }
 
@@ -684,6 +694,16 @@ function sanitizeGraph(raw: Record<string, unknown>): GraphSettings {
 	return out;
 }
 
+function sanitizeLibrary(raw: Record<string, unknown>): LibrarySettings {
+	const out: LibrarySettings = {};
+	const auto = boolOrDrop(raw.autoExtract);
+	if (auto !== undefined) out.autoExtract = auto;
+	if (Array.isArray(raw.exclude)) {
+		out.exclude = raw.exclude.filter((p): p is string => typeof p === "string").map((p) => p.trim().replace(/^\/+/, "")).filter(Boolean);
+	}
+	return out;
+}
+
 /** clamp-never-reject (the sanitizer's discipline): a finite positive
  *  number floors to COMPACTION_THRESHOLD_FLOOR, anything else drops (the
  *  factory default resolves at read time). Exported for the PUT parser's
@@ -735,6 +755,9 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
 			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
 		}
+	}
+	if (r.library !== null && typeof r.library === "object" && !Array.isArray(r.library)) {
+		out.library = sanitizeLibrary(r.library as Record<string, unknown>);
 	}
 	// Unknown top-level keys ride along untouched (forward-compat). One
 	// known-DEAD key is stripped instead of riding: `chat` (the old

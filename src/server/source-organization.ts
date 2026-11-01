@@ -4,9 +4,10 @@ import type { ChatStore, GraphStore, SourceOrganizationStore } from "../core/por
 import { getGraph } from "../core/graph.ts";
 import { sourceFileLabel } from "../core/source-label.ts";
 import {
-	applyOrganizationAction, parseOrganizationAction, placeImportedSource, placementOf,
+	applyOrganizationAction, overlayVaultFolders, parseOrganizationAction, placeImportedSource, placementOf, VAULT_FOLDER_PREFIX, vaultEntryState,
 	type SourceDirectory, type SourceEntry,
 } from "../core/source-organization.ts";
+import { vaultExtracting } from "./vault.ts";
 
 export class SourceOrganizationInputError extends Error {}
 
@@ -19,12 +20,16 @@ export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: 
 		for (const s of deps.graphStore.readSources()) entries.set(s.id, {
 			id: s.id, kind: "notes", label: placementOf(organization, s.id)?.name ?? sourceFileLabel(s.filePath),
 			filePath: s.filePath, createdAt: s.importedAt,
+			...(s.vault ? { vault: vaultEntryState(s, vaultExtracting.id) } : {}),
 		});
 		// Preserve graph groups whose naming record is gone; do not resurrect a chat.
 		for (const node of getGraph(deps.graphStore).nodes) for (const p of node.provenance) {
 			if (!entries.has(p.chatId)) entries.set(p.chatId, { id: p.chatId, kind: "missing", label: null, createdAt: null });
 		}
-		return { organization, sources: [...entries.values()] };
+		// Vault library (fork, 2026-11-01): followed notes sit in read-only
+		// folders mirroring the vault, overlaid here and never stored.
+		const vaultNotes = deps.graphStore.readSources().filter((s) => s.vault).map((s) => ({ id: s.id, path: s.vault!.path, createdAt: s.importedAt }));
+		return { organization: overlayVaultFolders(organization, vaultNotes), sources: [...entries.values()] };
 	}
 	function change(raw: unknown): SourceDirectory & { createdFolderId?: string } {
 		let action;
@@ -32,6 +37,11 @@ export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: 
 		try { action = parseOrganizationAction(raw); }
 		catch (error) { throw new SourceOrganizationInputError((error as Error).message); }
 		const directory = read();
+		const vaultIds = new Set(directory.sources.filter((s) => s.vault).map((s) => s.id));
+		const touchesVault = [("id" in action ? action.id : ""), ("parentId" in action ? action.parentId ?? "" : "")]
+			.some((id) => vaultIds.has(id) || id.startsWith(VAULT_FOLDER_PREFIX));
+		if (touchesVault) throw new SourceOrganizationInputError("Vault notes and folders follow your vault. Rename or move them in Obsidian.");
+		directory.organization = deps.sourceOrganizationStore.read();
 		if (action.action === "rename-source") {
 			const entry = directory.sources.find((s) => s.id === action.id);
 			if (!entry || entry.kind === "missing") throw new SourceOrganizationInputError("Source no longer exists.");

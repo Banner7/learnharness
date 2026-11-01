@@ -95,6 +95,12 @@ export interface VaultFileState {
 	/** ISO — set while the file is absent from the vault; ideas stay until
 	 *  the learner confirms deletion. */
 	missingSince?: string;
+	/** Node ids detached before a re-extraction (graph-deletion.ts
+	 *  detachSourceTraces) that a successful run has not yet pruned. Kept
+	 *  across failures so a later success still removes stale ideas. */
+	detached?: string[];
+	/** The last failed extraction's message; cleared on success. */
+	lastError?: string;
 }
 
 /** One imported notes file — the format-agnostic front door's bookkeeping

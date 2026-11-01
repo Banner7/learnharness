@@ -31,6 +31,11 @@ export function deleteSources(raw: unknown): SourceDirectory & { graphRevision: 
 	const directory = sourceDirectory.read(); // validate organization before any destructive write
 	const targets = directory.sources.filter((s) => request.sourceIds.includes(s.id));
 	if (targets.length && extractionStatuses().length) throw new SourceDeletionError("An extraction is running — try again when the activity dock drains.", 409, "extraction_running");
+	// Vault library (fork, 2026-11-01): a followed note that still exists
+	// would reappear on the next scan and re-extract — the vault decides.
+	// Only a note already gone from the vault (state "missing") deletes here.
+	const present = targets.filter((s) => s.vault !== undefined && s.vault !== "missing");
+	if (present.length) throw new SourceDeletionError(`${present.map((s) => s.label).join(", ")} ${present.length === 1 ? "is" : "are"} still in your vault. Delete or skip ${present.length === 1 ? "it" : "them"} there.`, 409, "vault_note_present");
 	if (request.deleteSessions) for (const entry of targets) if (entry.kind === "chat") {
 		const blocker = runningWorkBlocker(entry.id);
 		if (blocker) throw new SourceDeletionError(blocker.error, blocker.status, blocker.code);
@@ -47,7 +52,10 @@ export function deleteSources(raw: unknown): SourceDirectory & { graphRevision: 
 			removed.add(entry.id);
 		} else if (entry.kind !== "chat") removed.add(entry.id);
 	}
-	const state = structuredClone(directory.organization);
+	// The stored organization, not the read view: vault folders are an
+	// overlay (fork, 2026-11-01) and must never be written back.
+	const stored = stores.sourceOrganizationStore.read();
+	const state = structuredClone(stored);
 	state.placements = Object.fromEntries(Object.entries(state.placements).filter(([id]) => !removed.has(id)));
 	const remainingSources = new Set(sourceDirectory.read().sources.map((s) => s.id));
 	// Bottom-up fixed point: remove selected empty descendants, then their
@@ -63,6 +71,6 @@ export function deleteSources(raw: unknown): SourceDirectory & { graphRevision: 
 			}
 		}
 	}
-	if (JSON.stringify(state) !== JSON.stringify(directory.organization)) stores.sourceOrganizationStore.write(state);
+	if (JSON.stringify(state) !== JSON.stringify(stored)) stores.sourceOrganizationStore.write(state);
 	return { ...sourceDirectory.read(), graphRevision: graphRevision() };
 }

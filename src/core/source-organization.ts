@@ -1,3 +1,5 @@
+import type { NotesSource } from "./contracts.ts";
+
 /** Source organization is presentation metadata, never graph/extraction identity.
  * A source has one parent; folders have stable IDs independent of names/paths. */
 export interface SourceFolder {
@@ -24,6 +26,44 @@ export interface SourceEntry {
 	label: string | null;
 	createdAt: string | null;
 	filePath?: string;
+	/** Vault library (fork, 2026-11-01): present only for followed notes. */
+	vault?: VaultEntryState;
+}
+/** ready: the graph reflects the file · waiting: new or edited, not yet
+ *  extracted · extracting: running now · failed: the last run failed (still
+ *  waiting; retried by the next sync) · missing: gone from the vault. */
+export type VaultEntryState = "ready" | "waiting" | "extracting" | "failed" | "missing";
+export function vaultEntryState(source: NotesSource, extractingId: string | null): VaultEntryState {
+	const vault = source.vault!;
+	if (vault.missingSince) return "missing";
+	if (source.id === extractingId) return "extracting";
+	if (vault.contentHash === vault.extractedHash) return "ready";
+	return vault.lastError ? "failed" : "waiting";
+}
+
+/** Virtual folder ids for vault directories: "vault:" + the directory's
+ *  vault-relative path. Never stored; organization edits refuse them. */
+export const VAULT_FOLDER_PREFIX = "vault:";
+
+/** Overlay the vault's directory tree onto the stored organization: one
+ *  read-only folder per directory holding a followed note, each note
+ *  placed in its own directory. A note at the vault root sits at the root.
+ *  Stored placements of followed notes are ignored (the vault decides). */
+export function overlayVaultFolders(state: SourceOrganization, notes: ReadonlyArray<{ id: string; path: string; createdAt: string }>): SourceOrganization {
+	if (notes.length === 0) return state;
+	const folders = new Map<string, SourceFolder>();
+	const placements = { ...state.placements };
+	for (const note of notes) {
+		const parts = note.path.split("/").slice(0, -1);
+		for (let i = 0; i < parts.length; i++) {
+			const id = VAULT_FOLDER_PREFIX + parts.slice(0, i + 1).join("/");
+			const existing = folders.get(id);
+			if (!existing) folders.set(id, { id, name: parts[i]!, parentId: i === 0 ? null : VAULT_FOLDER_PREFIX + parts.slice(0, i).join("/"), createdAt: note.createdAt });
+			else if (note.createdAt < existing.createdAt) existing.createdAt = note.createdAt;
+		}
+		placements[note.id] = { folderId: parts.length ? VAULT_FOLDER_PREFIX + parts.join("/") : null };
+	}
+	return { ...state, folders: [...state.folders, ...folders.values()], placements };
 }
 export interface SourceDirectory {
 	organization: SourceOrganization;

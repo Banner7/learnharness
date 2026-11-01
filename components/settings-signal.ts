@@ -18,7 +18,7 @@ import { invalidateSettingsRead } from "@/components/settings-record";
 export const SETTINGS_SAVED_EVENT = "lh:settings-saved";
 
 /** The settings sections a writer can land (the write seam's union). */
-export type SettingsSection = "agent" | "models" | "appearance" | "graph" | "compaction" | "claudeCode";
+export type SettingsSection = "agent" | "models" | "appearance" | "graph" | "compaction" | "claudeCode" | "library";
 
 /** Writers call this after the PUT resolves ok — never before (a failed
  *  write notifies nothing; the record is unchanged). */

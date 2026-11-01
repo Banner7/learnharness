@@ -4,7 +4,23 @@ import * as path from "node:path";
 import { VAULT_DIR, VAULT_EXCLUDE_RAW } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import { parseVaultExclude, reconcileVault, vaultPathExcluded, type VaultFile, type VaultReconcile } from "../core/vault-sync.ts";
+import { readSettings } from "../store/settings.ts";
 import { stores } from "./stores.ts";
+
+/** Saved library settings win; LH_VAULT_EXCLUDE seeds the skip list until
+ * the learner saves one. Auto-extract is off until switched on. */
+export function libraryPreferences(): { autoExtract: boolean; exclude: string[] } {
+	const library = readSettings()?.library;
+	return {
+		autoExtract: library?.autoExtract ?? false,
+		exclude: library?.exclude ?? parseVaultExclude(VAULT_EXCLUDE_RAW),
+	};
+}
+
+/** The vault source mid-extraction (set by library.ts), read by the source
+ * directory for row state. Lives here so the directory need not import
+ * the extraction pipeline. */
+export const vaultExtracting = { id: null as string | null };
 
 /**
  * The vault follower (fork, 2026-11-01): scans LH_VAULT_DIR for Markdown
@@ -17,8 +33,6 @@ import { stores } from "./stores.ts";
  * its writes run in one synchronous stretch so no extraction write
  * interleaves between reading and writing the source map.
  */
-const POLL_MS = 30_000;
-
 async function walk(root: string, dir: string, exclude: readonly string[], out: VaultFile[]): Promise<void> {
 	let entries: fs.Dirent[];
 	try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
@@ -55,7 +69,7 @@ export function syncVault(): Promise<VaultReconcile | null> {
 		try {
 			const root = VAULT_DIR!;
 			await fs.promises.access(root, fs.constants.R_OK);
-			const files = await scanVaultFiles(root, parseVaultExclude(VAULT_EXCLUDE_RAW));
+			const files = await scanVaultFiles(root, libraryPreferences().exclude);
 			const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
 				() => `src_${randomBytes(6).toString("hex")}`);
 			for (const source of result.upserts) stores.graphStore.upsertSource(source);
@@ -72,12 +86,4 @@ export function syncVault(): Promise<VaultReconcile | null> {
 		}
 	})();
 	return scanning;
-}
-
-/** Boot hook: an immediate scan, then a light poll. No-op without LH_VAULT_DIR. */
-export function startVaultFollower(): void {
-	if (!VAULT_DIR) return;
-	console.info(`[vault] following ${VAULT_DIR}`);
-	void syncVault();
-	setInterval(() => { void syncVault(); }, POLL_MS).unref();
 }

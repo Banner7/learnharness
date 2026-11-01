@@ -68,13 +68,14 @@ import {
 	XIcon,
 } from "lucide-react";
 import { chainsForSelection, folderEntryCheck, toggleSourceEntries, formatChainLine, fuzzyScore, sourceFileLabel } from "@/src/core";
-import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, SourceFolder, SourceEntrySelection } from "@/src/core";
+import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, SourceFolder, SourceEntrySelection, VaultEntryState } from "@/src/core";
 import { EditableSourceName, SourceDragRow, sourceNameMatches, SourceFolderTree, type OrganizationChange } from "./source-folder-tree";
 import { chainRow, useChainNavigation } from "./chain-navigation";
 import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
 import { DeleteSourceDialog } from "@/components/delete-source-dialog";
 import { LatexGlyph } from "@/components/latex-glyph";
+import { LibraryBar } from "@/components/library";
 
 /** The sortable columns (owner ruling: all three — consistency). */
 export type ChainSortCol = "name" | "props" | "created";
@@ -83,6 +84,11 @@ export interface ChainSort {
 	/** 1 = ascending (A→Z, oldest-first, smallest-first), -1 = descending. */
 	dir: 1 | -1;
 }
+
+/** Vault note row states (fork, 2026-11-01); "ready" shows nothing. */
+const VAULT_STATE_LABEL: Record<Exclude<VaultEntryState, "ready">, string> = {
+	waiting: "waiting", extracting: "extracting…", failed: "failed, retries on sync", missing: "missing from vault",
+};
 
 /** A cluster's chains share the conclusion's birth (owner ruling). This
  *  record is assembled per render from the visible chains. */
@@ -126,8 +132,12 @@ export function ChainTableBody({
 	onToggleSource = () => {},
 	onToggleFolder = () => {},
 	keyboardActive = true,
+	libraryBar,
 }: {
 	keyboardActive?: boolean;
+	/** Vault library line (fork, 2026-11-01): the overlay supplies it so
+	 *  the body stays pure (it fetches and listens to server events). */
+	libraryBar?: React.ReactNode;
 	directory?: SourceDirectory;
 	onOrganizationChange?: OrganizationChange;
 	selectedFolders?: ReadonlySet<string>;
@@ -330,6 +340,7 @@ export function ChainTableBody({
 					<XIcon className="size-4" />
 				</button>
 			</TopBar>
+			{libraryBar}
 
 			{/* The list: NO per-row lines (owner ruling) — the ONLY horizontal
 			    separators sit between cluster groups; the ALIGNMENT STAIRCASE
@@ -390,6 +401,7 @@ export function ChainTableBody({
 					renderSource={(group, depth) => {
 					const open = searching ? !foldedClusters.has(group.key) : expandedClusters.has(group.key);
 					const selectedCount = group.nodeIds.filter((id) => selection.has(id)).length;
+					const vaultState = group.birth ? sourceRecords.get(group.birth)?.vault : undefined;
 					return (
 						<div
 							key={group.key}
@@ -428,10 +440,15 @@ export function ChainTableBody({
 									onClick={() => toggleCluster(group.key)} className="flex h-5 w-3.5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
 									{open ? <BookOpenIcon className="size-3.5 shrink-0" /> : <BookIcon className="size-3.5 shrink-0" />}
 								</button>
-								{onOrganizationChange && group.birth && group.kind !== null
+								{/* Vault notes (fork, 2026-11-01): the vault names them, so no
+								    rename; a not-yet-extracted note says so where the "notes"
+								    tag sits. */}
+								{onOrganizationChange && group.birth && group.kind !== null && !vaultState
 									? <EditableSourceName name={group.label ?? ""} onSave={(name) => onOrganizationChange({ action: "rename-source", id: group.birth!, name })} />
 									: <span className="min-w-0 flex-1 truncate text-sm font-medium">{group.label ?? <span className="text-muted-foreground/60">unlabeled</span>}</span>}
-								{group.kind === "notes" && <span className="text-xs text-muted-foreground">notes</span>}
+								{vaultState && vaultState !== "ready"
+									? <span data-testid={`vault-state-${group.key}`} className={`text-xs ${vaultState === "failed" || vaultState === "missing" ? "text-wrong" : "text-muted-foreground"}`}>{VAULT_STATE_LABEL[vaultState]}</span>
+									: group.kind === "notes" && !vaultState && <span className="text-xs text-muted-foreground">notes</span>}
 								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 									{group.nodeIds.length}
 								</span>
@@ -790,6 +807,7 @@ export function ChainTableOverlay({
 				{directoryFailure && <p role="alert" className="px-3 py-1 text-xs text-red-400">{directoryFailure}</p>}
 				<ChainTableBody
 					keyboardActive={!deleteOpen}
+					libraryBar={<LibraryBar />}
 					directory={directory}
 					onOrganizationChange={directory ? changeOrganization : undefined}
 					selectedFolders={selectedFolders}

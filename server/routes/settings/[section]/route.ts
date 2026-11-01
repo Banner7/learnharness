@@ -33,6 +33,7 @@
 import type { AgentSettings, ChatSettings, ModelsSettings } from "@/src/core";
 import {
 	SETTINGS_SECTIONS,
+	syncVault,
 	allSegmentPaths,
 	clampChatLevel,
 	clampModelsLevels,
@@ -129,5 +130,7 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// Vault library (fork, 2026-11-01): a changed skip list applies now.
+	if (section === "library") void syncVault();
 	return Response.json({ settings: next });
 }

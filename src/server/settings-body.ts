@@ -20,6 +20,7 @@ import type {
 	CompactionSettings,
 	CustomModelOverride,
 	GraphSettings,
+	LibrarySettings,
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
@@ -359,6 +360,28 @@ export function parseCustomModelOverridesBody(
 	return { ok: true, settings: out };
 }
 
+/** library (fork, 2026-11-01): auto-extract switch + vault skip list.
+ *  Replace-whole like every section; patterns are vault-relative, at most
+ *  200, each at most 300 characters, and never climb out of the vault. */
+export function parseLibrarySettingsBody(body: unknown): SettingsBodyResult<LibrarySettings> {
+	const raw = asRecord(body);
+	if (!raw) return { ok: false, error: "Invalid JSON body" };
+	const settings: LibrarySettings = {};
+	if (raw.autoExtract !== undefined) {
+		if (typeof raw.autoExtract !== "boolean") return { ok: false, error: "autoExtract must be a boolean" };
+		settings.autoExtract = raw.autoExtract;
+	}
+	if (raw.exclude !== undefined) {
+		if (!Array.isArray(raw.exclude) || raw.exclude.length > 200 || !raw.exclude.every((p) => typeof p === "string" && p.length <= 300)) {
+			return { ok: false, error: "exclude must be a list of at most 200 short paths" };
+		}
+		const exclude = (raw.exclude as string[]).map((p) => p.trim().replace(/^\/+/, "")).filter(Boolean);
+		if (exclude.some((p) => p.split("/").includes(".."))) return { ok: false, error: "exclude paths must stay inside the vault" };
+		settings.exclude = exclude;
+	}
+	return { ok: true, settings };
+}
+
 /** The section→parser map for PUT /api/settings/[section]. The custom endpoint
  *  is NOT a section — it connects via POST /api/custom-provider. */
 export const SETTINGS_SECTIONS = {
@@ -369,5 +392,6 @@ export const SETTINGS_SECTIONS = {
 	compaction: parseCompactionSettingsBody,
 	models: parseModelsSettingsBody,
 	claudeCode: parseClaudeCodeSettingsBody,
+	library: parseLibrarySettingsBody,
 } as const;
 

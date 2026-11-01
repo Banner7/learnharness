@@ -21,6 +21,7 @@ import {
 	type AppearanceSettings,
 	type CompactionSettings,
 	type GraphSettings,
+	type LibrarySettings,
 	type UserSettings,
 } from "@/src/core";
 import { useAppearance } from "./appearance.tsx";
@@ -31,12 +32,14 @@ import { MENU_CLOSE_EVENT, MENU_OPEN_EVENT } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
 import { ProvidersSection } from "./keys-section.tsx";
 import { AppearanceSection, GraphSection } from "./appearance-section.tsx";
+import { LibrarySection } from "@/components/library";
 
 const SECTIONS = [
 	{ id: "keys", label: "Providers" },
 	{ id: "agent", label: "Models" },
 	{ id: "appearance", label: "Appearance" },
 	{ id: "graph", label: "Graph" },
+	{ id: "library", label: "Library" },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]["id"];
 
@@ -181,7 +184,7 @@ function SettingsDialogBody({
 	 *  schema mistake caught by the validation surface). */
 	const write = useCallback(
 		async (
-			section: "agent" | "models" | "appearance" | "graph" | "compaction",
+			section: "agent" | "models" | "appearance" | "graph" | "compaction" | "library",
 			body: object,
 		) => {
 			setError(null);
@@ -368,6 +371,14 @@ function SettingsDialogBody({
 										onSectionChange={(next: GraphSettings) =>
 											void write("graph", next)
 										}
+									/>
+								</SettingsSection>
+							)}
+							{active === "library" && (
+								<SettingsSection title="Library" testid="section-library">
+									<LibrarySection
+										library={record.library}
+										onSectionChange={(next: LibrarySettings) => void write("library", next)}
 									/>
 								</SettingsSection>
 							)}
