@@ -62,7 +62,7 @@ You need Docker on an x64 host, a tailnet-only HTTPS proxy (Tailscale Serve), an
    CLAUDE_CODE_OAUTH_TOKEN=<token-from-claude-setup-token>   # omit if not using Claude
    # LH_TAILSCALE_USERS=you@example.com                      # admit these logins without Basic auth
    # LH_VAULT_DIR=/vault                                     # follow a mounted notes folder
-   # LH_VAULT_EXCLUDE=private/,index.md                      # skip list seed; Settings → Library overrides it
+   # LH_VAULT_EXCLUDE=private/,index.md,**/Templates/        # skip list seed (globs allowed); Settings → Library overrides it
    # LH_CUSTOM_PROVIDERS=[{"id":"example","baseUrl":"https://api.example.com/v1","apiKey":{"env":"EXAMPLE_API_KEY"},"models":[{"id":"model-id","contextWindow":8192,"maxTokens":4096}]}]
    ```
 

@@ -101,7 +101,7 @@ export function LibrarySection({ library, onSectionChange }: {
 				<Toggle checked={library?.autoExtract ?? false} label="auto-extract vault notes"
 					onChange={(on) => onSectionChange({ ...library, exclude, autoExtract: on })} />
 			</SettingsRow>
-			<SettingsRow label="Skip" hint="One per line: folder/ or exact/path.md" testid="library-row-skip" stacked>
+			<SettingsRow label="Skip" hint="One per line: folder/, exact/path.md, or a glob (* in a folder, ** across folders)" testid="library-row-skip" stacked>
 				<textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5} aria-label="vault paths to skip"
 					data-testid="library-skip"
 					onBlur={() => {
@@ -109,6 +109,10 @@ export function LibrarySection({ library, onSectionChange }: {
 						if (next.join("\n") !== saved) onSectionChange({ ...library, exclude: next });
 					}}
 					className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary" />
+				{/* The live effect of the list (owner, 2026-11-01): followed notes it now skips. */}
+				{status && <p className="mt-1.5 text-xs text-muted-foreground" data-testid="library-skip-count">
+					{status.skipped} {status.skipped === 1 ? "note" : "notes"} skipped
+				</p>}
 			</SettingsRow>
 			<SettingsRow label="Upload a PDF" hint="One-off files outside the vault" testid="library-row-upload">
 				<NotesImportControl importing={importing} onImportFiles={onImportFiles} />

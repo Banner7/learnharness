@@ -93,9 +93,40 @@ export function reconcileVault(
 /** Exclusion: a pattern ending in "/" excludes that folder and everything
  * under it, matched from the vault root; otherwise it excludes one exact
  * vault-relative path. Dot-folders (.obsidian, .stfolder, .trash) are
- * always excluded by the scanner. */
+ * always excluded by the scanner.
+ *
+ * Globs (owner ruling, 2026-11-01): a pattern containing `*` or `?` is a
+ * glob — `*` and `?` stay inside one path segment, `**` crosses folders
+ * (`**` + `/` also matches zero folders). Plain lines keep their exact
+ * meaning, so saved skip lists behave as before: `**` + `/Templates/` skips
+ * Templates at any depth, `*.excalidraw.md` only at the root. */
 export function vaultPathExcluded(path: string, exclude: readonly string[]): boolean {
-	return exclude.some((pattern) => pattern.endsWith("/") ? path.startsWith(pattern) : path === pattern);
+	return exclude.some((pattern) => {
+		if (!/[*?]/.test(pattern)) return pattern.endsWith("/") ? path.startsWith(pattern) : path === pattern;
+		return globRegex(pattern).test(path);
+	});
+}
+
+const globCache = new Map<string, RegExp>();
+function globRegex(pattern: string): RegExp {
+	let re = globCache.get(pattern);
+	if (re) return re;
+	const folder = pattern.endsWith("/");
+	const body = folder ? pattern.slice(0, -1) : pattern;
+	let src = "";
+	for (let i = 0; i < body.length; i++) {
+		const c = body[i]!;
+		if (c === "*" && body[i + 1] === "*") {
+			if (body[i + 2] === "/") { src += "(?:.*/)?"; i += 2; } else { src += ".*"; i += 1; }
+		} else if (c === "*") src += "[^/]*";
+		else if (c === "?") src += "[^/]";
+		else src += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	}
+	// A folder glob matches that folder's path as a prefix (everything under
+	// it); a file glob must match the whole path.
+	re = new RegExp(folder ? `^${src}/` : `^${src}$`);
+	globCache.set(pattern, re);
+	return re;
 }
 
 /** LH_VAULT_EXCLUDE: comma-separated patterns, whitespace-trimmed, empties dropped. */

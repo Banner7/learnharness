@@ -68,3 +68,13 @@ it("exclusions match folders from the root and exact files only", () => {
 	assert.ok(!vaultPathExcluded("math/lh/x.md", exclude));
 	assert.ok(!vaultPathExcluded("plansx/a.md", exclude));
 });
+
+it("glob skip patterns: * stays in a folder, ** crosses folders, folder globs cover their subtree", () => {
+	for (const [path, pattern, skipped] of [
+		["a/b/Templates/t.md", "**/Templates/", true], ["Templates/t.md", "**/Templates/", true], ["a/MyTemplates/t.md", "**/Templates/", false],
+		["d.excalidraw.md", "*.excalidraw.md", true], ["a/d.excalidraw.md", "*.excalidraw.md", false], ["a/d.excalidraw.md", "**/*.excalidraw.md", true],
+		["a/drafts/x.md", "**/drafts/**", true], ["drafts.md", "**/drafts/**", false], ["axb.md", "a?b.md", true], ["a/b.md", "a?b.md", false],
+	] as const) assert.equal(vaultPathExcluded(path, [pattern]), skipped, `${pattern} vs ${path}`);
+	// The scanner prunes a directory by testing "dir/" — a folder glob must match it.
+	assert.ok(vaultPathExcluded("x/drafts/", ["**/drafts/**"]));
+});
