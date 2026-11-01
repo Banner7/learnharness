@@ -27,7 +27,6 @@ This fork changes the shell around that engine: a browser app you host yourself,
 
 - **Teaching and practice** — upstream's engine unchanged: probing, planning, step-by-step teaching, graded checks, spaced recall.
 - **Vault library** — point `LH_VAULT_DIR` at a Markdown folder (mounted read-only). New, edited, renamed and deleted notes are picked up every 30 seconds; **Sync now** extracts them into the graph, and an edited note re-extracts without disturbing ideas other notes still support. LearnHarness never writes into the folder.
-- **Wikilinks and the phone graph** — `[[Note]]`, `[[Note|alias]]` and `[[Note#heading]]` links resolve like Obsidian. On a phone, **Graph** lists notes and topics; tap a note for a local graph of the notes it links with and the ideas it produced.
 - **Missing notes** — a note deleted from the folder is flagged with its date and how many ideas depend only on it; **Review** filters to those, and **Delete** removes the note and the ideas nothing else supports.
 - **Figures and demos** — SVG figures render with resvg; interactive HTML demos are tested in a pinned headless Chrome shipped in the image before they reach the lesson.
 - **Web search** — the researcher sub-agent searches with Tavily or Brave when a key is configured.
@@ -38,7 +37,7 @@ This fork changes the shell around that engine: a browser app you host yourself,
 | --- | --- | --- |
 | Delivery | Electron desktop app with installers and updater | Browser app: Vite + React SPA served by a Hono server, shipped as a Docker image (amd64) |
 | Access | Local desktop window | HTTPS behind origin checks and Basic auth, or a Tailscale identity allowlist |
-| Layout | Desktop window | Phone: overlay sidebar, plan sheet, list-and-local graph, home-screen web app. Desktop (≥1100px): docked sidebar with icon rail, Explore panel, canvas graph; ≥1280px adds a session rail with stats, model and coverage |
+| Layout | Desktop window | Phone: overlay sidebar, plan sheet, chain table, home-screen web app. Desktop (≥1100px): docked sidebar with icon rail, Explore panel, canvas graph; ≥1280px adds a session rail with stats, model and coverage |
 | Notes | Imported copies, organized in app folders | Followed read-only from a vault folder; folders come from the vault, uploads sit in one flat group. No app folders or dragging |
 | Look | Upstream theme | "Kanagawa Kasumi" community palette in both modes: a sand light skin (accents darkened to pass 4.5:1 contrast) and Kasumi dark as published; Atkinson Hyperlegible Next and JetBrains Mono. Light/dark/auto switch beside Settings |
 | Model slots | Settings → Agent | Also a **Helpers** dropdown beside the model picker for the cheap and vision slots |

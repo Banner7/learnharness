@@ -17,10 +17,6 @@ export interface VaultFile {
 	path: string;
 	/** sha256 hex of the file bytes. */
 	hash: string;
-	/** Raw wikilink targets parsed from the bytes (deduped). Present only
-	 *  when the scanner parsed this file — unchanged bytes reuse the
-	 *  persisted state instead, so a 30 s poll never re-parses. */
-	links?: string[];
 }
 
 export interface VaultReconcile {
@@ -52,18 +48,12 @@ export function reconcileVault(
 		const source = byPath.get(file.path);
 		if (!source) { unmatched.push(file); continue; }
 		const vault = source.vault!;
-		// Backfill (review 2026-11-01): notes followed before wikilinks existed
-		// have no stored targets; save the scan's parse without counting an edit.
-		const backfill = vault.links === undefined && file.links !== undefined;
-		if (vault.contentHash === file.hash && !vault.missingSince && !backfill) continue;
+		if (vault.contentHash === file.hash && !vault.missingSince) continue;
 		const next = { ...vault };
-		if (backfill) next.links = file.links;
 		if (vault.missingSince) { delete next.missingSince; result.restored++; }
 		if (vault.contentHash !== file.hash) {
 			next.contentHash = file.hash;
 			next.changedAt = now;
-			// New bytes carry freshly parsed raw link targets (fork, 2026-11-01).
-			next.links = file.links ?? next.links;
 			delete next.lastError; // new bytes deserve a fresh attempt
 			result.changed++;
 		}
@@ -79,9 +69,6 @@ export function reconcileVault(
 			claimed.add(source.id);
 			const next = { ...source.vault!, path: file.path };
 			delete next.missingSince;
-			// A move keeps the raw targets (content is byte-identical); refresh
-			// them only when the new path was actually parsed this scan.
-			if (file.links !== undefined) next.links = file.links;
 			result.upserts.push({ ...source, filePath: file.path, vault: next });
 			result.renamed++;
 			continue;
@@ -90,7 +77,7 @@ export function reconcileVault(
 			id: newId(),
 			filePath: file.path,
 			importedAt: now,
-			vault: { path: file.path, contentHash: file.hash, changedAt: now, links: file.links },
+			vault: { path: file.path, contentHash: file.hash, changedAt: now },
 		});
 		result.created++;
 	}

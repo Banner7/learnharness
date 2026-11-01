@@ -67,7 +67,6 @@ import type {
 import { formatChainLine } from "./chains.ts";
 import { attachImpToCommunities, birthSessionOf, birthSessionPartition } from "./session-clusters.ts";
 import { sourceFileLabel } from "./source-label.ts";
-import { noteFolder, noteTitle, resolveNoteLinks } from "./wikilinks.ts";
 import type { ChatStore, GraphStore } from "./ports.ts";
 
 /** The storage ports every graph operation needs, passed explicitly. */
@@ -553,34 +552,6 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	attachImpToCommunities(clusters, graph.nodes, graph.chains);
 	const positions = deps.graphStore.readPositions();
 
-	// Vault notes and their wikilinks (fork, 2026-11-01): every present
-	// followed file becomes a note row, and a note's "ideas" are the
-	// propositions whose provenance names it. Raw targets persisted on the
-	// vault state are re-resolved here against the present set — renames and
-	// deletions resolve correctly without re-reading any file.
-	const vaultNotes = deps.graphStore.readSources()
-		.filter((source) => source.vault !== undefined && source.vault.missingSince === undefined);
-	const vaultNoteIds = new Set(vaultNotes.map((source) => source.id));
-	const linkTargets = new Map(vaultNotes.map((source) => [source.id, source.vault!.links ?? []] as const));
-	const ideaCounts = new Map<string, number>();
-	for (const node of graph.nodes) {
-		for (const point of node.provenance) {
-			if (vaultNoteIds.has(point.chatId)) ideaCounts.set(point.chatId, (ideaCounts.get(point.chatId) ?? 0) + 1);
-		}
-	}
-	const notes = vaultNotes.map((source) => ({
-		id: source.id,
-		title: noteTitle(source.vault!.path),
-		path: source.vault!.path,
-		folder: noteFolder(source.vault!.path),
-		ideaCount: ideaCounts.get(source.id) ?? 0,
-	})).sort((a, b) => a.title.localeCompare(b.title));
-	const noteLinks = resolveNoteLinks(notes.map((note) => ({
-		id: note.id,
-		path: note.path,
-		targets: linkTargets.get(note.id) ?? [],
-	})));
-
 	return {
 		nodes,
 		propositions: graph.nodes,
@@ -593,8 +564,6 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 		nodeSessions,
 		clusters,
 		...(Object.keys(positions).length > 0 ? { positions } : {}),
-		notes,
-		noteLinks,
 	};
 }
 
