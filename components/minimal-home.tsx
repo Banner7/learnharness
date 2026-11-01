@@ -282,7 +282,7 @@ export function MinimalHome({
 					/>
 					<div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-muted-foreground min-[1100px]:mt-1 min-[1100px]:flex-col min-[1100px]:items-start min-[1100px]:gap-0">
 						<button type="button" data-testid="open-chain-table" onClick={() => setChainsOpen(true)} className="min-h-11 underline underline-offset-2 min-[1100px]:min-h-9 min-[1100px]:text-left">Chains</button>
-						<Link href="/graph" className="hidden min-h-9 items-center underline underline-offset-2 min-[1100px]:inline-flex">Graph</Link>
+						<Link href="/graph" className="inline-flex min-h-11 items-center underline underline-offset-2 min-[1100px]:min-h-9 min-[1100px]:text-left">Graph</Link>
 						{!vaultLibrary && <NotesImportControl variant="link" importing={importing} onImportFiles={onImportFiles} />}
 						{costs && costs.runs.length > 0 && <GraphCostControl costs={costs} />}
 					</div>

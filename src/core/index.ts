@@ -22,7 +22,6 @@ export * from "./chains.ts";
 // controls share one contract between canvas, storage and the graph API.
 export * from "./layout.ts";
 export * from "./source-organization.ts";
-export * from "./source-selection.ts";
 export * from "./source-label.ts";
 export * from "./render-settings.ts";
 

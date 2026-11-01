@@ -13,11 +13,11 @@ Object.assign(globalThis, { window: dom.window, document: dom.document, Element:
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; });
 
-it("one Escape cancels inline source/folder editing without closing the overlay (document-root event delegation)", async () => {
+it("one Escape cancels inline source editing without closing the overlay (document-root event delegation)", async () => {
 	let closed = 0, writes = 0, windowEscapes = 0;
 	globalThis.fetch = async (_url, init) => {
 		if (init?.method === "POST") writes++;
-		return Response.json({ organization: { version: 1, folders: [], placements: {} }, sources: [{ id: "chat", kind: "chat", label: "Unextracted", createdAt: "2026-10-30" }] });
+		return Response.json({ sources: [{ id: "chat", kind: "chat", label: "Unextracted", createdAt: "2026-10-30" }] });
 	};
 	const root = createRoot(document);
 	const onWindow = () => { windowEscapes++; };
@@ -26,12 +26,7 @@ it("one Escape cancels inline source/folder editing without closing the overlay 
 		await act(async () => { root.render(<html><head /><body><ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>
 			<ChainTableOverlay open nodes={[]} chains={[]} sessions={{}} fileSources={{}} onClose={() => { closed++; }} />
 		</ServerEventsProvider></body></html>); });
-		for (const raw of ["null", "3", '"text"', "{"]) {
-			const drop = new dom.window.Event("drop", { bubbles: true, cancelable: true });
-			Object.defineProperty(drop, "dataTransfer", { value: { getData: () => raw } });
-			await act(async () => { document.querySelector('[data-testid="source-root-drop"]')!.dispatchEvent(drop); });
-		}
-		assert.equal(writes, 0, "malformed drag payloads cannot mutate organization");
+		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });
 		const escape = async () => {
 			const input = document.querySelector('[data-testid="source-name-input"]')!;
 			assert.ok(input);
@@ -40,12 +35,6 @@ it("one Escape cancels inline source/folder editing without closing the overlay 
 			assert.equal(document.querySelector('[data-testid="source-name-input"]'), null);
 			assert.equal(closed, 0); assert.equal(writes, 0); assert.equal(windowEscapes, 0);
 		};
-		await act(async () => { (document.querySelector('button[title="Rename"]') as HTMLElement).click(); });
 		await escape();
-		await act(async () => { (document.querySelector('[data-testid="add-source-folder"]') as HTMLElement).click(); });
-		await escape();
-		// Fork (2026-10-31): keyboard shortcuts were removed, so the overlay
-		// has no Escape-to-close; the check above (Escape only cancels the
-		// inline edit) is the part that applies.
 	} finally { await act(async () => { root.unmount(); }); window.removeEventListener("keydown", onWindow); }
 });

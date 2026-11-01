@@ -15,12 +15,14 @@ dom.window.HTMLElement.prototype.scrollIntoView = function () { scrolled++; };
 dom.window.HTMLInputElement.prototype.select = function () {};
 dom.window.HTMLElement.prototype.blur = function () { if (focused === this) focused = undefined; };
 Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused ?? document.body });
+// Vault note "a" lives under read-only virtual folders outer → inner; "b" is
+// an uploaded source in the flat Uploads group. Collapsed DOM order is
+// [folder outer, source b].
 const directory: SourceDirectory = {
-	organization: { version: 1, folders: [
-		{ id: "outer", name: "Outer", parentId: null, createdAt: "2026-10-30" },
-		{ id: "inner", name: "Inner", parentId: "outer", createdAt: "2026-10-30" },
-	], placements: { a: { folderId: "inner" }, b: { folderId: null } } },
-	sources: [{ id: "a", kind: "notes", label: "Book A", createdAt: "2026-10-30" }, { id: "b", kind: "notes", label: "Book B", createdAt: "2026-10-30" }],
+	sources: [
+		{ id: "a", kind: "notes", label: "Book A", createdAt: "2026-10-30", vault: "ready", vaultPath: "outer/inner/A.md" },
+		{ id: "b", kind: "notes", label: "Lecture B", createdAt: "2026-10-30" },
+	],
 };
 const nodes = ["n1", "n2", "n3"].map((id) => ({ id, name: id, statement: id, createdAt: "2026-10-30", aliases: [], provenance: [{ chatId: "a", messageId: "m" }] }));
 let root: Root | undefined, host: HTMLDivElement;
@@ -59,12 +61,12 @@ it("Down from the search box enters results without changing checkbox selection"
 	await act(async () => { search.focus(); });
 	assert.equal((await key("ArrowLeft", search)).defaultPrevented, false); assert.equal(focused, search);
 	assert.equal((await key("ArrowDown", search)).defaultPrevented, true);
-	assert.deepEqual(activeKey(), ["source", "b"]); assert.equal(focused, active()); assert.ok(scrolled > 0);
+	assert.deepEqual(activeKey(), ["folder", "outer"]); assert.equal(focused, active()); assert.ok(scrolled > 0);
 	assert.equal(document.querySelectorAll('input[type="checkbox"]:checked').length, 0);
 });
 it("Right enters newly rendered children; Left focuses and collapses each parent through all four layers", async () => {
-	await mount(); await key("ArrowDown"); await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
-	await key("ArrowRight"); assert.deepEqual(activeKey(), ["folder", "inner"]);
+	await mount(); await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
+	await key("ArrowRight"); assert.deepEqual(activeKey(), ["folder", "outer/inner"]);
 	await key("ArrowRight"); assert.deepEqual(activeKey(), ["source", "a"]);
 	await key("ArrowRight"); assert.deepEqual(activeKey(), ["chain", "a", "argument"]);
 	await key("ArrowRight"); assert.deepEqual(activeKey(), ["prop", "a", "argument", "n1"]);
@@ -72,18 +74,18 @@ it("Right enters newly rendered children; Left focuses and collapses each parent
 	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["chain", "a", "argument"]); assert.equal(active()?.dataset.chainNavExpanded, "false");
 	assert.equal(document.querySelector('[data-testid="prop-row-n1"]'), null);
 	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["source", "a"]);
-	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["folder", "inner"]);
+	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["folder", "outer/inner"]);
 	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["folder", "outer"]); assert.equal(active()?.dataset.chainNavExpanded, "false");
 });
 it("Up/Down skip expanded subtrees and pointer interaction establishes the active row", async () => {
-	await mount(); await key("ArrowDown"); await key("ArrowDown"); await key("ArrowRight");
-	await point('[data-testid="folder-row-outer"]'); await key("ArrowUp"); assert.deepEqual(activeKey(), ["source", "b"]);
-	await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]); await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
+	await mount(); await key("ArrowDown"); await key("ArrowRight");
+	await point('[data-testid="folder-row-outer"]'); await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
+	await key("ArrowUp"); assert.deepEqual(activeKey(), ["folder", "outer"]);
 });
 it("search auto-expansion permits explicit collapse and resets for a new query", async () => {
 	await mount(); await act(async () => { setQuery("Book A"); });
 	await key("ArrowDown"); await key("ArrowRight"); await key("ArrowRight"); assert.deepEqual(activeKey(), ["source", "a"]);
-	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["folder", "inner"]); assert.equal(active()?.dataset.chainNavExpanded, "false");
+	await key("ArrowLeft"); assert.deepEqual(activeKey(), ["folder", "outer/inner"]); assert.equal(active()?.dataset.chainNavExpanded, "false");
 	assert.equal(document.querySelector('[data-testid="cluster-group-a"]'), null);
 	await act(async () => { setQuery("Book"); }); assert.ok(document.querySelector('[data-testid="cluster-group-a"]'));
 });
@@ -92,23 +94,26 @@ it("a foreground menu/dialog keeps arrows, even if focus was left behind it", as
 	try {
 		assert.equal((await key("ArrowDown")).defaultPrevented, false); assert.equal(active(), null);
 	} finally { dialog.remove(); }
-	await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
-});
-it("removing the active row by filtering safely restarts on the first visible result", async () => {
-	await mount(); await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
-	await act(async () => { setQuery("n2"); }); assert.equal(active(), null);
 	await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
 });
+it("removing the active row by filtering safely restarts on the first visible result", async () => {
+	// Vault folders stay visible while any note inside matches, so filter to
+	// the upload alone to remove the active folder row (2026-11-01). Compare
+	// keys, not elements: assert's diff of a React-owned node never finishes.
+	await mount(); await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
+	await act(async () => { setQuery("Lecture"); }); assert.equal(activeKey(), null);
+	await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
+});
 it("rename arrows stay in the input, and modal-owned keyboard focus disables navigation", async () => {
-	await mount(); await point('[data-source-drag-row="b"]');
-	await act(async () => { (document.querySelector('[data-source-drag-row="b"] button[title="Rename"]') as HTMLElement).click(); });
+	await mount(); await point('[data-testid="source-row-b"]');
+	await act(async () => { (document.querySelector('[data-testid="source-row-b"] button[title="Rename"]') as HTMLElement).click(); });
 	const input = document.querySelector('[data-testid="source-name-input"]')!;
 	for (const arrow of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) assert.equal((await key(arrow, input)).defaultPrevented, false);
 	assert.equal(focused, input); await act(async () => { setEnabled(false); });
 	assert.equal((await key("ArrowDown", document.querySelector('[data-testid="chain-table"]')!)).defaultPrevented, false);
 });
 it("Space clicks only the focused row's enabled checkbox; text editing and checkbox-free chain rows retain native behavior", async () => {
-	await mount(); await key("ArrowDown");
+	await mount(); await key("ArrowDown"); await key("ArrowDown"); // source b
 	let clicks = 0;
 	const checkbox = active()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 	checkbox.click = () => { clicks++; };
@@ -117,13 +122,13 @@ it("Space clicks only the focused row's enabled checkbox; text editing and check
 	const search = document.querySelector('[data-testid="chain-table-search"]')!;
 	assert.equal((await key(" ", search)).defaultPrevented, false);
 	assert.equal((await key(" ", document.querySelector('[data-testid="sort-name"]')!)).defaultPrevented, false);
-	await key("ArrowDown"); await key("ArrowRight"); await key("ArrowRight"); await key("ArrowRight");
+	await key("ArrowUp"); await key("ArrowRight"); await key("ArrowRight"); await key("ArrowRight");
 	assert.equal(activeKey()?.[0], "chain"); assert.equal((await key(" ")).defaultPrevented, false);
 });
 it("blank space below the tree clears row highlighting and focus, without toggling checked entries", async () => {
-	await mount(); await key("ArrowDown"); assert.ok(active()); assert.equal(focused, active());
+	await mount(); await key("ArrowDown"); await key("ArrowDown"); assert.ok(active()); assert.equal(focused, active());
 	const checkbox = active()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!; checkbox.checked = true;
-	await point('[data-testid="source-root-drop"]'); assert.equal(active(), null); assert.equal(focused, undefined); assert.equal(checkbox.checked, true);
+	await point('[data-testid="chain-tree-blank"]'); assert.equal(active(), null); assert.equal(focused, undefined); assert.equal(checkbox.checked, true);
 });
 it("programmatic focus waits for a just-created row to render, then highlights and scrolls it", async () => {
 	let addRow: () => void;

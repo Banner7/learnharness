@@ -61,15 +61,13 @@ import {
 	DumbbellIcon,
 	BookIcon,
 	BookOpenIcon,
-	FolderPlusIcon,
 	Trash2Icon,
-	ListTreeIcon,
 	SearchIcon,
 	XIcon,
 } from "lucide-react";
-import { chainsForSelection, folderEntryCheck, toggleSourceEntries, formatChainLine, fuzzyScore, sourceFileLabel } from "@/src/core";
-import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, SourceFolder, SourceEntrySelection, VaultEntryState } from "@/src/core";
-import { EditableSourceName, SourceDragRow, sourceNameMatches, SourceFolderTree, type OrganizationChange } from "./source-folder-tree";
+import { chainsForSelection, formatChainLine, fuzzyScore, sourceFileLabel } from "@/src/core";
+import type { GraphChain, GraphNode, SourceDirectory, SourceEntry, VaultEntryState } from "@/src/core";
+import { EditableSourceName, sourceNameMatches, SourceFolderTree, type OrganizationChange } from "./source-folder-tree";
 import { chainRow, useChainNavigation } from "./chain-navigation";
 import { useServerEvent, useServerResync } from "./server-events";
 import { TopBar } from "@/components/top-bar";
@@ -89,6 +87,10 @@ export interface ChainSort {
 const VAULT_STATE_LABEL: Record<Exclude<VaultEntryState, "ready">, string> = {
 	waiting: "waiting", extracting: "extracting…", failed: "failed, retries on sync", missing: "missing from vault", skipped: "skipped",
 };
+
+/** A missing note's "missing since" date, e.g. "Oct 31" (UTC, deterministic). */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthDay = (iso: string) => { const d = new Date(iso); return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`; };
 
 /** A cluster's chains share the conclusion's birth (owner ruling). This
  *  record is assembled per render from the visible chains. */
@@ -127,12 +129,12 @@ export function ChainTableBody({
 	onSelect,
 	directory,
 	onOrganizationChange,
-	selectedFolders = new Set<string>(),
 	selectedSources = new Set<string>(),
 	onToggleSource = () => {},
-	onToggleFolder = () => {},
 	keyboardActive = true,
 	libraryBar,
+	missingOnly = false,
+	onDeleteSource,
 }: {
 	keyboardActive?: boolean;
 	/** Vault library line (fork, 2026-11-01): the overlay supplies it so
@@ -140,10 +142,12 @@ export function ChainTableBody({
 	libraryBar?: React.ReactNode;
 	directory?: SourceDirectory;
 	onOrganizationChange?: OrganizationChange;
-	selectedFolders?: ReadonlySet<string>;
 	selectedSources?: ReadonlySet<string>;
 	onToggleSource?: (id: string, next: boolean) => void;
-	onToggleFolder?: (id: string, next: boolean) => void;
+	/** Show only missing vault notes (the Review filter, owner 2026-11-01). */
+	missingOnly?: boolean;
+	/** Open the single-source delete confirm for a missing note's row. */
+	onDeleteSource?: (id: string) => void;
 	nodes: GraphNode[];
 	chains: GraphChain[];
 	sessions: Record<string, string>;
@@ -170,10 +174,9 @@ export function ChainTableBody({
 	selectMode?: boolean;
 	onSelect?: () => void;
 }) {
-	const [creatingFolder, setCreatingFolder] = useState(false);
 	const tableRef = useRef<HTMLDivElement>(null);
 	const searchRef = useRef<HTMLInputElement>(null);
-	const navigation = useChainNavigation(tableRef, searchRef, keyboardActive);
+	useChainNavigation(tableRef, searchRef, keyboardActive);
 	// Searches still expand sources/folders by default, but explicit keyboard
 	// or pointer collapses remain effective until the search changes.
 	const [searchFolds, setSearchFolds] = useState({ query, ids: new Set<string>() });
@@ -189,22 +192,11 @@ export function ChainTableBody({
 	};
 	const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 	const sourceRecords = useMemo(() => new Map(directory?.sources.map((s) => [s.id, s])), [directory]);
-	const matchesSource = useCallback((birth: string) => sourceNameMatches(directory, birth,
+	const matchesSource = useCallback((birth: string) => sourceNameMatches(
 		sourceRecords.get(birth)?.label ?? sessions[birth] ?? (fileSources[birth] === undefined ? null : sourceFileLabel(fileSources[birth])), query),
-	[directory, sourceRecords, sessions, fileSources, query]);
+	[sourceRecords, sessions, fileSources, query]);
 	const chains = useMemo(() => chainsForSelection(nodes, storedChains), [nodes, storedChains]);
 	const searching = query.trim() !== "";
-	const allSourceNodes = useMemo(() => {
-		const membership = new Map<string, Set<string>>();
-		for (const chain of chains) {
-			const birth = byId.get(chain.conclusion)?.provenance[0]?.chatId;
-			if (!birth) continue;
-			const members = membership.get(birth) ?? new Set<string>();
-			for (const id of [...chain.premises, chain.conclusion]) members.add(id);
-			membership.set(birth, members);
-		}
-		return membership;
-	}, [chains, byId]);
 
 	// The fuzzy filter: a chain is visible when ANY member matches on
 	// name, aliases, or statement; chains rank by best member score.
@@ -234,14 +226,17 @@ export function ChainTableBody({
 	// muted group, sorted last under name-sort.
 	const groups = useMemo(() => {
 		const map = new Map<string, ClusterGroup>();
+		const missingIds = missingOnly ? new Set((directory?.sources ?? []).filter((s) => s.vault === "missing").map((s) => s.id)) : null;
 		for (const source of directory?.sources ?? []) {
 			if (searching && !matchesSource(source.id)) continue;
+			if (missingIds && !missingIds.has(source.id)) continue;
 			map.set(source.id, { key: source.id, birth: source.id, label: source.label,
 				kind: source.kind === "missing" ? null : source.kind, chains: [], nodeIds: [], newestCreatedAt: "" });
 		}
 		for (const chain of visibleChains) {
 			const conclusion = byId.get(chain.conclusion);
 			const birth = conclusion?.provenance[0]?.chatId ?? null;
+			if (missingIds && (birth === null || !missingIds.has(birth))) continue;
 			const key = birth ?? "\0unlabeled";
 			let group = map.get(key);
 			if (!group) {
@@ -290,7 +285,7 @@ export function ChainTableBody({
 			);
 		}
 		return list;
-	}, [visibleChains, byId, sessions, fileSources, sort, directory, sourceRecords, searching, matchesSource]);
+	}, [visibleChains, byId, sessions, fileSources, sort, directory, sourceRecords, searching, matchesSource, missingOnly]);
 
 	// The derived shape under the floating bar (the agents' ACTUAL input).
 	const derived = useMemo(() => {
@@ -298,7 +293,6 @@ export function ChainTableBody({
 		return chainsForSelection(selectedNodes, storedChains);
 	}, [selection, byId, storedChains]);
 
-	const fullySelectedFolders = directory ? new Set([...selectedFolders].filter((id) => folderEntryCheck(directory, id, { sources: selectedSources, folders: selectedFolders }).checked)) : selectedFolders;
 	const nameOf = (id: string) => byId.get(id)?.name ?? id;
 	const dateOf = (id: string) => byId.get(id)?.createdAt.slice(0, 10) ?? "";
 	const dirIcon = (col: ChainSortCol) =>
@@ -315,8 +309,6 @@ export function ChainTableBody({
 				<span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
 					{chains.length} {chains.length === 1 ? "chain" : "chains"}, {nodes.length} {nodes.length === 1 ? "node" : "nodes"}
 				</span>
-				{onOrganizationChange && <button type="button" aria-label="Add folder" data-testid="add-source-folder"
-					onClick={() => setCreatingFolder(true)} className="lh-no-drag rounded-lg p-2 text-muted-foreground hover:bg-accent"><FolderPlusIcon className="size-4" /></button>}
 				<div className="relative shrink-0">
 					<SearchIcon className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
 					<input
@@ -381,27 +373,20 @@ export function ChainTableBody({
 					</button>
 				</div>
 
-				{creatingFolder && onOrganizationChange && <div className="flex items-center px-3 py-2" data-testid="new-folder-row">
-					<EditableSourceName name="" initiallyEditing onCancel={() => setCreatingFolder(false)}
-						onSave={async (name) => {
-						const id = await onOrganizationChange({ action: "create-folder", name, parentId: null });
-						onQuery(""); if (id) navigation.focusRow(["folder", id]); setCreatingFolder(false);
-					}} />
-				</div>}
-				{groups.length === 0 && (directory?.organization.folders.length ?? 0) === 0 && (
+				{groups.length === 0 && (directory?.sources.length ?? 0) === 0 && (
 					<div data-testid="chain-table-nomatch" className="px-4 pt-3 text-xs text-muted-foreground">
 						No matching chains.
 					</div>
 				)}
 
-				<SourceFolderTree groups={groups} directory={directory} query={query} sort={sort} onAction={onOrganizationChange}
-					sourceSelection={selectMode ? undefined : { sources: selectedSources, folders: selectedFolders }}
-					expanded={expandedClusters} collapsedForSearch={foldedClusters} onToggleExpanded={toggleCluster} selection={selection} selectedFolders={selectedFolders}
-					onToggleNodes={onToggleNodes} onToggleFolder={onToggleFolder} allowEmptySelection={!selectMode} allSourceNodes={allSourceNodes}
+				<SourceFolderTree groups={groups} directory={directory} query={query} sort={sort}
+					expanded={expandedClusters} collapsedForSearch={foldedClusters} onToggleExpanded={toggleCluster}
 					renderSource={(group, depth) => {
 					const open = searching ? !foldedClusters.has(group.key) : expandedClusters.has(group.key);
 					const selectedCount = group.nodeIds.filter((id) => selection.has(id)).length;
 					const vaultState = group.birth ? sourceRecords.get(group.birth)?.vault : undefined;
+					const sourceEntry = group.birth ? sourceRecords.get(group.birth) : undefined;
+					const isMissing = vaultState === "missing";
 					return (
 						<div
 							key={group.key}
@@ -426,7 +411,7 @@ export function ChainTableBody({
 								/>
 							)}
 							{/* The cluster row: birth-session group header. */}
-							<SourceDragRow {...chainRow(["source", group.key], depth, open)} kind="source" id={group.key} name={group.label ?? "unlabeled"} enabled={Boolean(onOrganizationChange && group.birth)} className="flex items-center gap-1 px-3 py-1.5">
+							<div {...chainRow(["source", group.key], depth, open)} data-testid={`source-row-${group.key}`} className="flex items-center gap-1 px-3 py-1.5">
 								<RowCheckbox
 									disabled={selectMode ? group.nodeIds.length === 0 : !directory?.sources.some((s) => s.id === group.birth)}
 									checked={selectMode ? selectedCount === group.nodeIds.length && group.nodeIds.length > 0 : group.birth !== null && selectedSources.has(group.birth)}
@@ -446,8 +431,8 @@ export function ChainTableBody({
 								{onOrganizationChange && group.birth && group.kind !== null && !vaultState
 									? <EditableSourceName name={group.label ?? ""} onSave={(name) => onOrganizationChange({ action: "rename-source", id: group.birth!, name })} />
 									: <span className="min-w-0 flex-1 truncate text-sm font-medium">{group.label ?? <span className="text-muted-foreground/60">unlabeled</span>}</span>}
-								{vaultState && vaultState !== "ready"
-									? <span data-testid={`vault-state-${group.key}`} className={`text-xs ${vaultState === "failed" || vaultState === "missing" ? "text-wrong" : "text-muted-foreground"}`}>{VAULT_STATE_LABEL[vaultState]}</span>
+								{vaultState && vaultState !== "ready" && vaultState !== "missing"
+									? <span data-testid={`vault-state-${group.key}`} className={`text-xs ${vaultState === "failed" ? "text-wrong" : "text-muted-foreground"}`}>{VAULT_STATE_LABEL[vaultState]}</span>
 									: group.kind === "notes" && !vaultState && <span className="text-xs text-muted-foreground">notes</span>}
 								<span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 									{group.nodeIds.length}
@@ -455,7 +440,22 @@ export function ChainTableBody({
 								<span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
 									{group.newestCreatedAt.slice(0, 10)}
 								</span>
-							</SourceDragRow>
+							</div>
+
+							{/* A missing note (owner, 2026-11-01): its impact and the
+							    one safe action — delete. Ideas survive until the learner
+							    confirms, so the counts say exactly what deletion removes. */}
+							{isMissing && sourceEntry && (
+								<div data-testid={`missing-note-${group.key}`} className="flex items-center gap-1 py-1 pl-12 pr-3">
+									<span className="min-w-0 flex-1 truncate text-xs text-wrong">
+										missing since {sourceEntry.missingSince ? monthDay(sourceEntry.missingSince) : "—"}
+										{" · "}{sourceEntry.ideas ?? 0} {sourceEntry.ideas === 1 ? "idea" : "ideas"}
+										{" · "}{sourceEntry.onlyFromThisNote ?? 0} only from this note
+									</span>
+									<button type="button" data-testid={`missing-delete-${group.key}`} onClick={() => onDeleteSource?.(group.key)}
+										className="shrink-0 rounded-sm border border-destructive/50 bg-destructive/10 px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/20">Delete</button>
+								</div>
+							)}
 
 							{/* The chain rows — clearly indented under the folder
 							    (owner ruling); visible only when the cluster is open
@@ -573,7 +573,7 @@ export function ChainTableBody({
 			{/* The floating selection bar (owner ruling: never shifts layout —
 			    the Google-Photos pattern). Appears only when something is
 			    selected; floats over the table's bottom edge. */}
-			{(selectMode ? selection.size > 0 : selectedSources.size > 0 || fullySelectedFolders.size > 0) && (
+			{(selectMode ? selection.size > 0 : selectedSources.size > 0) && (
 				<div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center pb-4">
 					<div
 						data-testid="chain-selection-bar"
@@ -581,7 +581,7 @@ export function ChainTableBody({
 					>
 						<span data-testid="chain-selected-summary" className="text-xs font-medium">
 							{selectMode ? <>{selection.size} {selection.size === 1 ? "node" : "nodes"} → {derived.length} {derived.length === 1 ? "chain" : "chains"}</>
-								: <>{selectedSources.size} {selectedSources.size === 1 ? "source" : "sources"}{fullySelectedFolders.size > 0 && ` · ${fullySelectedFolders.size} ${fullySelectedFolders.size === 1 ? "folder" : "folders"}`}</>}
+								: <>{selectedSources.size} {selectedSources.size === 1 ? "source" : "sources"}</>}
 						</span>
 						<button
 							type="button"
@@ -613,7 +613,7 @@ export function ChainTableBody({
 								type="button"
 								data-testid="chain-delete"
 								onClick={onDelete}
-								aria-label="Delete selected sources and folders"
+								aria-label="Delete selected sources"
 								className="flex items-center gap-1.5 rounded-full border border-destructive/50 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/20"
 							>
 								<Trash2Icon aria-hidden="true" className="size-3.5" />
@@ -713,17 +713,17 @@ export function ChainTableOverlay({
 	const [internalSelection, setInternalSelection] = useState<ReadonlySet<string>>(() => new Set());
 	const [expandedClusters, setExpandedClusters] = useState<ReadonlySet<string>>(() => new Set());
 	const [expandedChains, setExpandedChains] = useState<ReadonlySet<string>>(() => new Set());
-	const [deletion, setDeletion] = useState<{ sources: SourceEntry[]; folders: SourceFolder[] } | null>(null);
+	const [deletion, setDeletion] = useState<{ sources: SourceEntry[] } | null>(null);
 	const deleteOpen = deletion !== null;
 	const [directory, setDirectory] = useState<SourceDirectory>();
 	const [directoryFailure, setDirectoryFailure] = useState("");
-	const [entrySelection, setEntrySelection] = useState<SourceEntrySelection>(() => ({ sources: new Set(), folders: new Set() }));
+	const [entrySelection, setEntrySelection] = useState<ReadonlySet<string>>(() => new Set());
+	const [missingOnly, setMissingOnly] = useState(false);
 	useEffect(() => {
 		if (!directory) return;
 		setEntrySelection((previous) => {
-			const sources = new Set([...previous.sources].filter((id) => directory.sources.some((s) => s.id === id)));
-			const folders = new Set([...previous.folders].filter((id) => directory.organization.folders.some((f) => f.id === id)));
-			return sources.size === previous.sources.size && folders.size === previous.folders.size ? previous : { sources, folders };
+			const sources = new Set([...previous].filter((id) => directory.sources.some((s) => s.id === id)));
+			return sources.size === previous.size ? previous : sources;
 		});
 	}, [directory]);
 	const requestVersion = useRef(0);
@@ -758,17 +758,18 @@ export function ChainTableOverlay({
 					const entry = (body as SourceDirectory).sources.find((s) => s.id === action.id);
 					window.dispatchEvent(new CustomEvent(entry?.kind === "chat" ? "lh:chat-renamed" : "lh:source-renamed", { detail: { id: action.id, title: action.name } }));
 				}
-				return typeof body.createdFolderId === "string" ? body.createdFolderId : undefined;
 			} catch (error) { setDirectoryFailure(error instanceof Error ? error.message : String(error)); throw error; }
 		});
 		mutationTail.current = operation;
 		return operation;
 	};
-	const selectedSources = new Set([...entrySelection.sources].filter((id) => directory?.sources.some((s) => s.id === id)));
-	const selectedFolders = new Set([...entrySelection.folders].filter((id) => directory?.organization.folders.some((f) => f.id === id)));
-	const fullySelectedFolders = new Set([...selectedFolders].filter((id) => directory && folderEntryCheck(directory, id, { sources: selectedSources, folders: selectedFolders }).checked));
-	const toggleEntries = (kind: "source" | "folder", id: string, checked: boolean) => {
-		if (directory) setEntrySelection((previous) => toggleSourceEntries(directory, previous, kind, id, checked));
+	const selectedSources = new Set([...entrySelection].filter((id) => directory?.sources.some((s) => s.id === id)));
+	const toggleEntries = (id: string, checked: boolean) => {
+		if (directory) setEntrySelection((previous) => {
+			const next = new Set(previous);
+			if (checked) next.add(id); else next.delete(id);
+			return next;
+		});
 	};
 
 	// Controlled when the caller lifts the selection (the practice pick
@@ -807,13 +808,13 @@ export function ChainTableOverlay({
 				{directoryFailure && <p role="alert" className="px-3 py-1 text-xs text-red-400">{directoryFailure}</p>}
 				<ChainTableBody
 					keyboardActive={!deleteOpen}
-					libraryBar={<LibraryBar />}
+					libraryBar={<LibraryBar reviewing={missingOnly} onReview={() => setMissingOnly((v) => !v)} />}
 					directory={directory}
 					onOrganizationChange={directory ? changeOrganization : undefined}
-					selectedFolders={selectedFolders}
 					selectedSources={selectedSources}
-					onToggleSource={(id, next) => toggleEntries("source", id, next)}
-					onToggleFolder={(id, next) => toggleEntries("folder", id, next)}
+					onToggleSource={(id, next) => toggleEntries(id, next)}
+					missingOnly={missingOnly}
+					onDeleteSource={(id) => setDeletion({ sources: directory?.sources.filter((s) => s.id === id) ?? [] })}
 					nodes={nodes}
 					chains={storedChains}
 					sessions={sessions}
@@ -834,11 +835,8 @@ export function ChainTableOverlay({
 					onToggleCluster={(key) => setExpandedClusters((prev) => toggleIn(prev, key))}
 					onToggleChain={(id) => setExpandedChains((prev) => toggleIn(prev, id))}
 					onToggleNodes={toggleNodes}
-					onClear={() => { if (selectMode) applySelection(new Set()); else setEntrySelection({ sources: new Set(), folders: new Set() }); }}
-					onDelete={() => setDeletion({
-						sources: directory?.sources.filter((s) => selectedSources.has(s.id)) ?? [],
-						folders: directory?.organization.folders.filter((f) => fullySelectedFolders.has(f.id)) ?? [],
-					})}
+					onClear={() => { if (selectMode) applySelection(new Set()); else setEntrySelection(new Set()); }}
+					onDelete={() => setDeletion({ sources: directory?.sources.filter((s) => selectedSources.has(s.id)) ?? [] })}
 					onClose={onClose}
 					selectMode={selectMode}
 					onSelect={onClose}
@@ -846,19 +844,18 @@ export function ChainTableOverlay({
 			</div>
 			{!selectMode && <DeleteSourceDialog open={deleteOpen}
 				sources={deletion?.sources ?? []}
-				folders={deletion?.folders ?? []}
 				onClose={() => setDeletion(null)}
 				onDelete={(deleteSessions) => {
 					const operation = mutationTail.current.catch(() => {}).then(async () => {
 						let graphRevision: number | undefined;
 						try {
 							const response = await fetch("/api/graph/sources", { method: "DELETE", headers: { "Content-Type": "application/json" },
-								body: JSON.stringify({ sourceIds: deletion?.sources.map((s) => s.id) ?? [], folderIds: deletion?.folders.map((f) => f.id) ?? [], deleteSessions }) });
+								body: JSON.stringify({ sourceIds: deletion?.sources.map((s) => s.id) ?? [], deleteSessions }) });
 							const body = await response.json();
 							if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "Could not delete sources.");
 							graphRevision = body.graphRevision;
 							requestVersion.current++; setDirectory(body as SourceDirectory); setDirectoryFailure("");
-							setEntrySelection({ sources: new Set(), folders: new Set() });
+							setEntrySelection(new Set());
 						} finally {
 							// A failed response can still follow partial disk writes.
 							// Refresh graph content as well as the directory, in both home modes.

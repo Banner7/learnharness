@@ -92,6 +92,11 @@ export interface VaultFileState {
 	/** ISO — when the scanner first saw `contentHash` (the quiet-period clock). */
 	changedAt: string;
 	extractedHash?: string;
+	/** Raw wikilink targets parsed from the note's bytes when the scanner
+	 *  last saw changed content (deduped, document order). Re-resolved to
+	 *  note ids on each snapshot, so renames and deletions resolve without
+	 *  re-reading the file. */
+	links?: string[];
 	/** ISO — set while the file is absent from the vault; ideas stay until
 	 *  the learner confirms deletion. */
 	missingSince?: string;
@@ -312,6 +317,28 @@ export interface Cluster {
 	label: string | null;
 	members: string[];
 }
+/** One present vault note in the phone graph (fork, 2026-11-01): a followed
+ *  file, its folder, and how many extracted propositions cite it. */
+export interface GraphNote {
+	/** The source id (`src_…`). */
+	id: string;
+	/** File basename without `.md`. */
+	title: string;
+	/** Vault-relative POSIX path. */
+	path: string;
+	/** Parent folder relative to the vault root ("" at the root). */
+	folder: string;
+	/** Propositions whose provenance names this note. */
+	ideaCount: number;
+}
+
+/** One wikilink edge between two present vault notes (fork, 2026-11-01),
+ *  resolved from each note's stored raw targets on every snapshot. */
+export interface GraphNoteLink {
+	from: string;
+	to: string;
+}
+
 /** GET /api/graph payload: persisted evidence plus derived graph data. */
 
 export interface GraphSnapshot {
@@ -345,6 +372,10 @@ export interface GraphSnapshot {
 	clusters: Cluster[];
 	/** Persisted resting layout; absent before the first graph settle. */
 	positions?: Record<string, Position>;
+	/** Present vault notes and their idea counts (fork, 2026-11-01). */
+	notes: GraphNote[];
+	/** Resolved wikilinks between vault notes (fork, 2026-11-01). */
+	noteLinks: GraphNoteLink[];
 }
 
 /** The auto-title's character cap (owner, 2026-10-06): long enough to

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { VAULT_DIR, VAULT_EXCLUDE_RAW } from "../../config.ts";
 import { emit } from "../core/events.ts";
 import { parseVaultExclude, reconcileVault, vaultPathExcluded, type VaultFile, type VaultReconcile } from "../core/vault-sync.ts";
+import { parseWikilinkTargets } from "../core/wikilinks.ts";
 import { readSettings } from "../store/settings.ts";
 import { stores } from "./stores.ts";
 
@@ -33,7 +34,13 @@ export const vaultExtracting = { id: null as string | null };
  * its writes run in one synchronous stretch so no extraction write
  * interleaves between reading and writing the source map.
  */
-async function walk(root: string, dir: string, exclude: readonly string[], out: VaultFile[]): Promise<void> {
+async function walk(
+	root: string,
+	dir: string,
+	exclude: readonly string[],
+	priorHashes: ReadonlyMap<string, string>,
+	out: VaultFile[],
+): Promise<void> {
 	let entries: fs.Dirent[];
 	try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
 	catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return; throw err; }
@@ -42,19 +49,24 @@ async function walk(root: string, dir: string, exclude: readonly string[], out: 
 		const full = path.join(dir, entry.name);
 		const rel = path.relative(root, full).split(path.sep).join("/");
 		if (entry.isDirectory()) {
-			if (!vaultPathExcluded(`${rel}/`, exclude)) await walk(root, full, exclude, out);
+			if (!vaultPathExcluded(`${rel}/`, exclude)) await walk(root, full, exclude, priorHashes, out);
 		} else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md") && !vaultPathExcluded(rel, exclude)) {
 			let bytes: Buffer;
 			// A file deleted between readdir and read is simply absent this scan.
 			try { bytes = await fs.promises.readFile(full); } catch { continue; }
-			out.push({ path: rel, hash: createHash("sha256").update(bytes).digest("hex") });
+			const hash = createHash("sha256").update(bytes).digest("hex");
+			// Parse wikilinks only when the bytes changed (owner, 2026-11-01):
+			// unchanged notes keep their persisted raw targets — a fresh parse
+			// every 30 s poll would redo work for no gain.
+			const links = priorHashes.get(rel) === hash ? undefined : parseWikilinkTargets(bytes.toString("utf8"));
+			out.push({ path: rel, hash, links });
 		}
 	}
 }
 
-async function scanVaultFiles(root: string, exclude: readonly string[]): Promise<VaultFile[]> {
+async function scanVaultFiles(root: string, exclude: readonly string[], priorHashes: ReadonlyMap<string, string>): Promise<VaultFile[]> {
 	const files: VaultFile[] = [];
-	await walk(root, root, exclude, files);
+	await walk(root, root, exclude, priorHashes, files);
 	return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -65,7 +77,11 @@ async function scanOnce(): Promise<VaultReconcile | null> {
 	try {
 		const root = VAULT_DIR!;
 		await fs.promises.access(root, fs.constants.R_OK);
-		const files = await scanVaultFiles(root, libraryPreferences().exclude);
+		// The previous scan's hashes decide what to re-parse (owner, 2026-11-01).
+		const priorHashes = new Map(stores.graphStore.readSources()
+			.filter((source) => source.vault !== undefined)
+			.map((source) => [source.vault!.path, source.vault!.contentHash] as const));
+		const files = await scanVaultFiles(root, libraryPreferences().exclude, priorHashes);
 		const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
 			() => `src_${randomBytes(6).toString("hex")}`);
 		for (const source of result.upserts) stores.graphStore.upsertSource(source);

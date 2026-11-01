@@ -1,5 +1,5 @@
 import { deleteSourcesTraces, pruneDetachedNodes } from "../core/graph-deletion.ts";
-import { folderIsEmpty, type SourceDirectory } from "../core/source-organization.ts";
+import type { SourceDirectory } from "../core/source-organization.ts";
 import { extractionStatuses } from "../agent/subagents/extraction.ts";
 import { stores } from "./stores.ts";
 import { sourceDirectory } from "./source-organization.ts";
@@ -9,17 +9,17 @@ import { graphRevision } from "./graph.ts";
 export class SourceDeletionError extends Error {
 	constructor(message: string, public status = 400, public code = "invalid_source_deletion") { super(message); }
 }
-export interface SourceDeletionRequest { sourceIds: string[]; folderIds: string[]; deleteSessions: boolean }
+export interface SourceDeletionRequest { sourceIds: string[]; deleteSessions: boolean }
 function parseSourceDeletion(raw: unknown): SourceDeletionRequest {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new SourceDeletionError("Invalid source deletion request.");
 	const r = raw as Record<string, unknown>;
 	const ids = (value: unknown) => {
-		if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id.length > 0)) throw new SourceDeletionError("Source and folder IDs must be arrays of non-empty strings.");
+		if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id.length > 0)) throw new SourceDeletionError("Source IDs must be an array of non-empty strings.");
 		return [...new Set(value)] as string[];
 	};
 	if (typeof r.deleteSessions !== "boolean") throw new SourceDeletionError("Session deletion must be explicitly selected or declined.");
-	const result = { sourceIds: ids(r.sourceIds), folderIds: ids(r.folderIds), deleteSessions: r.deleteSessions };
-	if (!result.sourceIds.length && !result.folderIds.length) throw new SourceDeletionError("Select at least one source or folder.");
+	const result = { sourceIds: ids(r.sourceIds), deleteSessions: r.deleteSessions };
+	if (!result.sourceIds.length) throw new SourceDeletionError("Select at least one source.");
 	return result;
 }
 
@@ -60,25 +60,9 @@ export function deleteSources(raw: unknown): SourceDirectory & { graphRevision: 
 			removed.add(entry.id);
 		} else if (entry.kind !== "chat") removed.add(entry.id);
 	}
-	// The stored organization, not the read view: vault folders are an
-	// overlay (fork, 2026-11-01) and must never be written back.
+	// Drop display names for removed sources; keep everything else intact.
 	const stored = stores.sourceOrganizationStore.read();
-	const state = structuredClone(stored);
-	state.placements = Object.fromEntries(Object.entries(state.placements).filter(([id]) => !removed.has(id)));
-	const remainingSources = new Set(sourceDirectory.read().sources.map((s) => s.id));
-	// Bottom-up fixed point: remove selected empty descendants, then their
-	// emptied ancestors. Kept conversations and unselected entries block removal.
-	let changed = true;
-	while (changed) {
-		changed = false;
-		for (const id of request.folderIds) {
-			if (state.folders.some((f) => f.id === id) && folderIsEmpty(state, id, remainingSources)) {
-				state.folders = state.folders.filter((f) => f.id !== id);
-				state.placements = Object.fromEntries(Object.entries(state.placements).filter(([, p]) => p.folderId !== id));
-				changed = true;
-			}
-		}
-	}
-	if (JSON.stringify(state) !== JSON.stringify(stored)) stores.sourceOrganizationStore.write(state);
+	const names = Object.fromEntries(Object.entries(stored.names).filter(([id]) => !removed.has(id)));
+	if (Object.keys(names).length !== Object.keys(stored.names).length) stores.sourceOrganizationStore.write({ ...stored, names });
 	return { ...sourceDirectory.read(), graphRevision: graphRevision() };
 }

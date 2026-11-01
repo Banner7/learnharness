@@ -12,7 +12,6 @@ fs.writeFileSync(process.env.LH_AUTH_FILE, "{}\n");
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 const { GET, POST } = await import("../server/routes/graph/sources/route.ts");
 const { stores } = await import("../src/server/stores.ts");
-const { sourceDirectory } = await import("../src/server/source-organization.ts");
 const { SOURCE_ORGANIZATION_FILE } = await import("../config.ts");
 const change = (action: unknown) => POST(new Request("http://localhost/api/graph/sources", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) }));
 const sourceId = (filePath: string) => `src_${createHash("sha256").update(filePath).digest("hex").slice(0, 12)}`;
@@ -30,62 +29,63 @@ it("GET is a non-writing read and inventories all sessions, imported records and
 	assert.equal(sources.find((s: { id: string }) => s.id === "gone").kind, "missing");
 });
 
-it("rename/move operations persist independently without changing source IDs, paths, graph ledgers or usage", async () => {
+it("rename-source persists a display name for an uploaded source without changing its identity or graph ledgers", async () => {
 	const filePath = "Course/Sub/My_Notes.v2.pdf", id = sourceId(filePath);
-	sourceDirectory.registerImport(filePath);
 	stores.graphStore.upsertSource({ id, filePath, importedAt: "2026-10-30T00:00:00Z", extractions: [] });
 	const before = { nodes: stores.graphStore.readNodes(), chains: stores.graphStore.readChains(), source: stores.graphStore.readSources().find((s) => s.id === id) };
-	let directory = await (await GET()).json();
-	const sub = directory.organization.folders.find((f: { importPath?: string }) => f.importPath === "Course/Sub");
-	for (const action of [{ action: "rename-folder", id: sub.id, name: "Renamed directory" }, { action: "move", kind: "folder", id: sub.id, parentId: null }, { action: "rename-source", id, name: "Renamed book" }]) assert.equal((await change(action)).status, 200);
-	sourceDirectory.registerImport(filePath);
-	sourceDirectory.registerImport("Course/Sub/new.txt");
-	directory = await (await GET()).json();
+	assert.equal((await change({ action: "rename-source", id, name: "Renamed book" })).status, 200);
+	const directory = await (await GET()).json();
 	assert.equal(directory.sources.find((s: { id: string }) => s.id === id).label, "Renamed book");
-	assert.equal(directory.organization.placements[sourceId("Course/Sub/new.txt")].folderId, sub.id);
-	assert.equal(directory.organization.folders.find((f: { id: string }) => f.id === sub.id).parentId, null);
+	assert.deepEqual(stores.sourceOrganizationStore.read(), { version: 2, names: { [id]: "Renamed book" } });
 	assert.deepEqual(stores.graphStore.readNodes(), before.nodes); assert.deepEqual(stores.graphStore.readChains(), before.chains);
 	assert.deepEqual(stores.graphStore.readSources().find((s) => s.id === id), before.source);
 	assert.ok(fs.existsSync(SOURCE_ORGANIZATION_FILE));
 });
 
-it("session rename uses its existing title without activity churn; existing root source placement survives reimport", async () => {
+it("session rename uses its existing title without activity churn; a vault note is named by the vault", async () => {
 	const chat = stores.chatStore.createChat("Original session");
 	const response = await change({ action: "rename-source", id: chat.id, name: "Edited session" }); assert.equal(response.status, 200);
 	assert.equal(stores.chatStore.getChat(chat.id)?.title, "Edited session");
 	assert.equal(stores.chatStore.getChat(chat.id)?.updatedAt, chat.updatedAt);
-	const id = sourceId("Root/empty.md");
-	sourceDirectory.registerImport("Root/empty.md");
-	assert.equal(stores.sourceOrganizationStore.read().placements[id]?.folderId, null);
-	assert.ok(!stores.sourceOrganizationStore.read().folders.some((f) => f.importPath === "Root"));
+	// A followed note cannot be renamed from LH (owner, 2026-11-01).
+	const id = sourceId("math/Note.md");
+	stores.graphStore.upsertSource({ id, filePath: "math/Note.md", importedAt: "2026-11-01", vault: { path: "math/Note.md", contentHash: "h", changedAt: "2026-11-01", extractedHash: "h" } });
+	assert.equal((await change({ action: "rename-source", id, name: "Nope" })).status, 400);
+	assert.equal(stores.sourceOrganizationStore.read().names[id], undefined);
 });
 
-it("server validates cycles, stale sources/parents and nonempty folders, including zero-node files", async () => {
-	const created = await (await change({ action: "create-folder", name: "Empty", parentId: null })).json();
-	const folder = created.organization.folders.find((f: { name: string }) => f.name === "Empty");
-	assert.equal(created.createdFolderId, folder.id, "creation identifies the exact new row, even with duplicate folder names");
-	assert.equal((await change({ action: "move", kind: "folder", id: folder.id, parentId: folder.id })).status, 400);
-	assert.equal((await change({ action: "move", kind: "source", id: "unknown", parentId: folder.id })).status, 400);
-	assert.equal((await change({ action: "move", kind: "source", id: sourceId("Root/empty.md"), parentId: folder.id })).status, 200);
-	assert.equal((await change({ action: "delete-folder", id: folder.id })).status, 400);
-	assert.equal((await change({ action: "move", kind: "source", id: sourceId("Root/empty.md"), parentId: null })).status, 200);
-	assert.equal((await change({ action: "delete-folder", id: folder.id })).status, 200);
+it("rename-source refuses unknown/missing sources and invalid shapes", async () => {
+	assert.equal((await change({ action: "rename-source", id: "unknown", name: "x" })).status, 400);
+	assert.equal((await change({ action: "create-folder", name: "Empty", parentId: null })).status, 400);
+	assert.equal((await change({ action: "move", kind: "source", id: "x", parentId: null })).status, 400);
+	assert.equal((await change({ action: "rename-source", id: "x", name: "   " })).status, 400);
 });
 
 it("malformed, oversized and failed streams refuse before metadata writes", async () => {
-	const before = fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8");
+	stores.graphStore.upsertSource({ id: sourceId("a.md"), filePath: "a.md", importedAt: "2026-10-30" });
+	const before = fs.existsSync(SOURCE_ORGANIZATION_FILE) ? fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8") : null;
 	for (const request of [new Request("http://localhost/api/graph/sources", { method: "POST", body: "{" }), new Request("http://localhost/api/graph/sources", { method: "POST", body: "x".repeat(65537) }), new Request("http://localhost/api/graph/sources", { method: "POST", body: new ReadableStream({ start(c) { c.error(new Error("synthetic broken stream")); } }), duplex: "half" } as RequestInit)]) assert.equal((await POST(request)).status, 400);
-	assert.equal(fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8"), before);
+	assert.equal(fs.existsSync(SOURCE_ORGANIZATION_FILE) ? fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8") : null, before);
 });
 
-it("newer/corrupt data refuses reads and writes without overwriting its bytes", async () => {
-	const before = fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8");
+it("version-1 folders/placements migrate to version-2 names; corrupt/newer data refuses", async () => {
+	// The pre-fork shape loads and drops folders/folderId, keeping only names.
+	fs.writeFileSync(SOURCE_ORGANIZATION_FILE, JSON.stringify({ version: 1, folders: [{ id: "f1", name: "Course", parentId: null, createdAt: "x" }], placements: { a: { folderId: "f1", name: "My book" }, b: { folderId: "f1" } } }));
+	assert.equal((await GET()).status, 200);
+	assert.deepEqual(stores.sourceOrganizationStore.read(), { version: 2, names: { a: "My book" } });
+	// The next write persists version 2.
+	const id = sourceId("a.md");
+	stores.graphStore.upsertSource({ id, filePath: "a.md", importedAt: "2026-10-30" });
+	assert.equal((await change({ action: "rename-source", id, name: "New" })).status, 200);
+	assert.deepEqual(JSON.parse(fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8")), { version: 2, names: { a: "My book", [id]: "New" } });
+	// Corrupt and newer-than-this-app data refuse reads and writes without overwriting bytes.
+	const good = fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8");
 	try {
-		for (const value of ["{", '{"version":2,"folders":[],"placements":{}}']) {
+		for (const value of ["{", '{"version":3,"names":{}}', '{"version":2,"names":{"a":4}}']) {
 			fs.writeFileSync(SOURCE_ORGANIZATION_FILE, value);
 			assert.equal((await GET()).status, 500);
-			assert.equal((await change({ action: "create-folder", name: "Do not overwrite", parentId: null })).status, 500);
+			assert.equal((await change({ action: "rename-source", id, name: "Do not overwrite" })).status, 500);
 			assert.equal(fs.readFileSync(SOURCE_ORGANIZATION_FILE, "utf8"), value);
 		}
-	} finally { fs.writeFileSync(SOURCE_ORGANIZATION_FILE, before); }
+	} finally { fs.writeFileSync(SOURCE_ORGANIZATION_FILE, good); }
 });

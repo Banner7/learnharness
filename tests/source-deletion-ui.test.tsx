@@ -23,7 +23,7 @@ dom.window.HTMLInputElement.prototype.click = function () { if (this.type === "c
 let root: Root | undefined, host: HTMLDivElement | undefined;
 const originalFetch = globalThis.fetch;
 afterEach(async () => { await act(async () => { root?.unmount(); }); root = undefined; host?.remove(); globalThis.fetch = originalFetch; });
-const directory = (): SourceDirectory => ({ organization: { version: 1, folders: [], placements: {} }, sources: ["a", "b"].map((id) => ({ id, kind: "notes", label: `${id} book`, createdAt: "now" })) });
+const directory = (): SourceDirectory => ({ sources: ["a", "b"].map((id) => ({ id, kind: "notes", label: `${id} book`, createdAt: "now" })) });
 async function mount(children: React.ReactNode) {
 	host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 	await act(async () => { root!.render(<ServerEventsProvider connect={() => ({ close() {}, onOpen() {}, onEvent() {} })}>{children}</ServerEventsProvider>); });
@@ -34,7 +34,7 @@ async function click(id: string) {
 }
 it("a failed deletion keeps its original confirmation targets for retry even after refresh prunes removed sources", async () => {
 	let current = directory(), revisions = 0;
-	const requests: { sourceIds: string[]; folderIds: string[]; deleteSessions: boolean }[] = [];
+	const requests: { sourceIds: string[]; deleteSessions: boolean }[] = [];
 	globalThis.fetch = async (_url, init) => {
 		if (init?.method === "DELETE") {
 			requests.push(JSON.parse(init.body as string));
@@ -54,7 +54,7 @@ it("a failed deletion keeps its original confirmation targets for retry even aft
 		assert.equal(document.querySelector('[data-testid="chain-selection-bar"]'), null);
 		await click("source-delete-confirm");
 		assert.equal(document.querySelector('[data-testid="delete-source-dialog"]'), null);
-		assert.deepEqual(requests, [{ sourceIds: ["a"], folderIds: [], deleteSessions: false }, { sourceIds: ["a"], folderIds: [], deleteSessions: false }]);
+		assert.deepEqual(requests, [{ sourceIds: ["a"], deleteSessions: false }, { sourceIds: ["a"], deleteSessions: false }]);
 		assert.equal(revisions, 2, "even a partial/ambiguous failure refreshes graph content");
 	} finally { window.removeEventListener("lh:graph-revision", onRevision); }
 });

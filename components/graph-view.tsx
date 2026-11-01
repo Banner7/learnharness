@@ -66,10 +66,10 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NotesImportControl, NotesImportErrors, NotesImportNotices, useNotesImport } from "@/components/notes-import.tsx";
 import { useLibrary } from "@/components/library";
-import { Link } from "wouter";
 import { GraphCostControl } from "./minimal-home";
-import { FileTextIcon, ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
-import { incrementalLayout, propositionSessionHref, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { ListTreeIcon, Loader2Icon, SearchIcon, SettingsIcon, WaypointsIcon } from "lucide-react";
+import { incrementalLayout, type GraphCostSummary, type GraphNode, type GraphSnapshot } from "@/src/core";
+import { GraphIdeaCard } from "./graph-idea-card";
 import { GraphCanvasRenderer, type GraphRenderSettings } from "./graph-canvas.ts";
 import { usePopoverDismiss } from "@/components/popover-dismiss";
 import { useActivity } from "@/components/activity-dock";
@@ -97,7 +97,6 @@ import {
 	REGION_BITMAP_OPTIONS,
 	REGION_BLUR_LADDER,
 	fromLadderPosition,
-	snapToLadder,
 	toLadderPosition,
 	REGION_DILATION_LADDER,
 	REGION_EDGE_ALPHA_LADDER,
@@ -1414,40 +1413,12 @@ export function GraphView({
 					style={{ visibility: "hidden", left: 0, top: 0 }}
 					className="absolute z-10 w-80 max-w-[calc(100%-1rem)] rounded-md border border-border bg-card p-4 text-left shadow-md"
 				>
-					<div className="text-sm font-medium leading-snug">{selected.node.name}</div>
-					<div className="mt-1 text-xs leading-relaxed text-muted-foreground">{selected.node.statement}</div>
-					{selected.sourceIds.length > 0 ? (
-						<div className="mt-3 flex flex-col gap-1">
-							<div className="text-xs text-muted-foreground">Sessions</div>
-							{selected.sourceIds.map((sourceId) => {
-								// An imported-notes file: a STATIC entry — the path,
-								// plain text, never a link (no session to open).
-								if (snapshot?.fileSources?.[sourceId] !== undefined) {
-									return (
-										<div key={sourceId} className="flex items-center gap-1.5">
-											<FileTextIcon className="size-3.5 shrink-0 text-muted-foreground" />
-											<span className="min-w-0 flex-1 truncate px-2 py-1.5 text-sm text-muted-foreground">
-												{snapshot.fileSources[sourceId]}
-											</span>
-										</div>
-									);
-								}
-								// A real session: deep-linkable provenance.
-								return (
-									<div key={sourceId} className="flex items-center gap-1.5">
-										<Link
-											href={propositionSessionHref(selected.node, sourceId)}
-											className="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
-										>
-											{snapshot?.sessions[sourceId] ?? sourceId}
-										</Link>
-									</div>
-								);
-							})}
-						</div>
-					) : (
-						<div className="mt-3 text-xs text-muted-foreground">No sessions recorded.</div>
-					)}
+					<GraphIdeaCard
+						node={selected.node}
+						sourceIds={selected.sourceIds}
+						sessions={snapshot?.sessions ?? {}}
+						fileSources={snapshot?.fileSources ?? {}}
+					/>
 				</div>
 			)}
 			{/* Chain browsing remains in the graph area; its overlay owns

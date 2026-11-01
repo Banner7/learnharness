@@ -2,9 +2,12 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { SidebarToggle } from "./sidebar";
 
-// Graph page restored for desktop (2026-10-31): this lightweight route must
-// check the viewport before importing the canvas or its d3 dependencies.
+// Graph page (2026-10-31 desktop canvas; 2026-11-01 phone graph): this
+// lightweight route must check the viewport before importing the canvas or
+// its d3 dependencies — the phone graph (SVG, no d3) loads instead below
+// 1100px.
 const GraphView = lazy(() => import("./graph-view").then(({ GraphView }) => ({ default: GraphView })));
+const PhoneGraph = lazy(() => import("./phone-graph").then(({ PhoneGraph }) => ({ default: PhoneGraph })));
 const DESKTOP_QUERY = "(min-width: 1100px)";
 
 export function GraphPage() {
@@ -18,11 +21,9 @@ export function GraphPage() {
 	}, []);
 
 	if (!desktop) {
-		return <main className="mx-auto flex min-h-dvh max-w-[560px] flex-col justify-center gap-4 px-6 font-ui">
-			<h1 className="font-title text-2xl text-foreground">Graph is for desktop</h1>
-			<p className="text-sm leading-relaxed text-muted-foreground">Explore your knowledge through Chains on this screen.</p>
-			<Link href="/?chains=1" className="min-h-11 self-start text-sm font-medium text-primary underline underline-offset-4">Open Chains</Link>
-		</main>;
+		return <Suspense fallback={<p role="status" className="p-6 text-sm text-muted-foreground">Loading graph…</p>}>
+			<PhoneGraph />
+		</Suspense>;
 	}
 
 	return <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground">

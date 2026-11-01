@@ -47,8 +47,10 @@ export function useLibrary(): { status: LibraryStatus | null; syncNow: () => Pro
 }
 
 /** The chain table's library line. Sync now is disabled while a drain runs
- * (the server absorbs a second request anyway; the button says so). */
-export function LibraryBar() {
+ * (the server absorbs a second request anyway; the button says so). When
+ * notes are missing, a Review button toggles the missing-only filter in the
+ * overlay that owns it (owner, 2026-11-01). */
+export function LibraryBar({ reviewing = false, onReview }: { reviewing?: boolean; onReview?: () => void }) {
 	const { status, syncNow, error } = useLibrary();
 	if (!status?.enabled) return null;
 	const busy = status.draining || status.extracting !== null;
@@ -63,6 +65,12 @@ export function LibraryBar() {
 				{error && <span role="alert" className="ml-2 text-wrong">{error}</span>}
 				{status.blocked && <span className="ml-2 text-wrong">Sync stopped: {status.blocked}</span>}
 			</span>
+			{status.missing > 0 && onReview && (
+				<button type="button" data-testid="library-review" onClick={onReview}
+					className="shrink-0 rounded-md border border-border bg-card px-3 py-1 text-sm transition-colors hover:bg-accent">
+					{reviewing ? "Show all" : "Review"}
+				</button>
+			)}
 			<button type="button" data-testid="library-sync" disabled={busy || status.waiting === 0}
 				onClick={() => void syncNow()}
 				className="shrink-0 rounded-md border border-border bg-card px-3 py-1 text-sm transition-colors hover:bg-accent disabled:opacity-50 disabled:hover:bg-card">

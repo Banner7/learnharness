@@ -52,7 +52,7 @@ const readChains = cachedLedger(LEDGER_FILES.chains, () => stores.graphStore.rea
 export function graphView(): GraphSnapshot {
 	let sources: NotesSource[] | undefined;
 	const organization = stores.sourceOrganizationStore.read();
-	const names = Object.fromEntries(Object.entries(organization.placements).flatMap(([id, p]) => p.name === undefined ? [] : [[id, p.name]]));
+	const names = organization.names;
 	return graphSnapshot({
 		...stores,
 		graphStore: {
