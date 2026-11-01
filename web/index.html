@@ -10,8 +10,10 @@
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-title" content="LearnHarness" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="default" />
-		<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
-		<link rel="apple-touch-icon" href="/apple-icon.png" />
+		<!-- ?v=2 (fork, 2026-11-01): iOS caches touch icons by URL; bump the
+		     query whenever the icon art changes so phones refetch it. -->
+		<link rel="manifest" href="/manifest.webmanifest?v=2" crossorigin="use-credentials" />
+		<link rel="apple-touch-icon" href="/apple-icon.png?v=2" />
 		<!-- Fork rewrite (2026-10-29): apply the saved theme before CSS paints,
 		     keeping this pre-paint copy in step with lib/theme-mode.ts. -->
 		<script>

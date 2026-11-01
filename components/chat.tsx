@@ -21,7 +21,7 @@ import { AnsweredCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
-import { Composer } from "@/components/composer";
+import { ChatSessionComposer } from "@/components/composer";
 import { blurAfterPointerClick } from "@/components/focus-hygiene";
 import { clearOpeningPrompt, readOpeningPromptEntry, stashOpeningPrompt, OPENING_PROMPT_FAILURE } from "@/components/opening-prompt";
 import { QueuedSteersBody, type QueuedSteerLine } from "@/components/queued-steers";
@@ -427,37 +427,45 @@ export function Chat({
 	const readingThinkingAvailable = pending !== null && questionSupportsReadingThinking(pending.tool, pending.input, phaseAt3(messages));
 
 	/* The reading-thinking draft belongs to a teaching check and rides with
-	 * its answer (or dismissal) as `readingThinking`. Reset per question. */
-	const [readingThinking, setReadingThinking] = useState("");
+	 * its answer (or dismissal) as `readingThinking`. Reset per question.
+	 * Like the composer (upstream 2d94eab/c1361d1, 2026-11-01): the field
+	 * keeps keystroke state locally; this ref is the synchronous truth and
+	 * the revision announces explicit resets. */
 	const readingThinkingRef = useRef("");
+	const [readingThinkingRevision, setReadingThinkingRevision] = useState(0);
 
 	const applyReadingThinking = useCallback((v: string) => {
 		readingThinkingRef.current = v;
-		setReadingThinking(v);
 	}, []);
-	const clearReadingThinking = useCallback(() => {
-		readingThinkingRef.current = "";
-		setReadingThinking("");
+	const resetReadingThinking = useCallback((v: string) => {
+		readingThinkingRef.current = v;
+		setReadingThinkingRevision((r) => r + 1);
 	}, []);
+	const clearReadingThinking = useCallback(() => resetReadingThinking(""), [resetReadingThinking]);
 	const pendingQuestionId = pending?.key ?? null;
 	useEffect(() => {
 		// Different calls never share a draft; a failed submission of THIS
 		// call restores the reading channel alongside the form's snapshot.
-		const reading = pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "";
-		readingThinkingRef.current = reading;
-		setReadingThinking(reading);
-	}, [pendingQuestionId, questionDraft]);
+		resetReadingThinking(pendingQuestionId ? questionDraft(pendingQuestionId)?.readingThinking ?? "" : "");
+	}, [pendingQuestionId, questionDraft, resetReadingThinking]);
 
 	// The phase at every message (one linear fold): the transcript draws a
 	// color-coded dotted divider at each boundary; the header chip reads the
 	// session's current phase.
 	const phases = useMemo(() => phaseTimeline(messages), [messages]);
 
-	const [text, setText] = useState("");
+	/* Typing no longer re-renders the transcript (upstream 2d94eab, ported
+	 * onto the fork's dock 2026-11-01): the composer owns its keystroke
+	 * state; the draft lives in this ref for sends. Explicit parent-driven
+	 * resets bump the revision so the local field resyncs. */
 	const textRef = useRef("");
+	const [composerDraftRevision, setComposerDraftRevision] = useState(0);
+	const recordComposerText = useCallback((v: string) => {
+		textRef.current = v;
+	}, []);
 	const applyText = useCallback((v: string) => {
 		textRef.current = v;
-		setText(v);
+		setComposerDraftRevision((r) => r + 1);
 	}, []);
 	/** Restore refused drafts while leaving the server error visible. */
 	const draftRef = useRef<string | null>(null);
@@ -570,7 +578,7 @@ export function Chat({
 	// recovers from it. Later compaction requires new input instead.
 	const retryable = (status === "ready" || status === "error") && !busy && !compacting && endsInFailedTurn(nativeMessages);
 	const retryFailedTurn = () => retryFailedResponse(send, draftRef);
-	const canSend = text.trim().length > 0 && !pending && !activeProblem && !compacting;
+	const sendAllowed = !pending && !activeProblem && !compacting;
 
 	/* THE PRACTICE PAUSE (owner round 16): between problems — practice
 	 * kind, nothing active, nothing in flight, and at least one problem
@@ -1395,7 +1403,7 @@ export function Chat({
 							)}
 							{pending && (
 								<div className="w-full">
-									{readingThinkingAvailable && <ReadingThinkingField value={readingThinking} onChange={applyReadingThinking} />}
+									{readingThinkingAvailable && <ReadingThinkingField value={readingThinkingRef.current} revision={readingThinkingRevision} onChange={applyReadingThinking} />}
 									<div className="overflow-hidden rounded-md border border-border bg-card">
 										<QuestionDock
 											key={pending.key}
@@ -1442,17 +1450,18 @@ export function Chat({
 					initialSession={initialSessionRef.current}
 					queuedSteers={visibleQueuedSteers(steerQueue, nativeMessages)}
 					composer={
-						<Composer
+						<ChatSessionComposer
 							// Stop aborts ANY in-flight turn (stream-reattach wave): the
 							// square renders while a reattached/wake turn runs too — the
 							// abort channel kills it server-side; stop() alone would
 							// only detach our view.
 							busy={busy}
-							value={text}
-							onChange={applyText}
+							value={textRef.current}
+							revision={composerDraftRevision}
+							onChange={recordComposerText}
 							onSend={onSend}
 							onStop={abortInFlightTurn}
-							canSend={canSend}
+							sendAllowed={sendAllowed}
 							// The next-problem chip is available without keyboard focus.
 							nextProblem={nextReady}
 							onNext={sendNext}

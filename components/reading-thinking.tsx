@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { PathInput } from "@/components/path-input";
 
 /**
@@ -10,14 +11,28 @@ import { PathInput } from "@/components/path-input";
  * teach-phase check waits behind its reveal (the same cue that collapses
  * the check), rides the answer as the separate `readingThinking`
  * channel, and disappears with the question.
+ *
+ * Local keystroke state (upstream 2d94eab + c1361d1, ported 2026-11-01):
+ * typing re-renders only this field; `revision` announces parent resets,
+ * and the ref holds every edit synchronously before React commits.
  */
 export function ReadingThinkingField({
 	value,
+	revision,
 	onChange,
 }: {
 	value: string;
+	revision: number;
 	onChange: (v: string) => void;
 }) {
+	const [draft, setDraft] = useState(value);
+	const draftRef = useRef(value);
+	useLayoutEffect(() => { draftRef.current = value; setDraft(value); }, [revision, value]);
+	const applyDraft = useCallback((next: string) => {
+		draftRef.current = next;
+		setDraft(next);
+		onChange(next);
+	}, [onChange]);
 	return (
 		<div
 			data-testid="reading-thinking-field"
@@ -27,8 +42,8 @@ export function ReadingThinkingField({
 				Thinking while reading
 			</div>
 			<PathInput
-				value={value}
-				onValueChange={onChange}
+				value={draft}
+				onValueChange={applyDraft}
 				/* Redesign (owner, 2026-10-27): retain vertical padding so the
 				   browser's font box does not produce a permanent scrollbar. */
 				placeholder="Whatever comes to mind as you read."

@@ -4,13 +4,37 @@ import { CornerDownLeftIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tap } from "@/lib/haptics";
 import { HapticLabel } from "@/components/ui/haptic";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { PathInput } from "@/components/path-input";
 
 /**
  * The chat composer is the content row; the chat view owns its persistent
  * dock shell so turn-state changes never remount the input.
  */
+
+/**
+ * Session composer with local keystroke state (upstream 2d94eab). The
+ * owning Chat keeps the current draft in a ref for send, so typing doesn't
+ * rerender the transcript; `revision` signals explicit parent-driven resets.
+ */
+export function ChatSessionComposer({
+	value,
+	revision,
+	onChange,
+	sendAllowed,
+	...rest
+}: Omit<React.ComponentProps<typeof Composer>, "canSend" | "variant" | "actions"> & {
+	revision: number;
+	sendAllowed: boolean;
+}) {
+	const [draft, setDraft] = useState(value);
+	useLayoutEffect(() => { setDraft(value); }, [revision, value]);
+	const applyDraft = useCallback((next: string) => {
+		setDraft(next);
+		onChange(next);
+	}, [onChange]);
+	return <Composer {...rest} value={draft} onChange={applyDraft} canSend={sendAllowed && draft.trim().length > 0} />;
+}
 
 export function Composer({
 	busy,
