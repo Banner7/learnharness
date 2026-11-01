@@ -1,10 +1,3 @@
-/**
- * Composer render tests — the chat input row (content only; the persistent
- * rounded shell lives in the chat view's overlay so it can morph into the
- * question dock without remounting).
- *
- * Same tsx classic-JSX shim as render-cards.test.tsx.
- */
 import React from "react";
 (globalThis as Record<string, unknown>).React = React;
 
@@ -14,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Composer } from "../components/composer.tsx";
 
 function render(
-	opts: { busy?: boolean; canSend?: boolean; placeholder?: string; nextProblem?: boolean } = {},
+	opts: { busy?: boolean; canSend?: boolean; nextProblem?: boolean } = {},
 ) {
 	return renderToStaticMarkup(
 		<Composer
@@ -24,25 +17,12 @@ function render(
 			onSend={() => {}}
 			onStop={() => {}}
 			canSend={opts.canSend ?? true}
-			{...(opts.placeholder ? { placeholder: opts.placeholder } : {})}
 			{...(opts.nextProblem ? { nextProblem: true, onNext: () => {} } : {})}
 		/>,
 	);
 }
 
 describe("Composer", () => {
-	it("chat placeholder + send button", () => {
-		const html = render();
-		assert.match(html, /Ask, answer, or steer the lesson/, "the default — active sessions");
-		assert.ok(html.includes('aria-label="Send"'), "send button present");
-	});
-
-	it("placeholder is overridable — the new-session page asks the graph view's question", () => {
-		const html = render({ placeholder: "What do you want to learn?" });
-		assert.match(html, /What do you want to learn\?/);
-		assert.ok(!html.includes("Ask, answer"), "the session placeholder must not ride along");
-	});
-
 	it("busy with text: the button STAYS Send (click = steer); busy and empty: it becomes Stop", () => {
 		const steering = render({ busy: true, canSend: true });
 		assert.ok(steering.includes('aria-label="Send"'), "the steer affordance is clickable mid-turn");

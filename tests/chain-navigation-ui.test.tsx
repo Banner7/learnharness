@@ -9,10 +9,10 @@ import { chainRow, useChainNavigation } from "../components/chain-navigation.ts"
 import type { SourceDirectory } from "../src/core/index.ts";
 const dom = parseHTML("<html><body></body></html>");
 Object.assign(globalThis, { window: dom.window, document: dom.document, Element: dom.window.Element, IS_REACT_ACT_ENVIRONMENT: true });
-let focused: Element | undefined, scrolled = 0, selectedText = 0;
+let focused: Element | undefined, scrolled = 0;
 dom.window.HTMLElement.prototype.focus = function () { focused = this; };
 dom.window.HTMLElement.prototype.scrollIntoView = function () { scrolled++; };
-dom.window.HTMLInputElement.prototype.select = function () { selectedText++; };
+dom.window.HTMLInputElement.prototype.select = function () {};
 dom.window.HTMLElement.prototype.blur = function () { if (focused === this) focused = undefined; };
 Object.defineProperty(document, "activeElement", { configurable: true, get: () => focused ?? document.body });
 const directory: SourceDirectory = {
@@ -37,7 +37,7 @@ function Harness() {
 		onOrganizationChange={async () => { throw new Error("Navigation must not mutate organization"); }} />;
 }
 async function mount() {
-	scrolled = 0; selectedText = 0; focused = undefined;
+	scrolled = 0; focused = undefined;
 	host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
 	await act(async () => { root!.render(<Harness />); });
 }
@@ -51,10 +51,12 @@ function activeKey() { return JSON.parse(active()?.dataset.chainNavRow ?? "null"
 async function point(selector: string) {
 	await act(async () => { document.querySelector(selector)!.dispatchEvent(new dom.window.Event("pointerdown", { bubbles: true })); });
 }
-it("Find focuses/selects chains search, and Down enters results without changing checkbox selection", async () => {
-	await mount(); await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-find")); });
-	const search = document.querySelector('[data-testid="chain-table-search"]')!;
-	assert.equal(focused, search); assert.equal(selectedText, 1);
+// Fork (2026-10-31): keyboard shortcuts were removed, so nothing dispatches
+// lh:kbd-find; the learner reaches the search box by clicking it.
+it("Down from the search box enters results without changing checkbox selection", async () => {
+	await mount();
+	const search = document.querySelector<HTMLElement>('[data-testid="chain-table-search"]')!;
+	await act(async () => { search.focus(); });
 	assert.equal((await key("ArrowLeft", search)).defaultPrevented, false); assert.equal(focused, search);
 	assert.equal((await key("ArrowDown", search)).defaultPrevented, true);
 	assert.deepEqual(activeKey(), ["source", "b"]); assert.equal(focused, active()); assert.ok(scrolled > 0);
@@ -85,28 +87,24 @@ it("search auto-expansion permits explicit collapse and resets for a new query",
 	assert.equal(document.querySelector('[data-testid="cluster-group-a"]'), null);
 	await act(async () => { setQuery("Book"); }); assert.ok(document.querySelector('[data-testid="cluster-group-a"]'));
 });
-it("a foreground menu/dialog keeps both Find and arrows, even if focus was left behind it", async () => {
+it("a foreground menu/dialog keeps arrows, even if focus was left behind it", async () => {
 	await mount(); const dialog = document.createElement("div"); dialog.setAttribute("role", "dialog"); document.body.appendChild(dialog);
-	const before = focused;
 	try {
-		await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-find")); });
-		assert.equal(focused, before); assert.equal((await key("ArrowDown")).defaultPrevented, false); assert.equal(active(), null);
+		assert.equal((await key("ArrowDown")).defaultPrevented, false); assert.equal(active(), null);
 	} finally { dialog.remove(); }
-	await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-find")); });
-	assert.equal(focused, document.querySelector('[data-testid="chain-table-search"]'));
+	await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
 });
 it("removing the active row by filtering safely restarts on the first visible result", async () => {
 	await mount(); await key("ArrowDown"); assert.deepEqual(activeKey(), ["source", "b"]);
 	await act(async () => { setQuery("n2"); }); assert.equal(active(), null);
 	await key("ArrowDown"); assert.deepEqual(activeKey(), ["folder", "outer"]);
 });
-it("rename arrows stay in the input, and modal-owned keyboard focus disables both Find and navigation", async () => {
+it("rename arrows stay in the input, and modal-owned keyboard focus disables navigation", async () => {
 	await mount(); await point('[data-source-drag-row="b"]');
 	await act(async () => { (document.querySelector('[data-source-drag-row="b"] button[title="Rename"]') as HTMLElement).click(); });
 	const input = document.querySelector('[data-testid="source-name-input"]')!;
 	for (const arrow of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) assert.equal((await key(arrow, input)).defaultPrevented, false);
 	assert.equal(focused, input); await act(async () => { setEnabled(false); });
-	await act(async () => { window.dispatchEvent(new dom.window.CustomEvent("lh:kbd-find")); }); assert.equal(focused, input);
 	assert.equal((await key("ArrowDown", document.querySelector('[data-testid="chain-table"]')!)).defaultPrevented, false);
 });
 it("Space clicks only the focused row's enabled checkbox; text editing and checkbox-free chain rows retain native behavior", async () => {

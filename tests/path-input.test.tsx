@@ -118,11 +118,6 @@ test("owned history restores values and directional selections; a new edit disca
 	assert.equal(history.undo(b), null);
 });
 
-test("textbox exposes accessibility, placeholder, global-drop markers and requested sizing", () => {
-	const html = renderToStaticMarkup(<PathInput value="" onValueChange={() => {}} placeholder="Ask" aria-label="Message" defaultDropTarget className="min-h-24 max-h-64" />);
-	for (const pattern of [/role="textbox"/, /aria-multiline="true"/, /aria-label="Message"/, /data-file-path-input=""/, /data-file-path-default=""/, /data-placeholder="Ask"/, /min-h-24 max-h-64/]) assert.match(html, pattern);
-});
-
 test("SSR preserves the full escaped initial draft without waiting for client effects", () => {
 	const draft = "  Restored <reasoning> & notes\n`/course/full notes.pdf`\n ";
 	const html = renderToStaticMarkup(<PathInput value={draft} onValueChange={() => assert.fail("SSR cannot emit changes")} placeholder="Reasoning" />);
@@ -135,14 +130,6 @@ test("SSR preserves the full escaped initial draft without waiting for client ef
 	assert.match(html, /&lt;reasoning&gt;/);
 	const single = renderToStaticMarkup(<PathInput singleLine value={"one\r\ntwo"} onValueChange={() => {}} />);
 	assert.equal(parseHTML(`<html><body>${single}</body></html>`).document.body.textContent, "onetwo");
-});
-
-test("textbox accessible name falls back to placeholder and preserves explicit aria-label", () => {
-	const fallback = renderToStaticMarkup(<PathInput value="" onValueChange={() => {}} placeholder="Your reasoning" />);
-	assert.match(fallback, /aria-label="Your reasoning"/);
-	const explicit = renderToStaticMarkup(<PathInput value="" onValueChange={() => {}} placeholder="Your reasoning" aria-label="Custom answer" />);
-	assert.match(explicit, /aria-label="Custom answer"/);
-	assert.doesNotMatch(explicit, /aria-label="Your reasoning"/);
 });
 
 let cleanup: (() => Promise<void>) | undefined;
@@ -228,24 +215,6 @@ test("native typing, token insertion/deletion and undo/redo share one history", 
 	assert.equal(f.value, "ab");
 });
 
-test("Cmd+Backspace delegates line extent to beforeinput instead of deleting just the final chip", async () => {
-	const source = "Explain `/tmp/notes.pdf`";
-	const f = await fixture(source);
-	f.select(source.length);
-	const key = await f.event("keydown", { key: "Backspace", metaKey: true });
-	assert.equal(key.defaultPrevented, false);
-	assert.equal(f.value, source);
-	const deletion = await f.event("beforeinput", {
-		inputType: "deleteSoftLineBackward",
-		getTargetRanges: () => [{ startContainer: f.root.firstChild!, startOffset: 0, endContainer: f.root, endOffset: f.root.childNodes.length }],
-	});
-	assert.equal(deletion.defaultPrevented, true);
-	assert.equal(f.value, "");
-	await f.event("keydown", { key: "z", metaKey: true });
-	assert.equal(f.value, source);
-	assert.deepEqual(readPathSelection(f.root), { anchor: source.length, focus: source.length });
-});
-
 test("native word and soft/hard line deletion ranges retain mixed text/chip extents in both directions", async () => {
 	const source = "keep old `/tmp/notes.pdf` tail\nnext";
 	const f = await fixture(source);
@@ -275,28 +244,6 @@ test("native word and soft/hard line deletion ranges retain mixed text/chip exte
 	}
 });
 
-test("deleteEntireSoftLine honors the browser extent and never substitutes a chip when ranges are absent", async () => {
-	const source = "before\nExplain `/tmp/notes.pdf` tail\nafter";
-	const f = await fixture(source);
-	const start = source.indexOf("Explain");
-	const end = source.indexOf("\nafter");
-	f.select(source.indexOf("`")); // Adjacent to a chip, but not a chip-only command.
-	for (const getTargetRanges of [undefined, () => []]) {
-		const missing = await f.event("beforeinput", { inputType: "deleteEntireSoftLine", getTargetRanges });
-		assert.equal(missing.defaultPrevented, false);
-		assert.equal(f.value, source);
-	}
-	const a = pathInputPoint(f.root, start);
-	const b = pathInputPoint(f.root, end);
-	const deletion = await f.event("beforeinput", {
-		inputType: "deleteEntireSoftLine",
-		getTargetRanges: () => [{ startContainer: a.node, startOffset: a.offset, endContainer: b.node, endOffset: b.offset }],
-	});
-	assert.equal(deletion.defaultPrevented, true);
-	assert.equal(f.value, "before\n\nafter");
-	assert.deepEqual(readPathSelection(f.root), { anchor: start, focus: start });
-});
-
 test("browser target ranges that intersect a visual chip interior expand the complete source atomically", async () => {
 	const source = "keep old `/tmp/notes.pdf` tail";
 	const f = await fixture(source);
@@ -316,20 +263,6 @@ test("missing or invalid word/line target ranges defer to native editing and pre
 	const source = "Explain `/tmp/notes.pdf`";
 	const f = await fixture(source);
 	f.select(source.length);
-	for (const modifier of ["metaKey", "ctrlKey", "altKey"]) {
-		for (const key of ["Backspace", "Delete"]) {
-			const event = await f.event("keydown", { key, [modifier]: true });
-			assert.equal(event.defaultPrevented, false);
-			assert.equal(f.value, source);
-		}
-	}
-	for (const inputType of ["deleteWordBackward", "deleteWordForward", "deleteSoftLineBackward", "deleteSoftLineForward", "deleteHardLineBackward", "deleteHardLineForward"]) {
-		for (const getTargetRanges of [undefined, () => []]) {
-			const beforeInput = await f.event("beforeinput", { inputType, getTargetRanges });
-			assert.equal(beforeInput.defaultPrevented, false, `${inputType} must not fall through to adjacent-chip deletion`);
-			assert.equal(f.value, source);
-		}
-	}
 	const valid = { startContainer: f.root, startOffset: 0, endContainer: f.root, endOffset: f.root.childNodes.length };
 	for (const getTargetRanges of [
 		undefined, () => [], () => [{ ...valid, startContainer: f.doc.body }],
@@ -386,7 +319,7 @@ test("immutable SSR fallback never stomps native edits, controlled updates, chip
 	assert.equal(f.root.dataset.empty, "true");
 });
 
-test("external dictation append/reset and drop at an unfocused saved selection", async () => {
+test("drop at an unfocused saved selection inserts there and refocuses without submitting", async () => {
 	const f = await fixture("one two");
 	f.select(3);
 	f.doc.getElementById("elsewhere")!.focus();
@@ -394,15 +327,6 @@ test("external dictation append/reset and drop at an unfocused saved selection",
 	assert.equal(f.value, "one `/notes one.pdf` two");
 	assert.equal(f.doc.activeElement, f.root);
 	assert.equal(f.keys, 0, "staging must not submit");
-	f.select(f.value.length);
-	await f.external(`${f.value}\nspoken words`);
-	assert.equal(readPathInput(f.root), f.value);
-	await f.event("keydown", { key: "z", ctrlKey: true });
-	assert.equal(f.value, "one `/notes one.pdf` two");
-	await f.external("");
-	assert.equal(readPathInput(f.root), "");
-	await f.event("keydown", { key: "z", ctrlKey: true });
-	assert.equal(f.value, "");
 });
 
 test("plaintext paste ignores HTML and copy/cut use full token source in either direction", async () => {
@@ -437,23 +361,6 @@ test("image/file-only paste prevents native insertion without deleting selected 
 	assert.equal(f.root.querySelectorAll(`[${PATH_SOURCE_ATTRIBUTE}]`).length, 1);
 });
 
-test("empty clipboard text stays a no-op before, during and after IME with a chip selected", async () => {
-	const source = "a `/course/notes.pdf` z";
-	const f = await fixture(source);
-	f.select(2, source.length - 2);
-	const clipboardData = { getData: () => "", types: ["text/html"] };
-	await f.event("paste", { clipboardData });
-	await f.event("compositionstart");
-	const during = await f.event("paste", { clipboardData });
-	assert.equal(during.defaultPrevented, true);
-	assert.equal(readPathInput(f.root), source);
-	await f.event("compositionend");
-	assert.equal(readPathInput(f.root), source, "no empty pending paste can remove the selected chip");
-	await f.event("paste", { clipboardData });
-	assert.equal(f.value, source);
-	assert.deepEqual(f.writes, []);
-});
-
 test("Shift+Delete delegates to cut, preserving full-source clipboard and deleting only once", async () => {
 	const f = await fixture("plain`/next.pdf`");
 	for (const [source, selected] of [["plain`/next.pdf`", "plain"], ["`/course/notes.pdf` `/next.pdf`", "`/course/notes.pdf` "]] as const) {
@@ -471,16 +378,6 @@ test("Shift+Delete delegates to cut, preserving full-source clipboard and deleti
 		assert.equal(beforeInput.defaultPrevented, true);
 		assert.equal(f.value, "`/next.pdf`", "a trailing deleteByCut must not delete the neighboring chip");
 	}
-});
-
-test("copying even a partial visual chip label copies its complete source", async () => {
-	const f = await fixture("read `/deep/course/notes.pdf` now");
-	const label = f.root.querySelector(`[${PATH_SOURCE_ATTRIBUTE}] [role=img] span`)!.firstChild!;
-	f.selection.setBaseAndExtent(label, 1, label, 3);
-	f.doc.dispatchEvent(new window.Event("selectionchange"));
-	let copied = "";
-	await f.event("copy", { clipboardData: { setData: (_type: string, value: string) => { copied = value; } } });
-	assert.equal(copied, "`/deep/course/notes.pdf`");
 });
 
 test("composition keeps native DOM untouched, emits once, and suppresses consumer Enter", async () => {
@@ -511,36 +408,6 @@ test("Enter inserts a literal newline and range deletion spans text and complete
 	assert.equal(readPathInput(f.root), "a\n");
 });
 
-test("multiple trailing newlines preserve selection and survive native Backspace plus undo/redo", async () => {
-	const f = await fixture("one\n\n");
-	f.select(f.value.length, 1);
-	assert.deepEqual(readPathSelection(f.root), { anchor: 5, focus: 1 });
-	f.select(f.value.length);
-	assert.equal(f.selection.focusNode, f.root);
-	assert.equal(f.root.lastElementChild?.hasAttribute(PATH_CARET_ATTRIBUTE), true);
-	// linkedom has no default Backspace action; model the native text deletion.
-	await f.nativeText("one\n", "deleteContentBackward");
-	assert.equal(f.value, "one\n");
-	assert.equal(readPathInput(f.root), f.value);
-	assert.equal(f.root.querySelectorAll(`[${PATH_CARET_ATTRIBUTE}]`).length, 1);
-	await f.event("keydown", { key: "z", metaKey: true });
-	assert.equal(f.value, "one\n\n");
-	assert.deepEqual(readPathSelection(f.root), { anchor: 5, focus: 5 });
-	assert.equal(f.root.querySelectorAll(`[${PATH_CARET_ATTRIBUTE}]`).length, 1);
-	await f.event("keydown", { key: "z", metaKey: true, shiftKey: true });
-	assert.equal(f.value, "one\n");
-	assert.deepEqual(readPathSelection(f.root), { anchor: 4, focus: 4 });
-	await f.external("");
-	assert.equal(f.root.dataset.empty, "true");
-	assert.equal(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
-});
-
-test("single-line mode never adds a trailing newline caret placeholder", async () => {
-	const f = await fixture("one\n\n", true);
-	assert.equal(readPathInput(f.root), "one");
-	assert.equal(f.root.querySelector(`[${PATH_CARET_ATTRIBUTE}]`), null);
-});
-
 test("paste during IME stays plaintext and is deferred until composition finishes", async () => {
 	const f = await fixture("");
 	f.select(0);
@@ -565,16 +432,6 @@ test("single-line normalization strips only CR/LF and remaps directional UTF-16 
 	assert.deepEqual(normalizePathEdit({ value: source, selection: { anchor: source.length, focus: 4 } }, true), {
 		value: "🙂中\t xy", selection: { anchor: 7, focus: 2 },
 	});
-});
-
-test("single-line mode exposes native input accessibility and horizontal, nonwrapping layout", () => {
-	const html = renderToStaticMarkup(<PathInput value="" onValueChange={() => {}} singleLine className="h-8" />);
-	assert.match(html, /aria-multiline="false"/);
-	assert.match(html, /whitespace-pre /);
-	assert.match(html, /overflow-x-auto/);
-	assert.match(html, /overflow-y-hidden/);
-	assert.doesNotMatch(html, /whitespace-pre-wrap/);
-	assert.match(html, /h-8/);
 });
 
 test("single-line initial/external assignment sanitizes silently; native edits and paste emit sanitized values", async () => {

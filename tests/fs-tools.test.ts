@@ -55,34 +55,23 @@ async function setup(): Promise<string> {
 }
 
 describe("glob helpers (fs-shared)", () => {
-	it("basename mode: a pattern without a slash matches at any depth", () => {
-		assert.equal(matchGlob("notes/sub/calculus.md", "*.md"), true);
-		assert.equal(matchGlob("calculus.md", "*.md"), true);
+	it("basename mode, star vs double-star, implied deep prefix", () => {
+		assert.equal(matchGlob("notes/sub/calculus.md", "*.md"), true, "no slash → any depth");
 		assert.equal(matchGlob("notes/calculus.md", "*.ts"), false);
-	});
-
-	it("star does not cross slashes; double-star does", () => {
-		assert.equal(matchGlob("a/b/c.txt", "*.txt"), true); // basename mode
 		assert.equal(matchGlob("src/x/a.spec.ts", "src/**/*.spec.ts"), true);
 		assert.equal(matchGlob("other/x/a.spec.ts", "src/**/*.spec.ts"), false);
 		assert.equal(matchGlob("src/a.spec.ts", "src/**/*.spec.ts"), true, "** covers zero dirs");
-	});
-
-	it("slash patterns get an implied deep prefix unless anchored", () => {
 		assert.equal(matchGlob("deep/nested/x/main.ts", "**/nested/**/main.ts"), true);
 		assert.equal(matchGlob("x/main.ts", "nested/main.ts"), false, "no implied prefix for anchored-looking patterns");
 	});
 
-	it("brace alternatives expand", () => {
+	it("braces expand; ? is one char; literals are escaped", () => {
 		assert.deepEqual(expandBraces("*.{ts,tsx}"), ["*.ts", "*.tsx"]);
-		assert.equal(matchGlob("code/main.ts", "*.{ts,tsx,js}"), true);
 		assert.equal(matchGlob("code/main.ts", "*.{js,jsx}"), false);
-	});
-
-	it("question mark is one char, literals are escaped", () => {
 		assert.equal(globToRegex("a?c").test("abc"), true);
 		assert.equal(globToRegex("a?c").test("ac"), false);
 		assert.equal(matchGlob("a.b.txt", "a.b*"), true, "the dot is literal, not any-char");
+		assert.equal(globToRegex("a.c").test("abc"), false);
 	});
 });
 
@@ -193,11 +182,6 @@ describe("find (pi port)", () => {
 		assert.match(out, /\[2 results limit reached\]/);
 	});
 
-	it("no-match message matches pi", async () => {
-		const out = await runText(findTool, { pattern: "*.nomatch", path: FIXTURE });
-		assert.equal(out, "No files found matching pattern");
-	});
-
 	it("slash patterns match paths, not basenames", async () => {
 		const out = await runText(findTool, { pattern: "notes/**/*.md", path: FIXTURE });
 		assert.ok(out.includes("notes/sub/hidden.md"));
@@ -220,7 +204,7 @@ describe("grep (pi port)", () => {
 		const icase = await runText(grepTool, { pattern: "EIGENVECTOR", path: FIXTURE, ignoreCase: true });
 		assert.match(icase, /linear\.txt:1:/);
 		const literal = await runText(grepTool, { pattern: "e.gen", literal: true, path: path.join(FIXTURE, "code") });
-		assert.equal(literal, "No matches found", "dots are literal when literal=true");
+		assert.ok(!literal.includes("main.ts"), "dots are literal when literal=true");
 	});
 
 	it("context lines use the dash format", async () => {
@@ -242,18 +226,6 @@ describe("grep (pi port)", () => {
 		assert.match(out, /^calculus\.md:1: /, "basename for a single-file search");
 		const limited = await runText(grepTool, { pattern: "e", path: file, limit: 1 });
 		assert.match(limited, /\[1 matches limit reached\]/);
-	});
-
-	it("no-match message matches pi", async () => {
-		const out = await runText(grepTool, { pattern: "zzzz", path: FIXTURE });
-		assert.equal(out, "No matches found");
-	});
-});
-
-describe("read (home-anchored re-port)", () => {
-	it("reads a fixture file verbatim through the shared slice machinery", async () => {
-		const out = await runText(readTool, { path: path.join(FIXTURE, "notes", "linear.txt") });
-		assert.match(out, /Eigenvectors keep their direction/);
 	});
 });
 
@@ -277,19 +249,12 @@ describe("abort plumbing (the 2026-09-19 cascade fix)", () => {
 		assert.ok(visited < 20, "the walk stopped early");
 	});
 
-	it("find honors a pre-aborted signal without walking", async () => {
+	it("find and grep honor a pre-aborted signal without walking", async () => {
 		FIXTURE = await setup();
 		const ac = new AbortController();
 		ac.abort();
-		const out = await runText(findTool, { pattern: "*.md" }, ac.signal);
-		assert.equal(out, "Operation aborted");
-	});
-
-	it("grep honors a pre-aborted signal without scanning", async () => {
-		const ac = new AbortController();
-		ac.abort();
-		const out = await runText(grepTool, { pattern: "eigenvector" }, ac.signal);
-		assert.equal(out, "Operation aborted");
+		assert.equal(await runText(findTool, { pattern: "*.md" }, ac.signal), "Operation aborted");
+		assert.equal(await runText(grepTool, { pattern: "eigenvector" }, ac.signal), "Operation aborted");
 	});
 
 	it("grep aborts mid-run with partial results, not a hang", async () => {

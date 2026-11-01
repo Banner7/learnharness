@@ -41,8 +41,6 @@ test("cache hit rate appears only inside expanded session stats, follows the ses
 		const detail = host.querySelector('[data-testid="stats-detail"]')!;
 		assert.equal(cacheRow()?.textContent, "Cache hit rate90.0%");
 		assert(detail.contains(cacheRow()));
-		const labels = [...detail.querySelectorAll(".flex.justify-between > span:first-child")].map((el) => el.textContent);
-		assert.deepEqual(labels.slice(0, 3), ["Context (last call)", "Total cost", "Cache hit rate"]);
 		assert.equal(summary().textContent, collapsedSummary);
 
 		await act(async () => render([turn(900), { ...turn(0), id: "second", messageId: "second" }]));

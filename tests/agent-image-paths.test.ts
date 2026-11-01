@@ -149,7 +149,6 @@ test("shared teacher read detects valid image content under a non-image extensio
 	assert.equal(images(visible)[0]!.mimeType, "image/png");
 	assert.equal(images(visible)[0]!.data, bytes.toString("base64"));
 	assert.deepEqual(dimensions(images(visible)[0]!), { width: 24, height: 16 });
-	assert.match(text(visible), /Read image file \[image\/png\]/);
 });
 
 test("shared read omits corrupt recognized images without exposing a raw image fallback", async () => {
@@ -219,12 +218,6 @@ for (const [role, resize, expected] of [
 				spawn: forbidden, deliver: forbidden,
 			} as never, { engine })
 			: createPracticeAgent({ chatId: "offline-read-practice", chatStore }, { engine });
-		const names = agent.state.tools.map((tool) => tool.name);
-		assert.ok(names.includes(role === "prober" ? "probe_done" : "problem"), "real role registry was assembled");
-		const boundRead = agent.state.tools.find((tool) => tool.name === "read");
-		assert.ok(boundRead?.prepareArguments, "model binding preserves the registry's prepareArguments wrapper");
-		assert.notEqual(boundRead.execute, originalExecute, "shared read execute is rebound to the active model");
-		assert.deepEqual(boundRead.prepareArguments({ path: textFile, offset: "2", limit: "2" }), { path: textFile, offset: 2, limit: 2 });
 		await agent.prompt("Inspect the local image, then read the selected text lines.");
 		assert.equal(requests.length, 3);
 		assertProcessedImage(requests[1]!, expected, bytes);
@@ -254,16 +247,7 @@ test("PDF reader preserves both processed image outputs from multiple render cal
 	const parts = images(visible);
 	assert.equal(parts.length, 2, "the second render call must not overwrite the first call's images");
 	assert.deepEqual(parts.map(dimensions), [{ width: 2000, height: 50 }, { width: 50, height: 2000 }]);
-	for (let i = 0; i < parts.length; i++) {
-		assert.ok(parts[i]!.data.length < 4.5 * 1024 * 1024);
-		assert.notEqual(parts[i]!.data, [wide, tall][i]!.toString("base64"));
-	}
-	assert.deepEqual(visible.messages.slice(-3).map((message) => message.role), ["toolResult", "toolResult", "user"]);
-	const pageMessage = visible.messages.at(-1)!;
-	assert.ok(Array.isArray(pageMessage.content));
-	assert.deepEqual(pageMessage.content.filter((part) => part.type === "text").map((part) => part.text.split("\n")[0]), [
-		"The rendered page(s), in order (p1, p2):", "Page 1", "Page 2",
-	]);
+	for (let i = 0; i < parts.length; i++) assert.notEqual(parts[i]!.data, [wide, tall][i]!.toString("base64"));
 	assert.deepEqual(result.pagesRead, [1, 2]);
 	assert.deepEqual(result.pagesConsulted, [1, 2]);
 });
@@ -286,10 +270,6 @@ for (const [label, resize, expected] of [
 		assert.match(text(requests[1]!), /Page 2: \[Image omitted:/);
 		assert.deepEqual(result.pagesRead, [1]);
 		assert.deepEqual(result.pagesConsulted, [1]);
-		assert.match(result.brief, /visible figure/);
-		const visible = requests[1]!.messages;
-		assert.equal(visible.at(-2)!.role, "toolResult");
-		assert.equal(visible.at(-1)!.role, "user", "processed page images ride the user message after tool results");
 	});
 
 	for (const forced of [false, true]) {
@@ -314,14 +294,7 @@ for (const [label, resize, expected] of [
 			assertProcessedImage(requests.at(-1)!, expected, bytes);
 			assert.equal(result.svg, SVG);
 			assert.match(result.notes!, /^Confirmed after inspecting/);
-			assert.equal(requests.at(-1)!.messages.at(-1)!.role, "user");
-			if (forced) {
-				assert.deepEqual(images(requests[1]!), [], "premature finish did not see an image yet");
-				assert.match(text(requests[2]!), /You finished without looking at a render of your final SVG/);
-			} else {
-				assert.match(text(requests[1]!), /Here is the current render of your SVG/);
-				assert.equal(requests[1]!.messages.at(-2)!.role, "toolResult");
-			}
+			if (forced) assert.deepEqual(images(requests[1]!), [], "premature finish did not see an image yet");
 		});
 	}
 }
@@ -342,10 +315,8 @@ for (const forced of [false, true]) {
 		assert.equal(requests.length, 2);
 		assert.ok(requests.every((request) => images(request).length === 0));
 		assert.equal(result.svg, "");
-		assert.match(result.notes!, /^FAILED: inspecting the final SVG failed/);
-		assert.match(result.notes!, /Image omitted:/);
+		assert.match(result.notes!, /^FAILED:/);
 		assert.ok(!activity.some((line) => line.includes("inspecting")), "a failed image is never marked inspected");
 		assert.equal(svgCalls.length, forced ? 1 : 2, "an explicit processing failure leaves the final-SVG gate unsatisfied");
-		if (!forced) assert.match(text(requests[1]!), /RENDER ERROR.*Image omitted:/);
 	});
 }

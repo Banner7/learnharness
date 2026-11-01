@@ -26,21 +26,15 @@ after(() => {
 });
 
 describe("session kind (practice sessions, 2026-10-04)", () => {
-	it("createChat default carries NO kind field — absence reads as teach", () => {
+	it("createChat default carries NO kind field, and the summary projection normalizes absence to teach", () => {
 		const chat = chatStore.createChat("plain session");
 		assert.equal("kind" in chat, false, "teach records carry no kind marker");
+		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.kind, "teach");
 	});
 
 	it("createChat(kind: 'practice') stamps the marker on record + list", () => {
 		const chat = chatStore.createChat("practice session", "practice");
 		assert.equal(chat.kind, "practice");
-		const listed = chatStore.listChats().find((c) => c.id === chat.id);
-		assert.equal(listed?.kind, "practice");
-	});
-
-	it("the summary projection NORMALIZES: absent record field reads as teach", () => {
-		const chat = chatStore.createChat("another plain one");
-		const listed = chatStore.listChats().find((c) => c.id === chat.id);
-		assert.equal(listed?.kind, "teach");
+		assert.equal(chatStore.listChats().find((c) => c.id === chat.id)?.kind, "practice");
 	});
 });

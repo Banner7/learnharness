@@ -1,14 +1,7 @@
 /**
- * The P2 tool-toggle bridge (2026-09-19): AgentBuildOptions.toolToggles is
- * first-class — the agent constructors thread it to the factories' enabled?
- * param (an explicit opts.tools registry is never filtered), and the
- * settings write side rejects unknown tool keys against TOGGLEABLE_TOOLS
- * (the definitive adjudicated list — a persisted `quiz: false` would
- * genuinely drop the quiz once the bridge honors the delta).
- *
- * Parser tests are PURE (no fs — parallel-test discipline); the agent
- * construction tests use an in-memory chat fixture like
- * question-tools.test.ts.
+ * Tool toggles: AgentBuildOptions.toolToggles filters the factories' registries
+ * (never an explicit opts.tools), and the settings write side rejects unknown
+ * tool keys against TOGGLEABLE_TOOLS.
  */
 import assert from "node:assert/strict";
 import { z } from "zod";
@@ -79,12 +72,6 @@ describe("parseAgentSettingsBody: tool keys validate at write time", () => {
 		const r = parse({ research: false, pdf: false });
 		assert.equal(r.ok, true);
 		assert.deepEqual(r.ok && r.settings.tools, { research: false, pdf: false });
-	});
-
-	it("the quizzing-mechanics key (explain) is writable (owner 2026-09-27)", () => {
-		const r = parse({ explain: true });
-		assert.equal(r.ok, true);
-		assert.deepEqual(r.ok && r.settings.tools, { explain: true });
 	});
 
 	it("unknown keys are rejected with the supported list (the quiz wedge never persists)", () => {

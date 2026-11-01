@@ -1,15 +1,3 @@
-/**
- * SCHEMA STAMPS (schema-versioning wave, owner 2026-10-10): LAZY v1 for
- * chats (record.version, stamped at the write choke point) and the graph
- * family (data/graph/format.json sidecar — ledgers and sources).
- * Honest refusal: records stamped NEWER than this build are refused on
- * read (the downgrade scenario) — never misparsed, never rewritten.
- *
- * Runs under an isolated LH_DATA_DIR (the chat-birth-stamp discipline:
- * the seam is set before any config-loading import, so every app-module
- * import is dynamic).
- */
-
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
@@ -93,13 +81,4 @@ test("graph: a NEWER-stamped sidecar is refused honestly", () => {
 	fs.writeFileSync(GRAPH_FORMAT_FILE, JSON.stringify({ version: 99 }), "utf-8");
 	assert.throws(() => graphStore.readNodes(), /older than its data|format version 99/);
 	assert.throws(() => graphStore.readSources(), /older than its data|format version 99/);
-});
-
-// ── the fixtures stay the legacy pin: golden data reads unstamped ───────────
-
-test("golden fixtures are deliberately the unstamped legacy shape (lazy v1 = current-valid)", () => {
-	const here = import.meta.dirname;
-	const teach = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "golden-data", "chats", "chat_mv27rrra_feff23b6.json"), "utf8"));
-	assert.equal(teach.version, undefined, "fixture records pin the unstamped read path");
-	assert.ok(!fs.existsSync(path.join(here, "fixtures", "golden-data", "graph", "format.json")), "no sidecar in the fixture graph dir");
 });

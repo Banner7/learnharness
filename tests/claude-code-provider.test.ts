@@ -18,16 +18,13 @@ function createCollection() {
 	return collection;
 }
 
-test("lists exactly the opus, sonnet and haiku aliases", () => {
+test("lists exactly the opus, sonnet and haiku aliases: text+image input, zero cost", () => {
 	const models = createCollection().getModels(CLAUDE_CODE_PROVIDER);
-	assert.deepEqual(
-		models.map((m) => m.id),
-		["opus", "sonnet", "haiku"],
-	);
-	assert.deepEqual(
-		models.map((m) => m.name),
-		["Claude Opus", "Claude Sonnet", "Claude Haiku"],
-	);
+	assert.deepEqual(models.map((m) => m.id), ["opus", "sonnet", "haiku"]);
+	for (const model of models) {
+		assert.deepEqual(model.input, ["text", "image"]);
+		assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+	}
 });
 
 test("supports low through max thinking and clamps off to low", () => {
@@ -35,18 +32,6 @@ test("supports low through max thinking and clamps off to low", () => {
 		assert.deepEqual(getSupportedThinkingLevels(model), ["low", "medium", "high", "xhigh", "max"]);
 		assert.equal(clampThinkingLevel(model, "off"), "low");
 		assert.equal(clampThinkingLevel(model, "minimal"), "low");
-	}
-});
-
-test("accepts text and image input", () => {
-	for (const model of createCollection().getModels(CLAUDE_CODE_PROVIDER)) {
-		assert.deepEqual(model.input, ["text", "image"]);
-	}
-});
-
-test("every cost field is zero", () => {
-	for (const model of createCollection().getModels(CLAUDE_CODE_PROVIDER)) {
-		assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 	}
 });
 

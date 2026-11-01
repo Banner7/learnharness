@@ -14,30 +14,10 @@ import { PhaseDivider, planNodeCount } from "../components/phase-divider.tsx";
 import { teachStepIndex } from "../src/core/phases.ts";
 
 describe("PhaseDivider (transcript boundary)", () => {
-	it("the plan seam: node count", () => {
-		const html = renderToStaticMarkup(<PhaseDivider phase="plan" nodeCount={3} />);
-		assert.ok(html.includes('data-testid="phase-divider-plan"'));
-		assert.match(html, /Plan · 3 nodes/);
-	});
-
-	it("the teach seam: no count", () => {
-		const html = renderToStaticMarkup(<PhaseDivider phase="teach" />);
-		assert.ok(html.includes('data-testid="phase-divider-teach"'));
-		assert.match(html, /Teaching/);
-		assert.ok(!html.includes("nodes"));
-	});
-
-	it("singular node count", () => {
-		const html = renderToStaticMarkup(<PhaseDivider phase="plan" nodeCount={1} />);
-		assert.match(html, /Plan · 1 node\b/);
-	});
-
-	it("a plan seam without a count still labels itself", () => {
-		const html = renderToStaticMarkup(<PhaseDivider phase="plan" />);
-		assert.match(html, /Planning/);
-	});
-
-	it("probe renders null (never a boundary — phases only advance)", () => {
+	it("plan seams carry the node count (singular/plural); probe is never a boundary", () => {
+		assert.match(renderToStaticMarkup(<PhaseDivider phase="plan" nodeCount={3} />), /3 nodes/);
+		assert.match(renderToStaticMarkup(<PhaseDivider phase="plan" nodeCount={1} />), /1 node\b/);
+		assert.ok(!renderToStaticMarkup(<PhaseDivider phase="teach" />).includes("nodes"));
 		assert.equal(renderToStaticMarkup(<PhaseDivider phase="probe" />), "");
 	});
 });

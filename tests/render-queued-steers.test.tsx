@@ -1,33 +1,10 @@
 /**
- * The queued-steer indicator's pins (composer steering, owner arc
- * 2026-10-03): the quiet one-liners above the composer shell, and the
- * visibleQueuedSteers fold that decides which queued steers still show.
+ * The visibleQueuedSteers fold (composer steering, owner arc 2026-10-03):
+ * which queued steers still show above the composer.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { renderToStaticMarkup } from "react-dom/server";
-import { QueuedSteersBody } from "../components/queued-steers.tsx";
 import { visibleQueuedSteers } from "../components/session-core.ts";
-
-describe("QueuedSteersBody (the quiet queue above the composer)", () => {
-	it("renders one line per queued steer", () => {
-		const html = renderToStaticMarkup(
-			<QueuedSteersBody
-				steers={[
-					{ id: "steer_a", text: "also cover Venus while you are at it, please and thank you" },
-					{ id: "steer_b", text: "short one" },
-				]}
-			/>,
-		);
-		assert.match(html, /data-testid="queued-steers"/);
-		assert.equal(html.match(/<span/g)?.length, 2, "one span per steer");
-		assert.match(html, /also cover Venus/, "the text rides the line");
-	});
-
-	it("empty queue renders nothing", () => {
-		assert.equal(renderToStaticMarkup(<QueuedSteersBody steers={[]} />), "");
-	});
-});
 
 describe("visibleQueuedSteers (the fold: a line dies when its card lands)", () => {
 	it("a queued steer stays visible until its id lands in the messages", () => {

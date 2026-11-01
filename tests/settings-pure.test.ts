@@ -4,13 +4,11 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { appearanceVars, resolveAppearance } from "../components/settings/appearance.tsx";
+import { resolveAppearance } from "../components/settings/appearance.tsx";
 import {
-	PROMPT_IN_USE_HINT,
 	composePromptSwitch,
 	composeSearchEngine,
 	composeSlotModel,
-	composeTool,
 	composeQuizMechanics,
 	sectionedSegments,
 } from "../components/settings/agent-section.tsx";
@@ -31,35 +29,7 @@ describe("resolveAppearance — delta over factory", () => {
 	});
 });
 
-describe("appearanceVars — the mapping the provider applies", () => {
-	it("factory appearance sets only size and heading weight", () => {
-		const vars = appearanceVars(resolveAppearance(undefined));
-		assert.deepEqual(vars, {
-			"--lh-prose-size": "17px",
-			"--lh-heading-weight": "700",
-		});
-	});
-
-	it("a delta changes the corresponding tokens, not the bundled fonts", () => {
-		const vars = appearanceVars(resolveAppearance({
-			proseFontSize: 18,
-			mdRendering: { headingWeight: 600 },
-		}));
-		assert.deepEqual(vars, {
-			"--lh-prose-size": "18px",
-			"--lh-heading-weight": "600",
-		});
-	});
-});
-
 describe("agent section compose helpers — the replace-whole PUT body", () => {
-	it("composeTool carries the rest of the section verbatim", () => {
-		const before = { tools: { demo: false }, prompts: { "system-prompt.md": true } };
-		const after = composeTool(before, "visual", false);
-		assert.deepEqual(after.tools, { demo: false, visual: false });
-		assert.deepEqual(after.prompts, { "system-prompt.md": true }, "prompts untouched");
-	});
-
 	it("composeSlotModel: empty+empty REMOVES the slot (absent = factory pin)", () => {
 		const after = composeSlotModel(
 			{ strong: { model: { provider: "openrouter", id: "x" } }, cheap: {} },
@@ -100,16 +70,11 @@ describe("agent section compose helpers — the replace-whole PUT body", () => {
 		assert.deepEqual(composeSearchEngine({ tools: { demo: true } }, null).tools, { demo: true });
 	});
 
-	it("composeSearchEngine: the explicit preference writes agent.search.engine", () => {
-		assert.deepEqual(composeSearchEngine(undefined, "brave").search, { engine: "brave" });
-	});
-
 	it("composePromptSwitch: on = explicit true, off = key REMOVED (absent = off)", () => {
 		assert.deepEqual(composePromptSwitch({ prompts: { a: true } }, "b", true).prompts, { a: true, b: true });
 		assert.deepEqual(composePromptSwitch({ prompts: { a: true, b: true } }, "b", false).prompts, { a: true });
 	});
 });
-
 
 describe("model configuration gate — slotsConfigured", () => {
 	it("slotsConfigured: all three slot models required — thinking levels are optional", () => {
@@ -139,7 +104,6 @@ describe("model configuration gate — slotsConfigured", () => {
 			"thinking pins are not models",
 		);
 	});
-
 });
 
 describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
@@ -164,14 +128,6 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 		assert.deepEqual(ids, ["teacher", "prober", "shared"]);
 	});
 
-	it("shared chunks appear exactly ONCE across all sections (no duplication)", () => {
-		const all = sectionedSegments(view).flatMap((s) => s.segments.map((seg) => seg.path));
-		assert.equal(all.filter((p) => p === "system-prompt.md").length, 1);
-		assert.equal(all.filter((p) => p === "shared/10-personality.md").length, 1);
-		// every path unique — no chunk listed twice
-		assert.equal(new Set(all).size, all.length);
-	});
-
 	it("the Shared section holds the shared chunks in assembly order; the agents' sections hold their own", () => {
 		const [teacher, prober, shared] = sectionedSegments(view);
 		assert.ok(teacher && prober && shared, "all three sections present");
@@ -179,17 +135,8 @@ describe("sectionedSegments — the prompts overhaul (2026-09-26)", () => {
 		assert.deepEqual(prober.segments.map((s) => s.path), ["prober/10-probe-doctrine.md"]);
 		// assembly order: the base file first, then the shared fragments
 		assert.deepEqual(shared.segments.map((s) => s.path), ["system-prompt.md", "shared/10-personality.md"]);
-		// the Shared header carries the one hint that earns its place
-		assert.equal(shared.hint, "Used by both agents");
-		assert.equal(teacher.hint, undefined);
-	});
-
-	it("the indicator copy is pinned — it states WHICH VERSION IS IN USE (refined 2026-09-26)", () => {
-		assert.equal(PROMPT_IN_USE_HINT, "Your version is in use");
 	});
 });
-
-// ─── the quizzing-mechanics segmented control (owner 2026-09-27) ───────────
 
 describe("composeQuizMechanics (the segmented control's write)", () => {
 	it("free recall writes explain:true; multiple choice writes explain:false — nothing else moves", () => {

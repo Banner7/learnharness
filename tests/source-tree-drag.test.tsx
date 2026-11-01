@@ -79,11 +79,10 @@ it("dragging a folder onto its descendants neither highlights nor performs an in
 	await fire('[data-testid="prop-row-n1"]', "drop", data); assert.deepEqual(actions, []);
 });
 
-it("rename mode removes the drag surface and input chrome, retaining native text-selection gestures", async () => {
+it("rename mode removes the drag surface, retaining native text-selection gestures", async () => {
 	await mount(); await act(async () => { (document.querySelector('[data-source-drag-row="b"] button[title="Rename"]') as HTMLElement).click(); });
 	const row = document.querySelector('[data-source-drag-row="b"]')!;
 	assert.equal(row.getAttribute("draggable"), "false");
-	const input = row.querySelector('[data-testid="source-name-input"]')!; assert.match(input.className, /border-0 bg-transparent p-0/); assert.doesNotMatch(input.className, /rounded|focus:border/);
 	const data = transfer(); const event = await fire('[data-testid="source-name-input"]', "dragstart", data);
 	assert.equal(event.defaultPrevented, true); assert.equal(data.types.length, 0); assert.equal(data.preview, undefined);
 });

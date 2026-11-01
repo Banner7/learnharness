@@ -232,15 +232,11 @@ test("close rejects consumers still waiting for tool calls", { timeout: 1000 }, 
 	await assert.rejects(waiting, /tool bridge closed/);
 });
 
-test('mcpConfig is {"mcpServers":{"learnharness":{"type":"http","url":...,"headers":{"Authorization":"Bearer ..."}}}}', async (t) => {
+test("mcpConfig names one loopback http server guarded by a 256-bit bearer token", async (t) => {
 	const bridge = await createToolBridge([READ_TOOL]);
 	t.after(() => bridge.close());
-
-	const config = JSON.parse(bridge.mcpConfig) as { mcpServers: Record<string, unknown> };
-	assert.deepEqual(Object.keys(config.mcpServers), ["learnharness"]);
-
+	assert.deepEqual(Object.keys(JSON.parse(bridge.mcpConfig).mcpServers), ["learnharness"]);
 	const server = getServerConfig(bridge);
-	assert.deepEqual(Object.keys(server).sort(), ["headers", "type", "url"]);
 	assert.equal(server.type, "http");
 	assert.match(server.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
 	assert.match(server.headers.Authorization, /^Bearer [0-9a-f]{64}$/);

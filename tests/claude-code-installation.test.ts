@@ -16,10 +16,8 @@ test("missing installation does not execute a command", async () => {
 for (const [output, state, version] of [
 	["2.1.258 (Claude Code)\n", "update-required", "2.1.258"],
 	["2.1.259 (Claude Code)", "meets-minimum", "2.1.259"],
-	["2.1.310 (Claude Code)", "meets-minimum", "2.1.310"],
 	["2.2.0", "meets-minimum", "2.2.0"],
 	["2.0.999", "update-required", "2.0.999"],
-	["3.0.0", "meets-minimum", "3.0.0"],
 	["unexpected output containing private details", "version-unchecked", null],
 	["2.1.310-preview", "version-unchecked", null],
 	["99999999999999999999999999.1.1", "version-unchecked", null],

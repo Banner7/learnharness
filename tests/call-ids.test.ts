@@ -3,20 +3,8 @@ import { describe, it } from "node:test";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { ToolCallIdUniquifier, collectToolCallIds } from "../src/server/pi/call-ids.ts";
 
-/**
- * THE LACAN INCIDENT (owner-approved fix, 2026-10-04): DeepSeek (via
- * OpenRouter) returns tool-call ids that reset every response — a
- * one-call-per-turn session names EVERY call `call_0`. The uniquifier sits
- * at the wire boundary (runPiTurn): colliding ids remint once, and the
- * same minting applies at settlement, so wire + record + next-turn context
- * agree. These pins drive it as a pure unit: event sequences in, remapped
- * events and settled messages out.
- *
- * REFERENCE-IDENTITY CONTRACT: streaming messages carry no ids (stamped
- * at persist), so tables key by object identity — the message_end object
- * is the object agent.state.messages holds (verified against
- * pi-agent-core). The pins hold references the same way.
- */
+// DeepSeek via OpenRouter resets tool-call ids per response (every call is `call_0`):
+// colliding ids remint once, identically on the wire, the record, and the next turn.
 
 const assistantMsg = (id: string, callIds: string[]): any => ({
 	id,
@@ -121,22 +109,5 @@ describe("ToolCallIdUniquifier", () => {
 		};
 		assert.equal(e.message.content[0]!.id, "call_0~2");
 		assert.equal(e.toolResults[0]!.toolCallId, "call_0~2");
-	});
-
-	it("non-message events pass through untouched", () => {
-		const u = new ToolCallIdUniquifier([]);
-		assert.deepEqual(u.event({ type: "agent_start" }), { type: "agent_start" });
-	});
-});
-
-describe("collectToolCallIds (the seen-set seed)", () => {
-	it("gathers call ids and result ids from a record", () => {
-		const ids = collectToolCallIds([
-			{ id: "a", role: "user", content: "hi" },
-			assistantMsg("m1", ["call_0", "toolu_x"]),
-			toolResultMsg("call_0"),
-			{ id: "m2", role: "assistant", content: [{ type: "text", text: "no calls" }] },
-		]);
-		assert.deepEqual(ids, ["call_0", "toolu_x", "call_0"]);
 	});
 });

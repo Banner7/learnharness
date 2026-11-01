@@ -9,7 +9,7 @@ import test from "node:test";
 
 import type { AssistantMessage, Message, SystemMessage, Tool, ToolResultMessage, UserMessage } from "@earendil-works/pi-ai";
 
-import { toClaudeInput, toStreamJsonLine } from "../src/agent/claude-code/transcript.ts";
+import { toClaudeInput } from "../src/agent/claude-code/transcript.ts";
 
 const READ_TOOL: Tool = { name: "read", description: "Read a file", parameters: { type: "object", properties: {} } };
 const WRITE_TOOL: Tool = { name: "write", description: "Write a file", parameters: { type: "object", properties: {} } };
@@ -74,39 +74,24 @@ test("single user message passes through as text", () => {
 	assert.deepEqual(input.userContent, [{ type: "text", text: "what is a socket?" }]);
 });
 
-test("history renders user, assistant text, tool call name+JSON args and tool result text in order before the latest user message", () => {
+test("history renders text, tool calls (name+JSON args), results (errors marked) in order, omitting thinking", () => {
 	const messages: Message[] = [
 		user([{ type: "text", text: "open notes.md" }]),
 		assistant([
+			{ type: "thinking", thinking: "secret plan" },
 			{ type: "text", text: "Reading it." },
 			{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "notes.md" } },
 		]),
-		toolResult("read", [{ type: "text", text: "# Notes" }]),
-		assistant([{ type: "text", text: "It has a heading." }]),
-		user("summarise it"),
+		toolResult("read", [{ type: "text", text: "ENOENT" }], true),
+		assistant([{ type: "text", text: "It is missing." }]),
+		user("why?"),
 	];
 	const expected = [
 		"[user]\nopen notes.md",
 		"[assistant]\nReading it.",
 		'[tool call read] {"path":"notes.md"}',
-		"[tool result read]\n# Notes",
-		"[assistant]\nIt has a heading.",
-		"[user]\nsummarise it",
-	].join("\n\n");
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
-});
-
-test("error tool results are marked as errors in the replay", () => {
-	const messages: Message[] = [
-		user("open missing.md"),
-		assistant([{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "missing.md" } }]),
-		toolResult("read", [{ type: "text", text: "ENOENT" }], true),
-		user("why?"),
-	];
-	const expected = [
-		"[user]\nopen missing.md",
-		'[tool call read] {"path":"missing.md"}',
 		"[tool result read error]\nENOENT",
+		"[assistant]\nIt is missing.",
 		"[user]\nwhy?",
 	].join("\n\n");
 	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
@@ -139,23 +124,4 @@ test("transcript ending on a tool result renders as history with no trailing use
 	];
 	const expected = ["[user]\nopen notes.md", '[tool call read] {"path":"notes.md"}', "[tool result read]\n# Notes"].join("\n\n");
 	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: expected }]);
-});
-
-test("thinking blocks are omitted from replay", () => {
-	const messages: Message[] = [
-		user("hi"),
-		assistant([
-			{ type: "thinking", thinking: "secret plan" },
-			{ type: "text", text: "Hello." },
-		]),
-		user("bye"),
-	];
-	assert.deepEqual(toClaudeInput(messages).userContent, [{ type: "text", text: "[user]\nhi\n\n[assistant]\nHello.\n\n[user]\nbye" }]);
-});
-
-test('toStreamJsonLine emits {"type":"user","message":{"role":"user","content":[...]}}', () => {
-	assert.deepEqual(JSON.parse(toStreamJsonLine([{ type: "text", text: "hi" }])), {
-		type: "user",
-		message: { role: "user", content: [{ type: "text", text: "hi" }] },
-	});
 });

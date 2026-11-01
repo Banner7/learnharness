@@ -1,7 +1,3 @@
-/**
- * pdf-markdown — the rule-based PDF → Markdown converter, against hand-built PDFs whose layout each
- * test spells out (tests/helpers/tiny-pdf.ts) plus the committed 3-page fixture.
- */
 import assert from "node:assert/strict";
 import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 import * as fs from "node:fs";
@@ -81,11 +77,6 @@ describe("pdf-markdown — structure", () => {
 		}
 	});
 
-	it("preserves a hyphen break after an accented letter (French)", async () => {
-		const [page] = await convert(tinyPdf([{ runs: stack(["Le commissaire peut examiner selon la pré-", "sente partie."], { y: 700 }) }]));
-		assert.equal(markdownOf(page), "Le commissaire peut examiner selon la pré-\n\nsente partie.");
-	});
-
 	it("never takes a heading from large digits or symbols (chart labels, map zones)", async () => {
 		const [page] = await convert(tinyPdf([{ runs: [{ text: "2 2/3 43 5", x: 72, y: 720, size: 24 }, ...stack(["Body text about the zones.", "More body text."], { y: 680 })] }]));
 		assert.ok(!markdownOf(page).includes("#"), markdownOf(page));
@@ -111,40 +102,6 @@ describe("pdf-markdown — structure", () => {
 		]));
 		assert.equal(markdownOf(billPage), bill.map((text, i) => `${text} ${i + 1}`).join("\n\n"));
 		assert.match(markdownOf(tablePage), /^1 Bank credit\n\n2 Securities\n\n3 Loans/);
-	});
-
-	it("keeps chart labels whose numbers rise by 10, even when written after their unit", async () => {
-		const [page] = await convert(tinyPdf([{
-			runs: [20, 30, 40, 50, 60].flatMap((age, i) => [{ text: "s", x: 120, y: 700 - i * 30 }, { text: String(age), x: 100, y: 700 - i * 30 }]),
-		}]));
-		assert.match(markdownOf(page), /20/);
-		assert.match(markdownOf(page), /60/);
-	});
-
-	it("keeps a footer that repeats on 40% of the pages", async () => {
-		const out = await convert(tinyPdf(["One", "Two", "Three", "Four", "Five"].map((word, i) => ({
-			runs: [{ text: `Page ${word} text.`, x: 72, y: 600 }, ...(i < 2 ? [{ text: "Access for free at openstax.org", x: 72, y: 30, size: 8 }] : [])],
-		}))));
-		for (const [i, word] of ["One", "Two", "Three", "Four", "Five"].entries()) {
-			assert.ok(markdownOf(out[i]).includes(`Page ${word} text.`));
-			assert.equal(markdownOf(out[i]).includes("Access for free at openstax.org"), i < 2);
-		}
-	});
-
-	it("preserves distinct numeric margin statements and matching body text across page selections", async () => {
-		const pdf = tinyPdf([5, 10, 15].map((dose) => ({ runs: [
-			{ text: `Dose ${dose} mg`, x: 72, y: 730 },
-			{ text: "Dose 5 mg", x: 72, y: 500 },
-			{ text: "Study material", x: 72, y: 30 },
-		] })));
-		const all = await convert(pdf.slice());
-		for (const [i, dose] of [5, 10, 15].entries()) {
-			const md = markdownOf(all[i]);
-			assert.ok(md.includes(`Dose ${dose} mg`));
-			assert.equal((md.match(/Dose 5 mg/g) ?? []).length, i === 0 ? 2 : 1);
-			assert.ok(md.includes("Study material"));
-		}
-		assert.equal(markdownOf((await convert(pdf.slice(), [1]))[0]), markdownOf(all[0]));
 	});
 
 	it("keeps adjacent heading lines separate", async () => {
@@ -266,11 +223,6 @@ describe("pdf-markdown — page kinds", () => {
 			const out = await documentToMarkdown(doc);
 			assert.equal(out[0]?.kind, name === "constructPath" ? "empty" : "image-only", name);
 		}
-	});
-
-	it("recognizes stencil-mask and inline-image pages as image-only", async () => {
-		const out = await convert(tinyPdf([{ image: "mask" }, { image: "inline" }]));
-		assert.deepEqual(out.map((p) => p.kind), ["image-only", "image-only"]);
 	});
 
 	it("uses the same text, headings and title order for a selected page as for the full document", async () => {

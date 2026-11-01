@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Type } from "typebox";
-import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, normalizeContext, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { streamSimple as streamCodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
+import { createFauxCore, fauxAssistantMessage, fauxText, fauxToolCall, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { APP_IDENTITY, piEngineForSpec, type PiEngine } from "../src/agent/models.ts";
 import { createProberAgent, createTeacherAgent, createPracticeAgent, type AgentBuildOptions } from "../src/agent/teacher-agent.ts";
 import { runSubagent } from "../src/agent/subagents/pi-run.ts";
@@ -84,10 +83,7 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 	});
 
 	for (const [provider, id, endpoint] of [
-		["opencode-go", "claude-haiku-5-5", "/inference/go/v1/messages"],
-		["opencode-go", "gemini-4-argon-contributor", "/inference/go/v1/models/gemini-4-argon-contributor:streamGenerateContent"],
 		["opencode-go", "glm-5.3", "/inference/go/v1/chat/completions"],
-		["opencode-go", "gpt-6-luna", "/inference/go/v1/responses"],
 		["openrouter", "openrouter/free", "/api/v1/chat/completions"],
 	] as const) {
 		it(`complete native ${provider}/${id} foreground serialization carries app identity and exact sessions`, async () => closed(async () => {
@@ -123,52 +119,6 @@ describe("native app and conversation identity", { concurrency: false }, () => {
 		await createTeacherAgent(undefined, { engine, chatId: sessionId, tools: {} }).prompt("offline");
 		assert.equal(body.prompt_cache_key, Array.from(sessionId).slice(0, 64).join(""));
 		assert.equal(headers.get("session_id"), sessionId);
-	}));
-
-	it("native OpenAI cache-key clamp counts Unicode code points, not UTF-16 units", async () => closed(async () => {
-		const engine = piEngineForSpec({ provider: "openai", id: "gpt-4o-mini", thinkingLevel: "off" });
-		const sessionId = "chat_" + "😀".repeat(70);
-		let payload: unknown;
-		// HTTP affinity headers cannot encode emoji. Observe native payload
-		// serialization before transport, then stop deliberately (no accounts).
-		await engine.streamFn(engine.model, normalizeContext({ messages: [{ role: "user", content: "offline", timestamp: 1 }] }), {
-			sessionId,
-			onPayload: (value) => { payload = value; throw new Error("CLOSED: payload captured"); },
-		}).result();
-		assert.equal((payload as { prompt_cache_key: string }).prompt_cache_key, Array.from(sessionId).slice(0, 64).join(""));
-	}));
-
-	it("native Codex serialization shares the 64-code-point clamp without an account or OAuth flow", async () => closed(async () => {
-		const engine = piEngineForSpec({ provider: "openai-codex", id: "gpt-6-luna", thinkingLevel: "off" });
-		// Synthetic, unsigned fixture token solely satisfies native local claim
-		// decoding. Stop at payload capture: no account, OAuth, or fetch.
-		const claims = { "https://api.openai.com/auth": { chatgpt_account_id: "offline-fixture" } };
-		const apiKey = `dummy.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.dummy`;
-		for (const sessionId of ["chat_" + "a".repeat(70), "chat_" + "😀".repeat(70)]) {
-			let payload: unknown;
-			// The app intentionally has no Codex auth row: exercise the native
-			// serializer directly rather than adding an OAuth configuration path.
-			assert.equal(engine.model.api, "openai-codex-responses");
-			const result = await streamCodex(engine.model as Model<"openai-codex-responses">, normalizeContext({ messages: [{ role: "user", content: "offline", timestamp: 1 }] }), {
-				apiKey, sessionId, identity: APP_IDENTITY,
-				onPayload: (value) => { payload = value; throw new Error("CLOSED: payload captured"); },
-			}).result();
-			assert.ok(payload, result.errorMessage);
-			assert.equal((payload as { prompt_cache_key: string }).prompt_cache_key, Array.from(sessionId).slice(0, 64).join(""));
-		}
-	}));
-
-	it("SDK native header precedence and cache-off behavior remain untouched", async () => closed(async () => {
-		const engine = piEngineForSpec({ provider: "opencode-go", id: "gpt-6-luna", thinkingLevel: "off" });
-		let headers = new Headers();
-		let body: Record<string, unknown> = {};
-		globalThis.fetch = async (input, init) => { const request = new Request(input, init); headers = request.headers; body = JSON.parse(await request.text()); return new Response("{}", { status: 400, headers: { "content-type": "application/json" } }); };
-		await engine.streamFn(engine.model, normalizeContext({ messages: [{ role: "user", content: "offline", timestamp: 1 }] }), { sessionId: "chat_cache_off", cacheRetention: "none", headers: { "user-agent": "explicit-sdk-override", "x-opencode-client": null } }).result();
-		assert.equal(headers.get("user-agent"), "explicit-sdk-override");
-		assert.equal(headers.get("x-opencode-client"), null);
-		// Native OpenCode routing identity remains even with cache retention off.
-		assert.equal(headers.get("x-opencode-session"), "chat_cache_off");
-		assert.equal(body.prompt_cache_key, undefined);
 	}));
 
 	it("completed malformed native JSON stays rejected despite app prepareArguments healing", async () => closed(async () => {

@@ -1,23 +1,10 @@
 /**
- * THE WHITEHEAD INCIDENT PINS (owner, 2026-10-09): glm-5.3 (z-ai via
- * OpenRouter) emitted two argument-wobble shapes in one real session —
- * quiz `type: "\"predict\""` (the literal with quotes baked in; the
- * schema's own description displayed the values quoted+colon) rejected
- * TEN times with byte-identical retries while the lesson never started,
- * and `correctAnswer: [":parmenides"]` (the option value with the JSON
- * key-value colon glued on) rejected four times.
- *
- * The fixes these pins hold:
- *  1. THE STANDARD HEAL EVERYWHERE — healToolRecord wraps every registry
- *     (bareQuestionTools carried NO prepareArguments at all), and the
- *     quote-encoded literal heals before TypeBox validation.
- *  2. THE DEBRIS STRIP AT MEMBERSHIP SEAMS — stripModelValueDebris in
- *     coerceCorrectAnswer (boundary check + grading), normalizeQuizType,
- *     and resolveTargetId.
- *  3. THE DISPLAY MIRROR — the record keeps RAW arguments, so
- *     parseQuizInput heals the same wobble on read (the tool-parts law:
- *     a healed-at-boundary quiz whose display parse rejects is an
- *     invisible pending quiz and a learner lockout).
+ * Argument-wobble heals (owner, 2026-10-09): a model emitted quiz
+ * `type: "\"predict\""` (quotes baked in) and `correctAnswer: [":parmenides"]`
+ * (key-value colon glued on), rejected with identical retries while the lesson
+ * never started. Pins: the standard heal on every registry, the debris strip at
+ * membership seams, and the display mirror (raw records heal on read, else the
+ * pending quiz is invisible and the learner is locked out).
  */
 
 import assert from "node:assert/strict";
@@ -60,13 +47,6 @@ function whiteheadQuiz(type: unknown, correctAnswer: unknown) {
 }
 
 describe("the death-loop shape — quiz type with quotes baked in", () => {
-	it("heals the quote-encoded literal (the ten-retry loop)", () => {
-		const healed = healEncodedArguments({ type: QUOTED("predict") }, quizInputObject) as {
-			type: unknown;
-		};
-		assert.equal(healed.type, "predict");
-	});
-
 	it("END-TO-END: the healed args pass pi-ai validation where the raw threw", () => {
 		const raw = whiteheadQuiz(QUOTED("predict"), ["parmenides"]);
 		assert.throws(() => {
@@ -89,31 +69,13 @@ describe("the death-loop shape — quiz type with quotes baked in", () => {
 		assert.equal((validated as { type: unknown }).type, "predict");
 	});
 
-	it("WIRING: bareQuestionTools (the registry with NO prepareArguments) now heals", () => {
-		const tools = bareQuestionTools();
-		const quiz = tools.quiz;
-		assert.ok(quiz, "the bare quiz must exist");
-		assert.ok(quiz.prepareArguments, "the bare quiz must carry the standard heal");
-		const healed = quiz.prepareArguments!(
-			whiteheadQuiz(QUOTED("predict"), ["parmenides"]),
-		) as { type: unknown };
-		assert.equal(healed.type, "predict");
-	});
-
-	it("WIRING: the 2026-09-26 string-options shape heals through the bare quiz too", () => {
-		// The universal heal covers the ORIGINAL incident's shape as well:
-		// options serialized as a JSON string (then healed only on the
-		// plan-tree quiz path; the bare registries had nothing).
-		const quiz = bareQuestionTools().quiz;
-		assert.ok(quiz?.prepareArguments, "the bare quiz must carry the standard heal");
+	it("the bare quiz registry heals both the quoted literal and JSON-string options", () => {
+		const prepare = bareQuestionTools().quiz?.prepareArguments;
+		assert.ok(prepare, "the bare quiz must carry the standard heal");
+		assert.equal((prepare(whiteheadQuiz(QUOTED("predict"), ["parmenides"])) as { type: unknown }).type, "predict");
 		const input = whiteheadQuiz("predict", ["parmenides"]);
-		const stringified = { ...input, options: JSON.stringify(input.options) };
-		const healed = quiz.prepareArguments!(stringified) as { options: unknown };
-		assert.ok(Array.isArray(healed.options), "the JSON string heals to the array");
-		assert.equal(
-				(healed.options as Array<{ value?: string }>)[0]?.value,
-			"parmenides",
-		);
+		const healed = prepare({ ...input, options: JSON.stringify(input.options) }) as { options: Array<{ value?: string }> };
+		assert.equal(healed.options[0]?.value, "parmenides");
 	});
 });
 

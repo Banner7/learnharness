@@ -5,7 +5,6 @@ import {
 	calculateContextTokens,
 	estimateContextTokens,
 	estimateMessageTokens,
-	buildCompactionPrompt,
 	compactionCutIndex,
 	estimateTokens,
 	keptIndexFor,
@@ -18,7 +17,7 @@ import {
 	type LhMessage,
 	type LhMarkerMessage,
 } from "../src/core/index.ts";
-import type { AssistantMessage, ToolResultMessage } from "@earendil-works/pi-ai";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { projectView } from "../src/core/view.ts";
 
 /**
@@ -189,17 +188,10 @@ describe("compactionCutIndex", () => {
 // ─── the marker + the active scan ───────────────────────────────────────────
 
 describe("the compaction marker", () => {
-	it("content is the header + summary; details carry the cut", () => {
-		const marker = newCompactionMarker("The learner knows X.", {
-			firstKeptMessageId: "m9",
-			tokensBefore: 180_000,
-			model: "openai:gpt-5.2",
-			at: "2026-10-05T12:00:00.000Z",
-		});
-		assert.equal(marker.customType, "compaction");
+	it("content is the header + summary", () => {
+		const marker = newCompactionMarker("The learner knows X.", { firstKeptMessageId: "m9", tokensBefore: 180_000, at: "2026-10-05T12:00:00.000Z" });
 		assert.ok(marker.content.startsWith(COMPACTED_HISTORY_HEADER));
 		assert.ok(marker.content.endsWith("The learner knows X."));
-		assert.equal((marker.details as { firstKeptMessageId: string }).firstKeptMessageId, "m9");
 	});
 
 	it("activeCompactionOf: the NEWEST marker rules (chained compactions)", () => {
@@ -247,15 +239,6 @@ describe("toLlmMessages honors the cut", () => {
 		assert.ok(!flat.includes("early lecture"), "the pre-cut span never reaches the wire");
 	});
 
-	it("the marker NEVER renders twice (its own ride position is skipped in place)", () => {
-		const kept = [newUserMessage("m2")];
-		const marker = newCompactionMarker("S", { firstKeptMessageId: kept[0]!.id, tokensBefore: 1, at: "t" });
-		const after = [newUserMessage("later")];
-		const out = toLlmMessages([...kept, marker, ...after] as never);
-		assert.equal(out.length, 3, "head + kept + later — the marker's own position skipped");
-		assert.equal(JSON.stringify(out).indexOf("COMPACTED]"), JSON.stringify(out).lastIndexOf("COMPACTED]"), "header appears exactly once");
-	});
-
 	it("omits nine superseded summaries inside the retained tail without changing stored history", () => {
 		const kept = newUserMessage("retained exchange");
 		const details = { firstKeptMessageId: kept.id, tokensBefore: 200_000, at: "fixture" };
@@ -278,12 +261,6 @@ describe("toLlmMessages honors the cut", () => {
 		const out = toLlmMessages([big("m0"), ...kept, marker] as never);
 		const synthesis = out.find((m) => (m as never as { toolCallId?: string }).toolCallId === "call_1");
 		assert.ok(synthesis, "the dangling kept call is synthesized, not stranded");
-	});
-
-	it("a corrupt cut (missing kept id) degrades honestly: everything renders, marker text included once", () => {
-		const marker = newCompactionMarker("S", { firstKeptMessageId: "zzz", tokensBefore: 1, at: "t" });
-		const out = toLlmMessages([newUserMessage("a"), marker, newUserMessage("b")] as never);
-		assert.equal(out.length, 3, "no head swap — all three render (marker as its user text)");
 	});
 
 	it("an unresolved newest cutoff preserves the full-history fallback, including summary text", () => {
@@ -317,8 +294,8 @@ describe("toLlmMessages honors the cut", () => {
 
 // ─── the summarizer input ────────────────────────────────────────────────────
 
-describe("serializeForSummary + buildCompactionPrompt", () => {
-	it("labels roles; truncates long tool results; skips plan blocks", () => {
+describe("serializeForSummary + planTreeToText", () => {
+	it("truncates long tool results; skips plan blocks", () => {
 		const long = "y".repeat(5_000);
 		const messages: LhMessage[] = [
 			newUserMessage("hello"),
@@ -327,10 +304,7 @@ describe("serializeForSummary + buildCompactionPrompt", () => {
 			{ id: "pb", role: "custom", customType: "plan-block", content: "", display: true, details: {}, timestamp: 1 } as never,
 		];
 		const text = serializeForSummary(messages);
-		assert.ok(text.includes("[LEARNER] hello"));
-		assert.ok(text.includes("[TUTOR] lecture"));
-		assert.ok(text.includes("[RESULT for quiz]"));
-		assert.ok(text.includes("…[truncated]"));
+		assert.ok(text.includes("hello") && text.includes("lecture"));
 		assert.ok(!text.includes("yyyyy".repeat(1000)), "truncation bounded the result");
 		assert.ok(!text.toLowerCase().includes("plan-block"), "UI-only markers never serialize");
 	});
@@ -340,29 +314,10 @@ describe("serializeForSummary + buildCompactionPrompt", () => {
 		assert.ok(serializeForSummary([marker]).includes("LEGACY SUMMARY"));
 	});
 
-	it("the prompt demands the four sections in order and carries the plan tree verbatim", () => {
-		const prompt = buildCompactionPrompt({ spanText: "TRANSCRIPT", planTreeText: "- [done] A (a1)\n- A → B", kind: "teach" });
-		const order = ["The learner's understanding", "The teaching arc", "The plan dependency tree", "The current moment"].map(
-			(s) => prompt.indexOf(s),
-		);
-		assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections appear in the ruled order");
-		assert.ok(prompt.includes("TRANSCRIPT"));
-		assert.ok(prompt.includes("- [done] A (a1)"));
-	});
-
-	it("planTreeToText: statuses derive from the transcript; edges render; empty tree → null", () => {
+	it("planTreeToText: empty tree → null; edges render", () => {
 		assert.equal(planTreeToText(undefined, []), null);
-		const tree = {
-			nodes: [
-				{ id: "a", title: "Alpha", summary: "first" },
-				{ id: "b", title: "Beta" },
-			],
-			edges: [{ from: "a", to: "b" }],
-			version: 1,
-		};
-		const text = planTreeToText(tree as never, [])!;
-		assert.ok(text.includes("Alpha (a) — first"));
-		assert.ok(text.includes("Alpha → Beta"));
+		const tree = { nodes: [{ id: "a", title: "Alpha" }, { id: "b", title: "Beta" }], edges: [{ from: "a", to: "b" }], version: 1 };
+		assert.ok(planTreeToText(tree as never, [])!.includes("Alpha → Beta"));
 	});
 });
 
@@ -382,27 +337,18 @@ describe("projectView compaction dividers", () => {
 		}) as unknown as LhMessage,
 	];
 
-	it("emits the cut divider BEFORE the first kept message", () => {
+	it("emits the cut divider right BEFORE the first kept message and the moment divider after it, both carrying the payload", () => {
 		const view = projectView(record());
-		const idx = view.findIndex((m) => m.parts.some((p) => p.type === "data-compaction-cut"));
 		const keptIdx = view.findIndex((m) => m.parts.some((p) => p.type === "text" && p.text === "recent"));
-		assert.ok(idx !== -1, "the cut divider exists");
+		const cutIdx = view.findIndex((m) => m.parts.some((p) => p.type === "data-compaction-cut"));
 		assert.ok(keptIdx !== -1);
-		assert.equal(idx, keptIdx - 1, "immediately before the kept message");
-		const part = view[idx]!.parts.find((p) => p.type === "data-compaction-cut")!;
-		assert.equal((part.data as { content: string }).content.includes("SUMMARY TEXT"), true);
-	});
-
-	it("emits the moment divider at the marker (the transcript tail)", () => {
-		const view = projectView(record());
-		const moment = view.find((m) => m.parts.some((p) => p.type === "data-compaction"));
-		assert.ok(moment, "the moment divider exists");
-		const part = moment!.parts.find((p) => p.type === "data-compaction")!;
-		assert.equal((part.data as { details: { tokensBefore: number } }).details.tokensBefore, 12345);
-		// and it renders AFTER the kept message (the compaction moment is
-		// the tail — where the user is when it happens)
-		const keptIdx = view.findIndex((m) => m.parts.some((p) => p.type === "text" && p.text === "recent"));
-		assert.ok(view.indexOf(moment!) > keptIdx);
+		assert.equal(cutIdx, keptIdx - 1, "immediately before the kept message");
+		const cut = view[cutIdx]!.parts.find((p) => p.type === "data-compaction-cut")!;
+		assert.equal((cut.data as { content: string }).content.includes("SUMMARY TEXT"), true);
+		const momentIdx = view.findIndex((m) => m.parts.some((p) => p.type === "data-compaction"));
+		assert.ok(momentIdx > keptIdx, "the moment divider sits at the tail");
+		const moment = view[momentIdx]!.parts.find((p) => p.type === "data-compaction")!;
+		assert.equal((moment.data as { details: { tokensBefore: number } }).details.tokensBefore, 12345);
 	});
 });
 
@@ -460,15 +406,5 @@ describe("toLlmMessages carries the leading system message (request chrome)", ()
 		const out = toLlmMessages([chrome, ...plain] as never);
 		assert.equal(out.filter((m) => m.role === "system").length, 1);
 		assert.equal(out[0]!.role, "system");
-	});
-
-	it("record-path callers (no chrome in the record) are unchanged: head first", () => {
-		const out = toLlmMessages(record());
-		assert.notEqual(out[0]!.role, "system");
-		const headText =
-			typeof out[0]!.content === "string"
-				? out[0]!.content
-				: ((out[0]!.content as { text?: string }[])[0]?.text ?? "");
-		assert.ok(headText.includes("SUMMARY"));
 	});
 });

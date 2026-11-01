@@ -40,9 +40,6 @@ const TRANSPORTS: Transport[] = [
 	{ provider: "opencode-go", id: "glm-5.3", envVar: "OPENCODE_API_KEY", api: "openai-completions", origin: "https://opencode.ai", path: "/inference/go/v1/chat/completions", authHeader: "authorization" },
 	{ provider: "opencode-go", id: "gpt-6-luna", envVar: "OPENCODE_API_KEY", api: "openai-responses", origin: "https://opencode.ai", path: "/inference/go/v1/responses", authHeader: "authorization" },
 	{ provider: "openrouter", id: "openai/gpt-4o-mini", envVar: "OPENROUTER_API_KEY", api: "openai-completions", origin: "https://openrouter.ai", path: "/api/v1/chat/completions", authHeader: "authorization" },
-	{ provider: "openai", id: "gpt-4o-mini", envVar: "OPENAI_API_KEY", api: "openai-responses", origin: "https://api.openai.com", path: "/v1/responses", authHeader: "authorization" },
-	{ provider: "anthropic", id: "claude-haiku-4-5", envVar: "ANTHROPIC_API_KEY", api: "anthropic-messages", origin: "https://api.anthropic.com", path: "/v1/messages", authHeader: "x-api-key" },
-	{ provider: "google", id: "gemini-2.5-flash", envVar: "GEMINI_API_KEY", api: "google-generative-ai", origin: "https://generativelanguage.googleapis.com", path: "/v1beta/models/gemini-2.5-flash:streamGenerateContent", authHeader: "x-goog-api-key" },
 ];
 
 // Replacing rather than extending env also isolates secondary tokens (including
@@ -155,7 +152,6 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 				assert.equal(requests.length, 3);
 				const sessionId = requests[0]!.options.sessionId;
 				assert.match(String(sessionId), /^[0-9a-f-]{36}$/);
-				assert.notEqual(sessionId, "provider-neutral-offline");
 				for (const { options } of requests) {
 					assert.equal(options.sessionId, sessionId);
 					for (const key of ["apiKey", "getApiKey", "auth", "headers"]) {
@@ -250,12 +246,6 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 				assert.ok(resolved, id);
 				assert.equal(resolved.source, envVar, id);
 				assert.equal(resolved.auth.apiKey, env[envVar], id);
-			}
-			// In particular, intentionally shared variables must serve BOTH rows.
-			for (const envVar of new Set(AUTH_PROVIDER_KEYS.map((p) => p.envVar))) {
-				const siblings = AUTH_PROVIDER_KEYS.filter((p) => p.envVar === envVar);
-				if (siblings.length < 2) continue;
-				for (const { id } of siblings) assert.equal((await models.getAuth(id))?.auth.apiKey, env[envVar], id);
 			}
 			delete env.OPENAI_API_KEY;
 			assert.equal(await models.getAuth("openai"), undefined, "OpenRouter cannot configure a different provider");

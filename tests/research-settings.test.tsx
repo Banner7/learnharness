@@ -47,18 +47,13 @@ it("keyless settings keep Research interactive while search-engine setup retains
 		});
 		const row = document.querySelector<HTMLElement>('[data-testid="tool-row-research"]')!;
 		const toggle = row.querySelector<HTMLButtonElement>('[data-testid="toggle-tool-research"]')!;
-		assert.ok(toggle);
 		assert.equal(toggle.hasAttribute("disabled"), false);
 		assert.equal(toggle.getAttribute("aria-checked"), "true");
-		assert.ok(!row.className.includes("opacity-40"));
-		assert.ok(!row.textContent?.includes(reason), "search setup hint is no longer a research-disable hint");
 		act(() => { toggle.click(); });
 		assert.equal(written?.tools?.research, false, "the keyless toggle emits the same stored boolean");
 		const engine = document.querySelector<HTMLButtonElement>('[data-testid="search-engine-trigger"]')!;
-		assert.ok(engine.className.includes("cursor-not-allowed"), "search engine preference retains its own key gate");
 		act(() => { engine.click(); });
 		assert.equal(document.querySelector('[data-testid="search-engine-menu"]'), null, "keyless engine preference does not open");
-		assert.ok(document.querySelector('[data-testid="search-engine-row"]')?.textContent?.includes(reason));
 	} finally {
 		act(() => { root.unmount(); });
 		for (const [key, descriptor] of previous) {

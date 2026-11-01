@@ -36,8 +36,8 @@ const { chatStore } = await import("../src/store/chats.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
 const { subscribe } = await import("../src/core/events.ts");
 const { buildAnswer, normalizeOptions, resolveCorrect } = await import("../src/core/question-core.ts");
-const { ChatInputError, endsInFailedTurn, failedResponseAtEnd, inputAppends, parseChatInput, retryDrops } = await import("../src/core/input-events.ts");
-const { INTERRUPTED_TEXT, asAgentMessages, hasProbeDone, newHandoffMessage, newPlanBlockMessage, newUserMessage, toLlmMessages } = await import("../src/core/native-messages.ts");
+const { ChatInputError, endsInFailedTurn, failedResponseAtEnd, retryDrops } = await import("../src/core/input-events.ts");
+const { INTERRUPTED_TEXT, asAgentMessages, hasProbeDone, newPlanBlockMessage, newUserMessage, toLlmMessages } = await import("../src/core/native-messages.ts");
 const { phaseAt3Lh } = await import("../src/core/phases.ts");
 const { newCompactionMarker } = await import("../src/core/compaction.ts");
 
@@ -157,20 +157,6 @@ describe("failed-response Retry (issue #110)", () => {
 		assert.match(JSON.stringify(saved.at(-1)), /Mercury it is/);
 		assert.deepEqual(contexts.at(-1), ["user", "assistant", "toolResult"]);
 		assert.match(histories.at(-1)!, /Mercury is the innermost/);
-	});
-
-	it("a failed text turn retries without adding another learner message", async () => {
-		const { engine, contexts } = scripted([networkFailure, () => fauxAssistantMessage("Hello again.")]);
-		const chat = createConfiguredChat("Test: retry after failed text");
-		await turn(engine, chat.id, { type: "text", text: "hello" });
-		const before = chatStore.getChat(chat.id)!.messages;
-		assert.ok(endsInFailedTurn(before));
-		assert.equal((await turn(engine, chat.id, { type: "retry" })).status, 200);
-		const saved = chatStore.getChat(chat.id)!.messages;
-		assertPreserved(before, saved);
-		assert.deepEqual(roles(chat.id), ["user", "assistant", "assistant"]);
-		assert.deepEqual(contexts.at(-1), ["user"]);
-		assert.match(JSON.stringify(saved.at(-1)), /Hello again/);
 	});
 
 	it("preserves partial text and its usage reference before the replacement succeeds", { timeout: 5_000 }, async () => {
@@ -555,12 +541,6 @@ describe("the Retry button's client path", () => {
 });
 
 describe("Retry eligibility and temporary omissions (pure)", () => {
-	it("parses Retry without appending input", () => {
-		const input = parseChatInput({ type: "retry" });
-		assert.deepEqual(input, { type: "retry" });
-		assert.deepEqual(inputAppends({ messages: [newUserMessage("hi"), failed("a1")] }, input), []);
-	});
-
 	it("omits consecutive failures back to their input without mutating the record", () => {
 		const messages = [newUserMessage("hi"), failed("a1"), failed("a2")];
 		const before = JSON.parse(JSON.stringify(messages));

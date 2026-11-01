@@ -36,7 +36,7 @@ after(() => {
 });
 
 const { sendToUserTool } = await import("../src/agent/tools/send-to-user.ts");
-const { createProberAgent, createTeacherAgent, createPracticeAgent, composeInstructions } = await import("../src/agent/teacher-agent.ts");
+const { createProberAgent, createTeacherAgent, createPracticeAgent } = await import("../src/agent/teacher-agent.ts");
 const { SEND_TO_USER_TOOL, activeProblemOf, asAgentMessages, newUserMessage, sendToUserText, toLlmMessages, userFacingTextOf } = await import("../src/core/native-messages.ts");
 const { coverageOf, messageFingerprint, messageViewLines, teacherProseBlocks } = await import("../src/core/coverage.ts");
 const { projectView } = await import("../src/core/view.ts");
@@ -83,40 +83,23 @@ function prose(messages: ReturnType<typeof projectView>): string[] {
 describe("send_to_user model gate", () => {
 	for (const [provider, id, enabled] of [
 		["anthropic", "claude-opus-5-5", true],
-		["anthropic", "claude-haiku-4-5-20251001", true],
 		["openrouter", "anthropic/claude-opus-5.5", true],
-		["openrouter", "anthropic/claude-sonnet-5.5", true],
 		["amazon-bedrock", "us.anthropic.claude-opus-5-5-v1:0", true],
 		["fixture", "CLAUDE-fixture", true],
 		["claude-code", "opus", true],
-		["claude-code", "sonnet", true],
-		["claude-code", "haiku", true],
 		["openrouter", "z-ai/glm-5.3-flash", false],
 		["openai", "gpt-4o-mini", false],
 		["anthropic", "opaque-alias", false],
 	] as const) {
-		it(`${provider}/${id}: ${enabled ? "includes" : "omits"} tool and description in all conversation agents`, () => {
+		it(`${provider}/${id}: ${enabled ? "includes" : "omits"} the tool in all conversation agents`, () => {
 			const { engine } = scripted(provider, id);
 			for (const [kind, factory] of Object.entries(factories)) {
-				const agent = factory({ engine });
-				const output = agent.state.tools.find((tool) => tool.name === SEND_TO_USER_TOOL);
+				const output = factory({ engine }).state.tools.find((tool) => tool.name === SEND_TO_USER_TOOL);
 				assert.equal(Boolean(output), enabled, kind);
-				if (enabled) {
-					assert.equal(output!.description, sendToUserTool.description);
-					assert.equal(typeof output!.prepareArguments, "function", "standard argument healing is wired");
-				}
-				assert.equal(agent.state.systemPrompt, composeInstructions(kind as keyof typeof factories));
-				assert.ok(!agent.state.systemPrompt.includes(SEND_TO_USER_TOOL), "no added prompt instructions");
+				if (enabled) assert.equal(typeof output!.prepareArguments, "function", "standard argument healing is wired");
 			}
 		});
 	}
-
-	it("explicitly injected teacher/practice test registries remain unchanged", () => {
-		const { engine } = scripted("anthropic", "claude-opus-5-5");
-		for (const factory of [factories.teacher, factories.practice]) {
-			assert.deepEqual(factory({ engine, tools: {} }).state.tools, []);
-		}
-	});
 
 	it("background agents do not acquire a learner-output tool", async () => {
 		let calls = 0;

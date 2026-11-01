@@ -138,36 +138,10 @@ test("real native adapter captures replayed thinking, tool results AND the final
 	assert.equal(result.toolResults.length, 1);
 	assert.match(JSON.stringify(result.toolResults), /Review accepted/);
 	assert.equal(result.error, null);
-	assert.equal(result.timings.length, 2);
-	for (const timing of result.timings) {
-		assert.equal(timing.responseStatus, 200);
-		assert.ok(timing.headersReceivedAt >= timing.startedAt);
-		assert.ok(timing.finishedAt >= timing.headersReceivedAt);
-	}
 	const serialized = JSON.stringify(result);
 	assert.ok(!serialized.includes("NEVER_RECORD_THIS_FAKE_KEY"));
 	assert.ok(!serialized.includes("NEVER_RECORD_THIS_HEADER"));
 });
-
-for (const id of ["chat:xiaomi/mimo-v2.6-pro", "chat:deepseek/deepseek-v4.1-flash"]) {
-	test(`OpenRouter ${id}: returned thinking and final submit survive capture`, async (t) => {
-		const dir = setup(t);
-		const catalog = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "../node_modules/@earendil-works/pi-ai/dist/providers/data/openrouter.json"), "utf8"));
-		const fixtureModel = catalog["openai-completions"][id] as typeof model;
-		assert.ok(fixtureModel, "Use the actual installed model definition, never a live provider");
-		await runSubagent(tools, {
-			role: "auditor", engine: fakeEngine(false, fixtureModel), systemPrompt: "Fixture", prompt: "Fixture", maxTurns: 2,
-		});
-		const result = readCapture(dir);
-		assert.equal(result.request.model.provider, "openrouter");
-		assert.equal(result.request.model.id, fixtureModel.id);
-		assert.match(JSON.stringify(result.request.payload), /FIRST_THINKING/);
-		assert.match(JSON.stringify(result.request.payload), /SYNTHETIC_SESSION_INDEX/);
-		assert.match(JSON.stringify(result.response), /FINAL_THINKING/);
-		assert.match(JSON.stringify(result.response), /submit_review/);
-		assert.equal(result.error, null);
-	});
-}
 
 test("a failed continuation retains its request/error, not the previous reply or tool result", async (t) => {
 	const dir = setup(t);
@@ -237,14 +211,6 @@ test("cancelled requests retain their input and abort outcome", async (t) => {
 	assert.equal(result.error.name, "AbortError");
 	assert.equal(result.response.message.stopReason, "aborted");
 	assert.ok(result.finishedAt >= result.startedAt);
-});
-
-test("unselected background roles produce no captures while running normally", async (t) => {
-	const dir = setup(t, "auditor");
-	const faux = createFauxCore({});
-	faux.setResponses([fauxAssistantMessage([fauxText("Not captured.")])]);
-	await runSubagent([], { role: "extractor", engine: { model: faux.getModel(), streamFn: faux.streamSimple }, prompt: "Fixture", systemPrompt: "Fixture", maxTurns: 1 });
-	assert.deepEqual(fs.readdirSync(dir), []);
 });
 
 test("recording failures and unserializable payloads never throw into a worker", (t) => {

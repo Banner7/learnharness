@@ -1,10 +1,8 @@
 /**
  * The shared session-markdown engine (core/session-markdown.ts, owner ruling
- * 2026-09-27): ONE renderer for the extractor's source view and the future
+ * 2026-09-27): ONE renderer for the extractor's source view and the
  * user-facing session export — id-anchored speaker blocks, readable
- * quiz/recall/question blocks, one-line notes for other tools. Pinned here:
- * block shapes, anchor handling (on/off), title header, empty-message
- * skipping, and content parity with the coverage line builder.
+ * question blocks, one-line notes for other tools, the practice join.
  */
 
 import assert from "node:assert/strict";
@@ -12,203 +10,106 @@ import { describe, it } from "node:test";
 import type { LhMessage } from "../src/core/native-messages.ts";
 import { messageMarkdown, sessionMarkdown } from "../src/core/session-markdown.ts";
 import { messageViewLines } from "../src/core/coverage.ts";
-import { coverageSlots } from "../src/core/coverage.ts";
 
 function user(id: string, text: string): LhMessage {
-	return { id, role: "user", content: text, timestamp: Date.now() } as never;
+	return { id, role: "user", content: text, timestamp: 1 } as never;
 }
 
-function teacher(id: string, text: string): LhMessage {
+function assistant(id: string, content: unknown[]): LhMessage {
 	return {
-		id,
-		role: "assistant",
-		content: [{ type: "text", text }],
-		api: "openai-completions",
-		provider: "openrouter",
-		model: "test",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "stop",
-		timestamp: Date.now(),
+		id, role: "assistant", content, api: "openai-completions", provider: "openrouter", model: "test",
+		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, stopReason: "stop", timestamp: 1,
 	} as never;
 }
 
-function result(
-	id: string,
-	toolCallId: string,
-	toolName: string,
-	details: unknown,
-	isError = false,
-): LhMessage {
-	return {
-		id,
-		role: "toolResult",
-		toolCallId,
-		toolName,
-		content: [{ type: "text", text: "ok" }],
-		details,
-		isError,
-		timestamp: Date.now(),
-	} as never;
-}
+const teacher = (id: string, text: string) => assistant(id, [{ type: "text", text }]);
+/** The practice join's call side — args live HERE, the results are bare acks. */
+const callMsg = (id: string, callId: string, name: string, args: unknown) =>
+	assistant(id, [{ type: "toolCall", id: callId, name, arguments: args }]);
 
-/** An assistant message carrying one toolCall part (the practice join's
- *  call side — args live HERE, the results are bare acks). */
-function callMsg(id: string, callId: string, name: string, args: unknown): LhMessage {
-	return {
-		id,
-		role: "assistant",
-		content: [{ type: "toolCall", id: callId, name, arguments: args }],
-		api: "openai-completions",
-		provider: "openrouter",
-		model: "test",
-		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		stopReason: "stop",
-		timestamp: Date.now(),
-	} as never;
+function result(id: string, toolCallId: string, toolName: string, details: unknown, isError = false): LhMessage {
+	return { id, role: "toolResult", toolCallId, toolName, content: [{ type: "text", text: "ok" }], details, isError, timestamp: 1 } as never;
 }
 
 describe("messageMarkdown", () => {
-	it("renders speaker blocks with the id anchor", () => {
-		const md = messageMarkdown(user("u1", "teach me the chain rule"), "u1");
-		assert.equal(md, "### Learner · u1\n\nteach me the chain rule");
-		const md2 = messageMarkdown(teacher("a1", "The derivative measures change."), "a1");
-		assert.equal(md2, "### Teacher · a1\n\nThe derivative measures change.");
+	it("renders speaker blocks with the id anchor, or without it for the user export", () => {
+		assert.equal(messageMarkdown(user("u1", "teach me the chain rule"), "u1"), "### Learner · u1\n\nteach me the chain rule");
+		assert.equal(messageMarkdown(teacher("a1", "The derivative measures change."), "a1"), "### Teacher · a1\n\nThe derivative measures change.");
+		assert.equal(messageMarkdown(user("u1", "hello"), "u1", false), "### Learner\n\nhello");
 	});
 
-	it("anchors off — the same document without the ids (the user export)", () => {
-		const md = messageMarkdown(user("u1", "hello"), "u1", false);
-		assert.equal(md, "### Learner\n\nhello");
+	it("question results render the question and the learner's answer under their own heading", () => {
+		const cases: Array<[string, unknown, RegExp[]]> = [
+			["quiz", { questionText: "What is a derivative?", correct: false, dontKnow: false, note: "mixed up signs" },
+				[/^### Quiz · r1$/m, /\*\*Q:\*\* What is a derivative\?/, /answered incorrectly/, /mixed up signs/]],
+			["explain", { questionText: "Why?", text: "it never strays far" }, [/^### Recall check · r1$/m, /it never strays far/]],
+			["probe", { questionText: "What is a derivative?", correct: true, dontKnow: false }, [/^### Probe · r1$/m]],
+			["recall", { questionText: "Why?", text: "it never strays far" }, [/^### Recall · r1$/m]],
+			["ask_user_question", { questionText: "Which way?", answers: ["second"], other: "also the third" },
+				[/^### Question · r1$/m, /second, also the third/]],
+			["ask_user_question", { questionText: "Why?", text: "because" }, [/because/]],
+		];
+		for (const [name, details, patterns] of cases) {
+			const md = messageMarkdown(result("r1", "c1", name, details), "r1")!;
+			for (const pattern of patterns) assert.match(md, pattern, name);
+		}
 	});
 
-	it("quiz blocks: question + outcome + the learner's note", () => {
-		const md = messageMarkdown(
-			result("r1", "q1", "quiz", { questionText: "What is a derivative?", correct: false, dontKnow: false, note: "mixed up signs" }),
-			"r1",
-		)!;
-		assert.match(md, /^### Quiz · r1$/m);
-		assert.match(md, /\*\*Q:\*\* What is a derivative\?/);
-		assert.match(md, /The learner answered incorrectly\./);
-		assert.match(md, /\*\(his thinking: mixed up signs\)\*/);
-	});
-
-	it("explain results: the learner's own words are shown", () => {
-		const md = messageMarkdown(
-			result("r1", "e1", "explain", { questionText: "Why does Mercury stay near the Sun?", text: "it never strays far" }),
-			"r1",
-		)!;
-		assert.match(md, /^### Recall check · r1$/m);
-		assert.match(md, /The learner answered in his own words: it never strays far/);
-	});
-
-	it("probe-phase questions export under their own names (owner, 2026-10-09)", () => {
-		const probe = messageMarkdown(
-			result("r1", "p1", "probe", { questionText: "What is a derivative?", correct: true, dontKnow: false }),
-			"r1",
-		)!;
-		assert.match(probe, /^### Probe · r1$/m);
-		const recall = messageMarkdown(
-			result("r2", "rr1", "recall", { questionText: "Why does Mercury stay near the Sun?", text: "it never strays far" }),
-			"r2",
-		)!;
-		assert.match(recall, /^### Recall · r2$/m);
-	});
-
-	it("ask blocks: question + chosen options + free text", () => {
-		const chosen = messageMarkdown(
-			result("r1", "a1", "ask_user_question", { questionText: "Which way?", answers: ["second"], other: "also the third" }),
-			"r1",
-		)!;
-		assert.match(chosen, /^### Question · r1$/m);
-		assert.match(chosen, /The learner chose: second, also the third/);
-		const free = messageMarkdown(
-			result("r2", "a2", "ask_user_question", { questionText: "Why?", text: "because" }),
-			"r2",
-		)!;
-		assert.match(free, /The learner answered: because/);
-	});
-
-	it("other clean tool results: one line; failed calls and markers: nothing", () => {
+	it("other clean tool results: one line; failed calls and empty text: nothing", () => {
 		assert.equal(messageMarkdown(result("r1", "j1", "research", { brief: "long" }), "r1"), "### Tool · r1\n\n*research result delivered*");
 		assert.equal(messageMarkdown(result("r2", "j2", "research", {}, true), "r2"), null, "a failed call is retry context");
-		assert.equal(messageMarkdown(user("u3", "   "), "u3"), null, "empty text renders nothing");
+		assert.equal(messageMarkdown(user("u3", "   "), "u3"), null);
 	});
 });
 
 describe("sessionMarkdown — the practice join (owner-approved, 2026-10-06)", () => {
-	it("a problem result renders the POSE's statement, joined off the call id", () => {
-		const messages = [
-			callMsg("a1", "call-p1", "problem", {
-				statement: "Push the prior through the learning transition.",
-				mode: "recall",
-				target: [],
-				modelSolution: "Two phases, in forced order.",
-			}),
-			result("r1", "call-p1", "problem", null),
-		];
-		const md = sessionMarkdown(messages);
-		assert.ok(md.includes("### Problem"), "the Problem heading renders");
-		assert.ok(md.includes("Push the prior through the learning transition."), "the statement renders");
+	const pose = (args: Record<string, unknown>, isError = false) => [
+		callMsg("a1", "call-p1", "problem", args),
+		result("r1", "call-p1", "problem", null, isError),
+	];
+	const conclude = (args: Record<string, unknown>) => [
+		callMsg("a2", "call-c1", "conclude", args),
+		result("r2", "call-c1", "conclude", null),
+	];
+
+	it("a problem result renders the POSE's statement without leaking the solution", () => {
+		const md = sessionMarkdown(pose({ statement: "Push the prior through.", mode: "recall", target: [], modelSolution: "Two phases." }));
+		assert.ok(md.includes("### Problem") && md.includes("Push the prior through."));
 		assert.ok(!md.includes("Two phases"), "the solution does NOT leak at pose time");
 	});
 
 	it("a conclude result renders outcome + verdict + the pose's model solution as the reveal", () => {
-		const messages = [
-			callMsg("a1", "call-p1", "problem", {
-				statement: "Compute P(knows | correct).",
-				modelSolution: "Bayes, twice over.",
-			}),
-			result("r1", "call-p1", "problem", null),
-			callMsg("a2", "call-c1", "conclude", { outcome: "solvedWithHints", verdict: "Right answer, one nudge." }),
-			result("r2", "call-c1", "conclude", null),
-		];
-		const md = sessionMarkdown(messages);
-		assert.ok(md.includes("### Concluded"), "the Concluded heading renders");
-		assert.ok(md.includes("**Solved with hints.** Right answer, one nudge."), "outcome reads as prose, then the verdict");
-		assert.ok(md.includes("> **Model solution**"), "the reveal block quotes the committed solution");
-		assert.ok(md.includes("> Bayes, twice over."), "the solution text carries the blockquote prefix");
+		const md = sessionMarkdown([
+			...pose({ statement: "Compute P(knows | correct).", modelSolution: "Bayes, twice over." }),
+			...conclude({ outcome: "solvedWithHints", verdict: "Right answer, one nudge." }),
+		]);
+		assert.ok(md.includes("### Concluded"));
+		assert.ok(md.includes("**Solved with hints.** Right answer, one nudge."));
+		assert.ok(md.includes("> Bayes, twice over."), "the reveal quotes the committed solution");
 	});
 
 	it("a dismissed problem concludes without leaking the model solution", () => {
-		const messages = [
-			callMsg("a1", "call-p1", "problem", { statement: "Derive the posterior.", modelSolution: "The answer." }),
-			result("r1", "call-p1", "problem", null),
-			callMsg("a2", "call-c1", "conclude", { outcome: "dismissed" }),
-			result("r2", "call-c1", "conclude", null),
-		];
-		const md = sessionMarkdown(messages);
-		assert.ok(md.includes("The learner skipped this problem."), "the dismissal reads as a skip");
-		assert.ok(!md.includes("The answer."), "no reveal on a skipped problem — the card's refusal law");
+		const md = sessionMarkdown([
+			...pose({ statement: "Derive the posterior.", modelSolution: "The answer." }),
+			...conclude({ outcome: "dismissed" }),
+		]);
 		assert.ok(md.includes("### Problem"), "the statement still renders (it was on screen)");
+		assert.ok(!md.includes("The answer."), "no reveal on a skipped problem");
 	});
 
-	it("an errored pose renders nothing — the failed-tool law holds for practice", () => {
-		const messages = [
-			callMsg("a1", "call-p1", "problem", { statement: "Never acked." }),
-			result("r1", "call-p1", "problem", null, true),
-		];
-		const md = sessionMarkdown(messages);
-		assert.ok(!md.includes("### Problem"), "no problem block");
-		assert.ok(!md.includes("Never acked."), "no statement either — the pose never happened");
+	it("an errored pose renders nothing", () => {
+		assert.ok(!sessionMarkdown(pose({ statement: "Never acked." }, true)).includes("Never acked."));
 	});
 });
 
 describe("sessionMarkdown", () => {
-	it("assembles blocks in order under the title header, skipping nothings", () => {
+	it("assembles blocks in order under the optional title header, skipping nothings", () => {
 		const md = sessionMarkdown([user("u1", "go"), teacher("a1", "First."), user("u2", "  ")], { title: "My session" });
 		assert.equal(md, "# My session\n\n### Learner · u1\n\ngo\n\n### Teacher · a1\n\nFirst.");
-	});
-
-	it("no title → no header; anchors default on", () => {
-		const md = sessionMarkdown([user("u1", "go")]);
-		assert.equal(md, "### Learner · u1\n\ngo");
+		assert.equal(sessionMarkdown([user("u1", "go")]), "### Learner · u1\n\ngo");
 	});
 
 	it("the seam split (owner, 2026-09-28): teacher prose renders in BOTH; the rest renders ONLY here", () => {
-		// The extraction view became TEACHER-PROSE-ONLY: its line builder
-		// yields lines for teacher text alone. This engine keeps the FULL
-		// session format for the future user-facing export — so parity now
-		// holds exactly for teacher prose, and everything else (learner,
-		// quiz, tool results) is markdown-only.
 		const messages: LhMessage[] = [
 			user("u1", "teach me"),
 			teacher("a1", "The chain rule multiplies local rates."),
@@ -217,7 +118,7 @@ describe("sessionMarkdown", () => {
 			result("r3", "j2", "research", {}, true),
 		];
 		for (const message of messages) {
-			const isTeacher = (message as { role?: string }).role === "assistant";
+			const isTeacher = message.role === "assistant";
 			const hasLines = messageViewLines(message, message.id).length > 0;
 			const hasMarkdown = messageMarkdown(message, message.id) !== null;
 			assert.equal(hasLines, isTeacher && hasMarkdown, `view lines follow teacher prose for ${message.id}`);

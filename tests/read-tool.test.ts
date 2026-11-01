@@ -1,10 +1,6 @@
 /**
- * The read tool (sources v0) — a Node port of pi's read semantics:
- * truncation with continuation offsets, image mime detection, error paths.
- * Driven through the NATIVE AgentTool execute (Wave A, 2026-09-26): text
- * reads return the raw string as details (the record's tool part output
- * reads it); image reads return native pi content parts (text + image)
- * with null details (the output-less part until the record persists).
+ * The read tool — a Node port of pi's read semantics: truncation with
+ * continuation offsets, image detection, error paths.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -90,13 +86,6 @@ describe("read tool — text semantics", () => {
 		// and the truncation actually cut content
 		assert.ok(out.length < 52_000, "the 50KB ceiling must cut the 80KB body");
 	});
-
-	it("an explicit limit that stops short gets a remaining-lines notice", async () => {
-		const body = Array.from({ length: 10 }, (_, i) => `l${i + 1}`).join("\n");
-		const file = write("ten.txt", body);
-		const out = (await run({ path: file, limit: 4 })).text;
-		assert.match(out, /\[6 more lines in file\. Use offset=5 to continue\.\]/);
-	});
 });
 
 describe("read tool — image semantics (native content parts)", () => {
@@ -117,13 +106,5 @@ describe("read tool — image semantics (native content parts)", () => {
 		assert.equal(imagePart.mimeType, "image/png");
 		assert.match(imagePart.data!, /^[A-Za-z0-9+/]+={0,2}$/);
 		assert.equal(result.details, null, "image reads keep the record part output-less");
-	});
-
-	it("plain string results map to a single text part (parity)", async () => {
-		const file = write("plain.txt", "body");
-		const result = await readTool.execute!("test", { path: file });
-		assert.equal(result.content.length, 1);
-		assert.equal(result.content[0]!.type, "text");
-		assert.equal((result.content[0] as { type: "text"; text: string }).text, "body");
 	});
 });

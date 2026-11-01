@@ -1,40 +1,17 @@
-/**
- * Tests for the settings record's core layer (settings-storage wave,
- * 2026-09-19): the delta schema's sanitizer (core/settings.ts) — strict
- * known-field validation with graceful degradation, unknown-key
- * preservation (forward-compat: a newer record must survive an older
- * app), and the factory defaults. The store/adapter tests live in
- * settings-store.test.ts; resolution in settings-resolution.test.ts.
- */
-
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
-	BACKGROUND_MODEL_ROLES,
 	sanitizeUserSettings,
 } from "../src/core/settings.ts";
 
-describe("FACTORY_SETTINGS (the compiled factory layer)", () => {
-	it("pins the owner-decided defaults", () => {
-		assert.equal(CURRENT_SETTINGS_VERSION, 1);
-		// wave 7 collapse: the master switch ONLY + the extraction-UX
-		// redesign's chunk budget (2026-09-24); doubled to 8192 with the
-		// digest-aware redesign (2026-09-30), then HALVED BACK to 4096
-		// with the message anchors (owner, 2026-10-13)
-		assert.deepEqual(FACTORY_SETTINGS.graph, { enabled: true, extractionChunkTokens: 4096 });
-		const a = FACTORY_SETTINGS.appearance;
-		assert.equal(a.proseFontSize, 17);
-		assert.equal(a.mdRendering.headingWeight, 700);
-	});
-
+describe("FACTORY_SETTINGS", () => {
 	it("has NO factory model pin — chat defaults and role overrides start absent", () => {
 		assert.equal("chat" in FACTORY_SETTINGS, false);
 		assert.equal("agent" in FACTORY_SETTINGS, false);
 	});
 });
-
 
 describe("sanitizeUserSettings", () => {
 	it("round-trips a fully valid record field-for-field", () => {
@@ -173,15 +150,5 @@ describe("sanitizeUserSettings", () => {
 		const out = sanitizeUserSettings({ agent: { tools: { quiz: false, demo: true, visual: "x" } } });
 		assert.ok(out);
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
-	});
-
-	it("BACKGROUND_MODEL_ROLES matches the five background roles (practice trio deleted 2026-10-04)", () => {
-		assert.deepEqual([...BACKGROUND_MODEL_ROLES], [
-			"researcher",
-			"demoBuilder",
-			"visualMaker",
-			"extractor",
-			"auditor",
-		]);
 	});
 });

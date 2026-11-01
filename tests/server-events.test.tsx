@@ -1,11 +1,6 @@
 /**
- * THE NOTIFICATION CHANNEL'S CLIENT HALF (push-architecture S3,
- * 2026-10-02): one EventSource per window fanned out through the hub.
- * The provider's ENTIRE effect body is wireSource(source, hub) — a plain
- * function — so these pins drive the real wiring with a fake source, no
- * React and no server: typed dispatch, resync-on-open, error isolation,
- * and close-stops-dispatch. The React glue around it (hooks/context) is
- * an adapter seam like lh:turn-state (untested by precedent).
+ * The notification channel's client half: wireSource(source, hub) driven with
+ * a fake source — typed dispatch, resync-on-open, error isolation, close.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";

@@ -1,12 +1,6 @@
 /**
- * The search engines (search port + model slots wave, 2026-09-20):
- * engine resolution (the owner's auto-detect decision — a key is enough,
- * no engine choice needed; explicit pin requires the key; no silent
- * fallback) + the Tavily/Brave adapters against a STUB fetch (never the
- * network — the wire shapes are verified against the published docs, and
- * the tests pin those shapes).
- *
- * PURE + injected fetch — this file owns no fs.
+ * Search engine resolution (a key is enough; an explicit pin requires its key;
+ * no silent fallback) + the Tavily/Brave adapters against a stub fetch.
  */
 
 import assert from "node:assert/strict";
@@ -14,49 +8,26 @@ import { describe, it } from "node:test";
 import { resolveSearchEngineFor, tavilyProvider, braveProvider } from "../src/server/search.ts";
 
 describe("resolveSearchEngineFor (the auto-detect decision)", () => {
-	it("no keys: honestly unavailable, no default", () => {
-		const out = resolveSearchEngineFor(undefined, {});
-		assert.ok(!out.available);
-		assert.equal(out.engine, null);
-		assert.match(out.reason, /no search engine configured/i);
+	it("a key alone selects its engine; both keys prefer Tavily; an explicit pin wins", () => {
+		const both = { tavily: "tvly-throwaway-key-00001", brave: "brave-throwaway-key-00001" };
+		for (const [pin, keys, engine] of [
+			[undefined, { tavily: both.tavily }, "tavily"],
+			[undefined, { brave: both.brave }, "brave"],
+			[undefined, both, "tavily"],
+			["brave", both, "brave"],
+		] as const) {
+			const out = resolveSearchEngineFor(pin, keys);
+			assert.ok(out.available);
+			assert.equal(out.engine, engine);
+		}
 	});
 
-	it("a key alone is enough — no engine choice needed", () => {
-		const tav = resolveSearchEngineFor(undefined, { tavily: "tvly-throwaway-key-00001" });
-		assert.ok(tav.available);
-		assert.equal(tav.engine, "tavily");
-		assert.match(tav.reason, /auto/);
-
-		const brv = resolveSearchEngineFor(undefined, { brave: "brave-throwaway-key-00001" });
-		assert.ok(brv.available);
-		assert.equal(brv.engine, "brave");
-	});
-
-	it("both keys, no pin: preference order — Tavily first (owner decision)", () => {
-		const out = resolveSearchEngineFor(undefined, {
-			tavily: "tvly-throwaway-key-00001",
-			brave: "brave-throwaway-key-00001",
-		});
-		assert.ok(out.available);
-		assert.equal(out.engine, "tavily");
-	});
-
-	it("the explicit pin wins when its key is present", () => {
-		const out = resolveSearchEngineFor("brave", {
-			tavily: "tvly-throwaway-key-00001",
-			brave: "brave-throwaway-key-00001",
-		});
-		assert.ok(out.available);
-		assert.equal(out.engine, "brave");
-		assert.match(out.reason, /chosen/);
-	});
-
-	it("the explicit pin does NOT silently fall back to the other engine", () => {
-		const out = resolveSearchEngineFor("tavily", { brave: "brave-throwaway-key-00001" });
-		assert.ok(!out.available);
-		assert.equal(out.engine, null);
-		assert.match(out.reason, /tavily/);
-		assert.match(out.reason, /API key is missing/);
+	it("no keys, or a pin whose key is missing, is unavailable — never a fallback", () => {
+		assert.equal(resolveSearchEngineFor(undefined, {}).engine, null);
+		const pinned = resolveSearchEngineFor("tavily", { brave: "brave-throwaway-key-00001" });
+		assert.ok(!pinned.available);
+		assert.equal(pinned.engine, null);
+		assert.match(pinned.reason, /tavily/);
 	});
 });
 

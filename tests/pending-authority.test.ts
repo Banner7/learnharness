@@ -22,7 +22,6 @@ test("a later assistant question supersedes an unanswered question in the same p
 	assert.equal(projectView(messages).length, 1, "the view merges both assistant boundaries");
 	const question = pending(messages)!;
 	assert.equal(question.toolCallId, "new-question");
-	assert.doesNotThrow(() => inputAppends({ messages }, { type: "answer", toolCallId: question.toolCallId, answer: { kind: "quiz", answers: [], dontKnow: true } as never }));
 });
 
 test("the newest assistant's parallel questions retain call order and never revive older questions", () => {

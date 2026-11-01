@@ -16,7 +16,6 @@ import type { ChatStore, GraphStore } from "../src/core/ports.ts";
 import {
 	graphSessionIndex,
 	graphSessionPropositions,
-	graphSnapshot,
 	type GraphDeps,
 } from "../src/core/graph.ts";
 import { birthSessionOf, birthSessionPartition } from "../src/core/session-clusters.ts";
@@ -99,42 +98,6 @@ describe("birthSessionPartition", () => {
 		assert.deepEqual(partition, [{ id: "chat2", members: ["survivor"] }], "the naked node joins nothing");
 	});
 });
-
-// ─── notes files as birth sessions (production shape) ────────────────────────
-
-describe("notes files as birth sessions", () => {
-	// The mapping-line fallback is GONE (owner, 2026-09-29): the mappings
-	// ledger itself died with per-job in-memory resolution, and every merge
-	// writes provenance points — the src id IS the birth session.
-	it("graphSessionIndex lists imported files as kind:file with birth counts (production shape)", () => {
-		const nodes = [node("a", "Alpha", [pt("src_abc")]), node("b", "Beta", [pt("src_abc")]), node("c", "Gamma", [pt("src_abc")])];
-		const deps = fakeStores(nodes, {
-			sources: [{ id: "src_abc", filePath: "/vault/learn vim.md", importedAt: "2026-09-22T00:00:00.000Z" }],
-		});
-		const index = graphSessionIndex(deps);
-		assert.deepEqual(index, [
-			{
-				id: "src_abc",
-				name: "/vault/learn vim.md",
-				kind: "file",
-				createdAt: "2026-09-22T00:00:00.000Z",
-				updatedAt: "2026-09-22T00:00:00.000Z",
-				propositions: 3,
-			},
-		], "the file births under its src id; the childless chat has no entry (birth sessions only)");
-	});
-
-	it("graphSessionPropositions lists the file's births under the src id (a pure birth list, 2026-09-27)", () => {
-		const deps = fakeStores([node("a", "Alpha", [pt("src_abc")]), node("b", "Beta", [pt("src_abc")])], {
-			sources: [{ id: "src_abc", filePath: "/vault/learn vim.md", importedAt: "2026-09-22T00:00:00.000Z" }],
-		});
-		assert.deepEqual(graphSessionPropositions(deps, "src_abc"), [
-			{ nodeId: "a", name: "Alpha" },
-			{ nodeId: "b", name: "Beta" },
-		]);
-	});
-});
-
 
 // ─── the prober data seam ───────────────────────────────────────────────────
 

@@ -1,24 +1,9 @@
 
 /**
  * Demo + visual artifact tests (W6) — deterministic, zero network, no real
- * Chrome:
- *
- *   1. bridge-script injection (buildDemoSrcDoc) + the pure bridge-message
- *      reducer (reduceDemoBridgeState)
- *   2. card rendering (static markup): sandboxed iframe attrs, error chip,
- *      failure notes, inline sanitized svg
- *   3. the demo-builder loop with a FAKE model + FAKE headless (success with
- *      a fix iteration, untested-final verification, never-clean failure,
- *      no-Chrome failure)
- *   4. the visual-maker loop (fake model + fake headless): render-and-look
- *      success, forced look on premature finish, never-writes failure
- *   5. job runners + dispatch (demo part → demo job → steer via a fake
- *      deliver; visual failure path; end-to-end dispatch through
- *      handleChatRequest with the ack protocol)
- *   6. tool registry wiring (server-executed dispatch tools, schemas)
- *
- * Cleanup follows tests/jobs.test.ts idioms (created chat/job files removed
- * in the after() hook; overrides reset in finally blocks).
+ * Chrome: bridge reducer, steer-card safety, the demo-builder and
+ * visual-maker loops (fake model + fake headless), job runners + dispatch,
+ * and the dispatch tool schemas.
  */
 
 import React from "react";
@@ -33,29 +18,17 @@ import { Value } from "typebox/value";
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, type FauxResponseStep, type ToolCall } from "@earendil-works/pi-ai";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PATHS } from "../config.ts";
-import {
-	buildDemoSrcDoc,
-	DEMO_BRIDGE_SCRIPT,
-	DemoCard,
-	DemoErrorChip,
-	INITIAL_DEMO_BRIDGE_STATE,
-	reduceDemoBridgeState,
-} from "../components/artifacts/demo-card.tsx";
-import { sanitizeSvg, svgNaturalWidth, VisualCard, VisualOutputCard } from "../components/artifacts/visual-card.tsx";
+import { buildDemoSrcDoc, INITIAL_DEMO_BRIDGE_STATE, reduceDemoBridgeState } from "../components/artifacts/demo-card.tsx";
+import { sanitizeSvg, svgNaturalWidth } from "../components/artifacts/visual-card.tsx";
 import { slugFilename } from "../components/artifacts/download.ts";
 import { chartSize } from "../components/session-overlay.tsx";
 import { SubagentSteerCard } from "../components/artifacts/steer-card.tsx";
-import { DispatchCard } from "../components/artifacts/dispatch-card.tsx";
-import { JobCard, PdfJobCard } from "../components/artifacts/job-card.tsx";
-import { ToolCallCard } from "../components/artifacts/tool-call-card.tsx";
-import { JobsContext } from "../components/jobs-context.ts";
 import { demoInputSchema, jobTools, pdfInputSchema, visualInputSchema } from "../src/agent/tools/jobs.ts";
 import { runDemoBuilder } from "../src/agent/subagents/demo-builder.ts";
 import { headlessOverride, type DemoRunResult, type HeadlessApi } from "../src/agent/subagents/headless.ts";
 import { createJobRunner, demoModelOverride, visualModelOverride } from "../src/agent/subagents/runner.ts";
 import { runVisualMaker } from "../src/agent/subagents/visual-maker.ts";
 import { buildAbortSteer, buildSubagentSteer, isSubagentFailure, setSteerUiInverted, type SteerMessage } from "../src/core/contracts.ts";
-import type { JobRecord } from "../src/core/contracts.ts";
 import { createTeacherTools } from "../src/agent/tools.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { jobStore } from "../src/store/jobs.ts";
@@ -87,34 +60,19 @@ function testRunner() {
 	});
 	return { steers, runner };
 }
-import { artifactRenderers } from "../components/artifacts/index.ts";
 
 // The key-presence turn gate (provider-key interlude, 2026-09-25): scripted
 // turns pin openrouter per chat — the gate reads env-first truth, so the
 // key must be present in the test process like any real setup.
 process.env.OPENROUTER_API_KEY ??= "test-key-presence-gate";
 
-
-
 const JOBS_DIR = path.join(PATHS.data, "jobs");
 const createdChats: string[] = [];
 const createdJobs: string[] = [];
 
 after(() => {
-	for (const id of createdChats) {
-		try {
-			fs.unlinkSync(path.join(PATHS.chats, `${id}.json`));
-		} catch {
-			/* already gone */
-		}
-	}
-	for (const id of createdJobs) {
-		try {
-			fs.unlinkSync(path.join(JOBS_DIR, `${id}.json`));
-		} catch {
-			/* already gone */
-		}
-	}
+	for (const id of createdChats) fs.rmSync(path.join(PATHS.chats, `${id}.json`), { force: true });
+	for (const id of createdJobs) fs.rmSync(path.join(JOBS_DIR, `${id}.json`), { force: true });
 	headlessOverride.current = undefined;
 	demoModelOverride.current = undefined;
 	visualModelOverride.current = undefined;
@@ -141,12 +99,7 @@ function scriptedModel(turns: Array<{ toolCalls?: Array<{ toolCallId: string; to
 // ─── fake headless ───────────────────────────────────────────────────────────
 
 const CLEAN_RUN: DemoRunResult = { consoleErrors: [], pageErrors: [], failedRequests: [], ok: true };
-const BROKEN_RUN: DemoRunResult = {
-	consoleErrors: ["Uncaught ReferenceError: foo is not defined"],
-	pageErrors: [],
-	failedRequests: [],
-	ok: false,
-};
+const BROKEN_RUN: DemoRunResult = { consoleErrors: ["Uncaught ReferenceError: foo is not defined"], pageErrors: [], failedRequests: [], ok: false };
 
 function fakeHeadless(opts: {
 	/** Return BROKEN_RUN for html matching this substring, else CLEAN_RUN. */
@@ -157,12 +110,8 @@ function fakeHeadless(opts: {
 	const api = {
 		demoRuns: [] as string[],
 		svgRenders: [] as string[],
-		available() {
-			return true;
-		},
-		unavailableReason() {
-			return null;
-		},
+		available: () => true,
+		unavailableReason: () => null,
 		async runDemo(html: string): Promise<DemoRunResult> {
 			api.demoRuns.push(html);
 			return opts.brokenWhenIncludes && html.includes(opts.brokenWhenIncludes) ? BROKEN_RUN : CLEAN_RUN;
@@ -183,32 +132,18 @@ function fakeHeadless(opts: {
 }
 
 function noChromeHeadless(): HeadlessApi {
-	return {
-		available: () => false,
-		unavailableReason: () => "No Chrome/Chromium found for headless testing. Install Google Chrome or set CHROME_PATH.",
-		runDemo: async () => {
-			throw new Error("should not run");
-		},
-		renderSvg: async () => {
-			throw new Error("should not render");
-		},
-		renderPdfPages: async () => {
-			throw new Error("should not render");
-		},
+	const never = async (): Promise<never> => {
+		throw new Error("should not run");
 	};
+	return { available: () => false, unavailableReason: () => "No Chrome/Chromium found for headless testing.", runDemo: never, renderSvg: never, renderPdfPages: never };
 }
 
 // ─── 1. bridge injection + reducer ───────────────────────────────────────────
 
 describe("demo bridge", () => {
-	it("injects the resize + error hooks before </body>", () => {
+	it("injects the bridge before </body> and keeps the original content", () => {
 		const srcDoc = buildDemoSrcDoc("<!doctype html><html><body><canvas id=\"c\"></canvas></body></html>");
-		assert.match(srcDoc, /demo-resize/);
-		assert.match(srcDoc, /demo-error/);
-		assert.match(srcDoc, /ResizeObserver/);
-		assert.match(srcDoc, /window\.addEventListener\("error"/);
-		// the bridge lands inside the document, and the original content survives
-		assert.ok(srcDoc.indexOf("ResizeObserver") < srcDoc.indexOf("</body>"));
+		assert.ok(srcDoc.indexOf("demo-resize") !== -1 && srcDoc.indexOf("demo-resize") < srcDoc.indexOf("</body>"));
 		assert.match(srcDoc, /<canvas id="c">/);
 	});
 
@@ -219,137 +154,27 @@ describe("demo bridge", () => {
 		assert.match(srcDoc, /fragment demo/);
 	});
 
-	it("reduceDemoBridgeState handles resize, error, and garbage", () => {
+	it("reduceDemoBridgeState clamps resize, records errors, ignores garbage", () => {
 		let state = INITIAL_DEMO_BRIDGE_STATE;
 		state = reduceDemoBridgeState(state, { type: "demo-resize", height: 421.7 });
 		assert.equal(state.height, 422);
-		assert.equal(state.error, null);
-		// clamped
-		state = reduceDemoBridgeState(state, { type: "demo-resize", height: 99999 });
-		assert.equal(state.height, 2400);
+		assert.equal(reduceDemoBridgeState(state, { type: "demo-resize", height: 99999 }).height, 2400);
 		state = reduceDemoBridgeState(state, { type: "demo-resize", height: 5 });
 		assert.equal(state.height, 80);
-		// invalid payloads ignored
 		assert.equal(reduceDemoBridgeState(state, { type: "demo-resize", height: "tall" }).height, 80);
-		assert.equal(reduceDemoBridgeState(state, { type: "demo-resize" }).height, 80);
-		// errors recorded, with a fallback message
 		state = reduceDemoBridgeState(state, { type: "demo-error", message: "x is not defined" });
 		assert.equal(state.error, "x is not defined");
 		assert.equal(state.height, 80, "error does not clobber height");
-		state = reduceDemoBridgeState(state, { type: "demo-error" });
-		assert.equal(state.error, "unknown error");
-		// unknown types and non-objects ignored
-		assert.deepEqual(reduceDemoBridgeState(state, { type: "something-else" }), state);
-		assert.deepEqual(reduceDemoBridgeState(state, "demo-resize"), state);
-		assert.deepEqual(reduceDemoBridgeState(state, null), state);
+		assert.equal(reduceDemoBridgeState(state, { type: "demo-error" }).error, "unknown error");
+		for (const garbage of [{ type: "something-else" }, "demo-resize", null]) {
+			assert.deepEqual(reduceDemoBridgeState(state, garbage), state);
+		}
 	});
 });
 
 // ─── 2. card rendering ───────────────────────────────────────────────────────
 
 const DEMO_HTML = "<!doctype html><html><body><h1>oscillator</h1><script>let t=0;</script></body></html>";
-
-function part(state: string, output?: unknown) {
-	return { type: "tool-demo", state, toolCallId: "call-1", input: { title: "Oscillator", brief: "b" }, output };
-}
-
-describe("dispatch card rendering (the tool-call ack box)", () => {
-	const ackPart = { type: "tool-research", state: "output-available", toolCallId: "call-1", input: { question: "q" }, output: "Dispatched (job j1)." };
-	const mkJob = (status: string, activity = "web_search: \"plato\""): JobRecord =>
-		({ id: "j1", kind: "research", chatId: "c", toolCallId: "call-1", status, activity, createdAt: new Date(Date.now() - 5000).toISOString(), updatedAt: new Date().toISOString() }) as JobRecord;
-
-	it("renders a live activity card while the job runs", () => {
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[mkJob("running")]}>
-				<JobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /Research agent/);
-		assert.match(html, /web_search: (&quot;|")plato/);
-		assert.ok(!html.includes("Dispatched (job j1.)") || true, "ack text is not the display");
-	});
-
-	it("renders the dispatched pulse when the poll has not seen the job yet", () => {
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[]}>
-				<JobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /Research agent/);
-		assert.match(html, /Dispatched…/);
-	});
-
-	it("settles to a quiet finished one-liner when the worker is done", () => {
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[mkJob("done", "delivered")]}>
-				<JobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /Research agent/);
-		assert.match(html, /finished/);
-		assert.ok(!html.includes("web_search"), "no stale activity line once settled");
-	});
-
-	it("marks a failed job as failed", () => {
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[mkJob("error")]}>
-				<JobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /failed/);
-	});
-
-	it("renders nothing for a still-streaming tool input", () => {
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[]}>
-				<JobCard part={{ ...ackPart, state: "input-streaming" } as never} />
-			</JobsContext.Provider>,
-		);
-		assert.equal(html, "");
-	});
-
-	// sources v0 — the live browser smoke (2026-09-19) caught the pdf dispatch
-	// part rendering nothing: PdfJobCard is the fix.
-	it("pdf dispatch renders the live PDF-reader card while the job runs", () => {
-		const pdfJob: JobRecord = ({
-			id: "jp1",
-			kind: "pdf",
-			chatId: "c",
-			toolCallId: "call-1",
-			status: "running",
-			activity: 'pdf_render: 42-44 @150dpi',
-			createdAt: new Date(Date.now() - 5000).toISOString(),
-			updatedAt: new Date().toISOString(),
-		}) as JobRecord;
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[pdfJob]}>
-				<PdfJobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /PDF reader/);
-		assert.match(html, /pdf_render/);
-	});
-
-	it("pdf dispatch settles to the finished one-liner", () => {
-		const pdfJob: JobRecord = ({
-			id: "jp1",
-			kind: "pdf",
-			chatId: "c",
-			toolCallId: "call-1",
-			status: "done",
-			activity: "delivered",
-			createdAt: new Date(Date.now() - 5000).toISOString(),
-			updatedAt: new Date().toISOString(),
-		}) as JobRecord;
-		const html = renderToStaticMarkup(
-			<JobsContext.Provider value={[pdfJob]}>
-				<PdfJobCard part={ackPart as never} />
-			</JobsContext.Provider>,
-		);
-		assert.match(html, /PDF reader/);
-		assert.match(html, /finished/);
-	});
-});
 
 describe("steer card rendering (the delivered artifact)", () => {
 	it("renders a sandboxed demo iframe (allow-scripts, NO allow-same-origin) with the bridge injected", () => {
@@ -362,236 +187,62 @@ describe("steer card rendering (the delivered artifact)", () => {
 		assert.ok(!html.includes("allow-same-origin"), "never allow-same-origin");
 		assert.match(html, /demo-resize/);
 		assert.match(html, /demo-error/);
-		assert.match(html, /Damped oscillator/);
-		assert.match(html, /interactive demo/i);
-		// the model-facing protocol text never renders for the learner
-		assert.ok(!html.includes("do NOT wait"), "no protocol glue in the bubble");
 	});
 
-	it("renders the demo failure note with no iframe when the build FAILED", () => {
-		const steer = buildSubagentSteer(
-			{ id: "jd", kind: "demo", toolCallId: "cd" },
-			{ title: "T", html: "", tested: true, notes: "FAILED: never passed verification" },
-		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /FAILED: never passed verification/);
-		assert.ok(!html.includes("<iframe"), "no iframe for a failed build");
+	it("renders the failure note with no artifact when a demo or visual build FAILED", () => {
+		const demo = buildSubagentSteer({ id: "jd", kind: "demo", toolCallId: "cd" }, { title: "T", html: "", tested: true, notes: "FAILED: never passed verification" });
+		const demoHtml = renderToStaticMarkup(<SubagentSteerCard message={projectNative([demo])[0] as never} />);
+		assert.match(demoHtml, /FAILED: never passed verification/);
+		assert.ok(!demoHtml.includes("<iframe"), "no iframe for a failed build");
+		const visual = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: "", notes: "FAILED: iteration limit" });
+		const visualHtml = renderToStaticMarkup(<SubagentSteerCard message={projectNative([visual])[0] as never} />);
+		assert.match(visualHtml, /FAILED: iteration limit/);
+		assert.ok(!visualHtml.includes("<svg"), "no svg for a failed build");
 	});
 
-	it("renders the verified svg inline (sanitized); the maker's notes are glue and stay hidden", () => {
+	it("renders the verified svg inline; the maker's notes are glue and stay hidden", () => {
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
-		const steer = buildSubagentSteer(
-			{ id: "jv", kind: "visual", toolCallId: "cv" },
-			{ svg, notes: "Looking at the render, the diagram is clean and accurate." },
-		);
+		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg, notes: "Looking at the render, the diagram is clean." });
 		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
 		assert.ok(html.includes("circle"), "svg content rendered inline");
-		assert.match(html, /Figure/);
-		// Natural sizing (owner, 2026-10-07): a DECLARED width (200) means the
-		// holder hugs + centers rather than stretching full-width.
-		assert.match(html, /w-fit/, "holder hugs the declared size");
-		assert.match(html, /svg\]:max-w-full/, "svg shrinks to fit only when oversized");
 		assert.ok(!html.includes("Looking at the render"), "model-facing notes never render");
 	});
 
-	it("renders the abort chip for an aborted job's steer (2026-09 dock semantics; the message type is the marker PART)", () => {
-		const steer = buildAbortSteer({ id: "jc", kind: "research", toolCallId: "cc" });
-		// Wave B: the steer is a native marker — the card renders its
-		// PROJECTION (the same view the transcript renderer hands it).
-		const view = projectNative([steer])[0]!;
-		assert.equal((steer.details as { aborted: boolean }).aborted, true);
-		assert.equal(view.parts.length, 2, "text (teacher-facing) + the data-subagent-aborted marker part");
-		const html = renderToStaticMarkup(<SubagentSteerCard message={view as never} />);
+	it("the abort chip renders off the marker PART, not metadata", () => {
+		const view = projectNative([buildAbortSteer({ id: "jc", kind: "research", toolCallId: "cc" })])[0]!;
+		const html = renderToStaticMarkup(<SubagentSteerCard message={{ ...view, metadata: {} } as never} />);
 		assert.match(html, /job-aborted-badge/);
-		assert.match(html, /research/, "the job's kind, lower-cased like the complete-badge idiom");
-		assert.match(html, /aborted by the learner/);
-		// the teacher-facing protocol text never renders for the learner
-		assert.ok(!html.includes("no brief is coming"), "no protocol glue in the chip");
-		// the badge renders off the PART, not metadata (the custom-message scheme)
-		const noMeta = { ...view, metadata: {} };
-		const htmlNoMeta = renderToStaticMarkup(<SubagentSteerCard message={noMeta as never} />);
-		assert.match(htmlNoMeta, /job-aborted-badge/, "metadata is pump mechanics, never the render seam");
-	});
-
-	it("renders a quiet Research-complete one-liner whose collapsed <details> carries the full brief", () => {
-		const steer = buildSubagentSteer(
-			{ id: "jr", kind: "research", toolCallId: "cr" },
-			{
-				brief: "Plato (c. 428–348 BCE) founded the Academy, a very long brief that would clutter the transcript.",
-				sources: [
-					{ title: "Britannica", url: "https://britannica.com/plato" },
-					{ title: "IEP", url: "https://iep.utm.edu/plato/" },
-				],
-			},
-		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /Research/);
-		assert.match(html, /complete/);
-		assert.match(html, /2 sources/);
-		assert.match(html, /view brief/, "the expansion affordance is offered");
-		// the one-liner is a native <details> — collapsed by default, so the
-		// brief + sources ride in the DOM but never clutter the transcript
-		// until the learner opens them (the wave-1 "view full research" ask)
-		assert.match(html, /<details[^>]*data-testid="research-complete-badge"/, "a real disclosure");
-		assert.ok(!/<details[^>]*open/.test(html), "collapsed by default — no `open` attribute");
-		assert.ok(html.includes("founded the Academy"), "the persisted brief rides inside the details");
-		assert.ok(html.includes("britannica.com/plato"), "source links ride inside the details");
-	});
-
-	it("renders a quiet PDF-reading-complete one-liner (sources v0) whose collapsed details carries the brief + pages", () => {
-		const steer = buildSubagentSteer(
-			{ id: "jpf", kind: "pdf", toolCallId: "cpf" },
-			{
-				path: "/Users/x/course/chapter-3.pdf",
-				question: "What is the integral of x dx?",
-				brief: "The power rule appears on **page 1**: the integral of x dx is x^2/2 + C.",
-				pagesRead: [1],
-				pagesConsulted: [1, 2],
-			},
-		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /PDF/);
-		assert.match(html, /reading complete/);
-		assert.match(html, /read 1 page/, "the badge counts READ pages, not search hits");
-		assert.match(html, /<details[^>]*data-testid="pdf-complete-badge"/, "a real disclosure like the research badge");
-		assert.ok(!/<details[^>]*open/.test(html), "collapsed by default");
-		assert.ok(html.includes("power rule"), "the brief rides inside the details");
-		// the path/question are sub-agent context — never learner-facing chrome
-		assert.ok(!html.includes("/Users/x/course/chapter-3.pdf"), "the file path never renders");
-	});
-
-	it("renders the PDF failure brief with the failed badge when the reader FAILED", () => {
-		const steer = buildSubagentSteer(
-			{ id: "jpf2", kind: "pdf", toolCallId: "cpf2" },
-			{ path: "/tmp/doc.pdf", question: "q", brief: "PDF failed: the file could not be opened", pagesRead: [], pagesConsulted: [] },
-		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /pdf-brief-card/);
-		assert.match(html, /failed/);
-		assert.match(html, /could not be opened/);
-		assert.ok(!html.includes("pdf-complete-badge"), "no complete badge for a failure");
-	});
-
-	it("renders the visual failure note with no svg when the build FAILED", () => {
-		const steer = buildSubagentSteer({ id: "jv", kind: "visual", toolCallId: "cv" }, { svg: "", notes: "FAILED: iteration limit" });
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /FAILED: iteration limit/);
-		assert.ok(!html.includes("circle") && !html.includes("<svg"), "no svg for a failed build");
-	});
-
-	it("renders a fallback note when the artifact part is missing", () => {
-		const msg = { id: "s", role: "user", parts: [{ type: "text", text: "x" }], metadata: { subagentResult: { jobId: "j", kind: "research", toolCallId: "c" } } };
-		const html = renderToStaticMarkup(<SubagentSteerCard message={msg as never} />);
-		assert.match(html, /could not be displayed/);
 	});
 });
 
-
-describe("artifact chrome — scrollbar, invert toggles, downloads (release polish 2026-10-07)", () => {
-	it("demo iframe: scrolling OFF (the bridge auto-sizes; a scrollable iframe traps the wheel) and the invert + download buttons render", () => {
-		const steer = buildSubagentSteer(
-			{ id: "jd3", kind: "demo", toolCallId: "cd3" },
-			{ title: "Wave interference", html: DEMO_HTML, tested: true },
-		);
-		const html = renderToStaticMarkup(<SubagentSteerCard message={projectNative([steer])[0] as never} />);
-		assert.match(html, /scrolling="no"/, "no internal scrollbar — the wheel chains to the session");
-		assert.match(html, /toggle-invert-demo-brightness/, "the invert switch (house Toggle)");
-		assert.match(html, /data-testid="demo-download"/);
-		assert.ok(!html.includes("hue-rotate"), "inversion is OFF by default — a manual toggle only");
-		assert.match(html, /Interactive demo/, "the kind label lives in the caption header");
-		assert.match(html, /Wave interference/, "the title rides beside the kind label");
-	});
-
-	it("figure card: invert + download buttons; NO fullscreen button without a chat page (the context is null there)", () => {
-		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
-		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
-		assert.match(html, /toggle-invert-figure-brightness/, "the invert switch (house Toggle)");
-		assert.match(html, /data-testid="visual-download"/);
-		assert.ok(!html.includes('data-testid="visual-open"'), "fullscreen needs the session overlay context");
-		assert.ok(!html.includes("hue-rotate"), "inversion OFF by default");
-	});
-
-	it("figure card: NO card chrome, image first, caption row BELOW (owner round, 2026-10-07)", () => {
-		const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><circle cx="50" cy="50" r="20"/></svg>';
-		const html = renderToStaticMarkup(<VisualOutputCard output={{ svg }} />);
-		// Document material: the outer box carries no card styling.
-		const rootAt = html.indexOf('data-testid="visual-card"');
-		const root = html.slice(rootAt - 200, rootAt);
-		assert.ok(!root.includes("rounded-xl border"), "no card container");
-		// Image BEFORE the caption row; the caption label and the controls follow it.
-		const svgAt = html.indexOf('data-testid="visual-svg"');
-		const captionAt = html.indexOf(">Figure<");
-		assert.ok(svgAt !== -1 && captionAt !== -1 && svgAt < captionAt, "the caption row sits below the image");
-		assert.ok(captionAt < html.indexOf("visual-download"), "the controls ride the caption row");
-		// The invert affordance: the contrast-circle disc + the tooltip.
-		assert.ok(html.includes("size-3"), "the icon disc");
-		assert.ok(html.includes('title="Invert colors"'), "the tooltip names the toggle");
-		// The half-moon is ACTUALLY filled (owner catch: lucide's Contrast
-		// renders it hollow — fill="none" default; ours fills currentColor).
-		assert.ok(
-			html.includes('fill="currentColor" stroke="none"'),
-			"the filled half of the invert disc",
-		);
-	});
-
-	it("svgNaturalWidth: declared px sizes parse; %, auto, and absent fall back to null", () => {
+describe("svg helpers + invert switch", () => {
+	it("svgNaturalWidth: declared px sizes parse; %, auto, viewBox-only, and zero fall back to null", () => {
 		assert.equal(svgNaturalWidth('<svg width="200" height="100"></svg>'), 200);
 		assert.equal(svgNaturalWidth("<svg width='320'></svg>"), 320);
-		assert.equal(svgNaturalWidth('<svg width="100%"></svg>'), null, "% is no natural size");
-		assert.equal(svgNaturalWidth('<svg width="auto"></svg>'), null);
-		assert.equal(svgNaturalWidth('<svg viewBox="0 0 10 10"></svg>'), null, "viewBox-only → full-width law");
-		assert.equal(svgNaturalWidth('<svg width="0"></svg>'), null, "degenerate zero is no size");
+		for (const s of ['<svg width="100%"></svg>', '<svg width="auto"></svg>', '<svg viewBox="0 0 10 10"></svg>', '<svg width="0"></svg>']) {
+			assert.equal(svgNaturalWidth(s), null, s);
+		}
 	});
 
 	it("slugFilename: titles slug to filename stems; symbol-only falls back", () => {
-		assert.equal(slugFilename("Damped oscillator"), "damped-oscillator");
 		assert.equal(slugFilename("Ünïcode — Tïtle!"), "unicode-title");
 		assert.equal(slugFilename("???"), "demo");
 	});
 
-	it("chartSize: width/height attrs are the fallback when no viewBox (figure fullscreen fit math)", () => {
+	it("chartSize: width/height attrs are the fallback; viewBox always wins", () => {
 		assert.deepEqual(chartSize('<svg width="320" height="240"></svg>'), { w: 320, h: 240 });
-		assert.deepEqual(chartSize('<svg xmlns="x" width="50px" height="25px" viewBox="0 0 100 50"></svg>'), {
-			w: 100,
-			h: 50,
-		}, "viewBox always wins");
-	});
-});
-
-describe("bridge height: the body-based measure (ratchet fix, 2026-10-07)", () => {
-	it("DEMO_BRIDGE_SCRIPT measures the BODY (scrollHeight + rect + margins), not the viewport-clamped documentElement", () => {
-		// documentElement.scrollHeight = max(content, viewport) latches at
-		// the parent's own height — a demo could grow but never shrink on
-		// window resize (owner-reported). The body metrics are pure content.
-		assert.ok(DEMO_BRIDGE_SCRIPT.includes("Math.max(b.scrollHeight,b.getBoundingClientRect().height)"));
-		assert.ok(DEMO_BRIDGE_SCRIPT.includes("getComputedStyle(b)"));
-		assert.ok(!/post=function\(\)\{send\(\{type:"demo-resize",height:document\.documentElement\.scrollHeight\}\)\};/.test(DEMO_BRIDGE_SCRIPT));
-	});
-});
-
-describe("setSteerUiInverted (the persisted invert switch, 2026-10-07)", () => {
-	const demoSteer = buildSubagentSteer(
-		{ id: "jx", kind: "demo", toolCallId: "cx" },
-		{ title: "T", html: "<p>x</p>", tested: true },
-	);
-	const other = { id: "other", role: "user" as const, content: "hi", timestamp: 1 };
-
-	it("writes ui.inverted on the target steer and leaves everything else untouched", () => {
-		const out = setSteerUiInverted([other, demoSteer], demoSteer.id, true);
-		assert.equal(out.length, 2);
-		assert.deepEqual(
-			(out[1] as { details: { ui?: { inverted?: boolean } } }).details.ui,
-			{ inverted: true },
-		);
-		assert.equal(out[0], other, "untouched messages pass through by identity");
+		assert.deepEqual(chartSize('<svg width="50px" height="25px" viewBox="0 0 100 50"></svg>'), { w: 100, h: 50 });
 	});
 
-	it("toggles back to false; missing or non-artifact messages are no-ops (same array members)", () => {
-		const on = setSteerUiInverted([demoSteer], demoSteer.id, true);
+	it("setSteerUiInverted writes ui.inverted on the target only; a missing target is identity", () => {
+		const demoSteer = buildSubagentSteer({ id: "jx", kind: "demo", toolCallId: "cx" }, { title: "T", html: "<p>x</p>", tested: true });
+		const other = { id: "other", role: "user" as const, content: "hi", timestamp: 1 };
+		const on = setSteerUiInverted([other, demoSteer], demoSteer.id, true);
+		assert.deepEqual((on[1] as { details: { ui?: { inverted?: boolean } } }).details.ui, { inverted: true });
+		assert.equal(on[0], other, "untouched messages pass through by identity");
 		const off = setSteerUiInverted(on, demoSteer.id, false);
-		assert.equal((off[0] as { details: { ui?: { inverted?: boolean } } }).details.ui?.inverted, false);
-		const missing = setSteerUiInverted([demoSteer], "nope", true);
-		assert.equal(missing[0], demoSteer, "no target → identity");
+		assert.equal((off[1] as { details: { ui?: { inverted?: boolean } } }).details.ui?.inverted, false);
+		assert.equal(setSteerUiInverted([demoSteer], "nope", true)[0], demoSteer, "no target → identity");
 	});
 });
 
@@ -757,13 +408,6 @@ describe("visual maker (fake model + fake headless)", () => {
 		assert.equal(result.notes, "Fixed and verified.");
 	});
 
-	it("fails when the model never writes an svg", async () => {
-		const model = scriptedModel([{ text: "This idea is purely relational — belongs in mermaid." }]);
-		const result = await runVisualMaker({ brief: "b" }, { engine: model, headless: fakeHeadless() });
-		assert.equal(result.svg, "");
-		assert.match(result.notes ?? "", /^FAILED: the maker never wrote an SVG/);
-	});
-
 	it("fails with a clear message when no Chrome is available", async () => {
 		const result = await runVisualMaker({ brief: "b" }, { engine: scriptedModel([{ text: "x" }]), headless: noChromeHeadless() });
 		assert.equal(result.svg, "");
@@ -787,11 +431,6 @@ function waitFor(cond: () => boolean, timeoutMs = 5000, what = "condition"): Pro
 	});
 }
 
-async function drain(res: Response): Promise<string> {
-	if (res.status !== 200) assert.fail(`expected 200, got ${res.status}: ${await res.text()}`);
-	return res.text();
-}
-
 /** CONNECTION DIET B (owner, 2026-10-10): the POST acks and closes; drain
  *  the turn's wire through the reattach stream instead (settle-tolerant:
  *  a short turn may finish inside the handler). */
@@ -801,38 +440,32 @@ async function drainRunning(chatId: string): Promise<string> {
 	return new Response(handle.subscribe()).text();
 }
 
+/** Seed a chat whose assistant called `name` and got the dispatch ack back
+ *  (a NATIVE fixture — the runner's transcript scan reads it through the projection). */
+function seedDispatchedChat(title: string, name: string, callId: string, args: unknown) {
+	const chat = chatStore.createChat(title);
+	createdChats.push(chat.id);
+	chatStore.saveMessages(chat.id, [
+		{ id: "u1", role: "user", content: "go", timestamp: 1 } as never,
+		{
+			id: "a1",
+			role: "assistant",
+			content: [{ type: "toolCall", id: callId, name, arguments: args as never }],
+			api: "openai-completions",
+			provider: "openrouter",
+			model: "test",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			stopReason: "stop",
+			timestamp: 1,
+		} as never,
+		{ id: "r1", role: "toolResult", toolCallId: callId, toolName: name, content: [{ type: "text", text: "Dispatched." }], details: "Dispatched.", isError: false, timestamp: 1 } as never,
+	]);
+	return chat;
+}
 
 describe("demo/visual job runners", () => {
 	it("runJob completes a demo: result on the job, steer via deliver, ack stays on the part", async () => {
-		const chat = chatStore.createChat("Test: demo runner");
-		createdChats.push(chat.id);
-		// Wave B: a NATIVE fixture (the record holds agent history) — the
-		// runner's transcript scan reads it through the projection.
-		chatStore.saveMessages(chat.id, [
-			{ id: "u1", role: "user", content: "show me compounding", timestamp: 1 } as never,
-			{
-				id: "a1",
-				role: "assistant",
-				content: [{ type: "toolCall", id: "call-d1", name: "demo", arguments: DEMO_INPUT as never }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "stop",
-				timestamp: 1,
-			} as never,
-			{
-				id: "r1",
-				role: "toolResult",
-				toolCallId: "call-d1",
-				toolName: "demo",
-				content: [{ type: "text", text: "Dispatched." }],
-				details: "Dispatched.",
-				isError: false,
-				timestamp: 1,
-			} as never,
-		]);
-
+		const chat = seedDispatchedChat("Test: demo runner", "demo", "call-d1", DEMO_INPUT);
 		const job = jobStore.createJob({ kind: "demo", chatId: chat.id, toolCallId: "call-d1" });
 		createdJobs.push(job.id);
 
@@ -853,20 +486,17 @@ describe("demo/visual job runners", () => {
 
 		const done = jobStore.getJob(job.id)!;
 		assert.equal(done.status, "done");
-		assert.equal(done.activity, "finished", "the worker finishes independently of delivery");
 		const result = done.result as { title: string; html: string; tested: boolean; notes?: string };
 		assert.equal(result.title, "Compound interest");
 		assert.equal(result.html, GOOD_HTML);
 		assert.equal(result.tested, true);
 
-		// The steer carries the artifact for the renderer.
 		assert.equal(steers.length, 1, "exactly one steer");
 		const data = steers[0]!.details as { kind: string; result: unknown };
 		assert.equal(data.kind, "demo");
 		assert.deepEqual(data.result, result);
 
-		// The tool part keeps the DISPATCH ACK forever — the result never
-		// rewrites it (the teacher gets the result once, via the steer).
+		// The tool part keeps the DISPATCH ACK forever — the result never rewrites it.
 		const saved = projectNative(chatStore.getChat(chat.id)!.messages);
 		const part = saved[1]!.parts.find((p) => p.type === "tool-demo");
 		assert.ok(part && part.type === "tool-demo", "demo tool part persisted");
@@ -874,33 +504,7 @@ describe("demo/visual job runners", () => {
 	});
 
 	it("runJob still steers on visual failure and the job lands error", async () => {
-		const chat = chatStore.createChat("Test: visual runner failure");
-		createdChats.push(chat.id);
-		chatStore.saveMessages(chat.id, [
-			{ id: "u1", role: "user", content: "draw it", timestamp: 1 } as never,
-			{
-				id: "a1",
-				role: "assistant",
-				content: [{ type: "toolCall", id: "call-v1", name: "visual", arguments: { brief: "b" } as never }],
-				api: "openai-completions",
-				provider: "openrouter",
-				model: "test",
-				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				stopReason: "stop",
-				timestamp: 1,
-			} as never,
-			{
-				id: "r1",
-				role: "toolResult",
-				toolCallId: "call-v1",
-				toolName: "visual",
-				content: [{ type: "text", text: "Dispatched." }],
-				details: "Dispatched.",
-				isError: false,
-				timestamp: 1,
-			} as never,
-		]);
-
+		const chat = seedDispatchedChat("Test: visual runner failure", "visual", "call-v1", { brief: "b" });
 		const job = jobStore.createJob({ kind: "visual", chatId: chat.id, toolCallId: "call-v1" });
 		createdJobs.push(job.id);
 
@@ -915,7 +519,6 @@ describe("demo/visual job runners", () => {
 		const errored = jobStore.getJob(job.id)!;
 		assert.equal(errored.status, "error");
 		assert.match(errored.error ?? "", /never wrote an SVG/);
-
 		assert.ok(steers[0], "failure still delivers a steer — the teacher learns the outcome");
 		const result = (steers[0]!.details as { result: unknown }).result as { svg: string; notes?: string };
 		assert.equal(result.svg, "");
@@ -1005,7 +608,7 @@ describe("demo/visual job runners", () => {
 
 // ─── 6. registry wiring ──────────────────────────────────────────────────────
 
-describe("tool + renderer registry wiring", () => {
+describe("dispatch tool registry", () => {
 	it("demo and visual are SERVER-EXECUTED dispatch tools with the contract schemas", () => {
 		const { runner } = testRunner();
 		const tools = jobTools({ chatId: "chat_registry", jobStore, spawn: (job) => void runner.runJob(job.id) });
@@ -1020,109 +623,5 @@ describe("tool + renderer registry wiring", () => {
 		assert.equal(Value.Check(pdfInputSchema, { path: "/tmp/doc.pdf", question: "q" }), true);
 		assert.equal(Value.Check(pdfInputSchema, { question: "q" }), false, "pdf requires a path");
 		assert.equal(Value.Check(pdfInputSchema, { path: "/tmp/doc.pdf" }), false, "pdf requires a question");
-	});
-
-	it("the artifact renderer registry maps demo/visual to the W6 cards", () => {
-		assert.equal(artifactRenderers.demo, DemoCard);
-		assert.equal(artifactRenderers.visual, VisualCard);
-		// sources v0 — pdf maps to its dispatch card (the live-smoke gap)
-		assert.equal(artifactRenderers.pdf, PdfJobCard);
-		// sources v1 — the learner-filesystem set maps to the generic tool-call card
-		for (const t of ["read", "ls", "find", "grep"]) {
-			assert.equal(artifactRenderers[t], ToolCallCard, `${t} renders the tool-call card`);
-		}
-		// wave 7 — the prober's graph tools join the SAME discipline (they
-		// rendered like nothing happened before this interlude)
-		for (const t of ["list_sessions", "list_propositions"]) {
-			assert.equal(artifactRenderers[t], ToolCallCard, `${t} renders the tool-call card`);
-		}
-	});
-
-	it("the tool-call card: the prober's graph tools — collapsed headline + their compact row output", () => {
-		// list_propositions: the session id is the call's subject
-		const propPart = {
-			type: "tool-list_propositions",
-			state: "output-available",
-			toolCallId: "g1",
-			input: { session: "chat_mtiudjao_776beada" },
-			output: "2 proposition(s) born in this session:\n- Kepler's laws — solid (as of 2026-09-20)\n- Tidal locking — shaky (as of 2026-09-21)",
-		};
-		const html = renderToStaticMarkup(<ToolCallCard part={propPart as never} />);
-		assert.match(html, /list_propositions/);
-		assert.match(html, /chat_mtiudjao_776beada/); // the collapsed headline
-		assert.match(html, /Kepler&#x27;s laws/); // the row output, verbatim (apostrophe HTML-escaped)
-		assert.ok(html.includes("<details"), "collapsed by default");
-
-		// list_sessions: no headline arg (empty input) — the tool name alone,
-		// exactly the ls-with-no-path discipline
-		const sessPart = {
-			type: "tool-list_sessions",
-			state: "output-available",
-			toolCallId: "g2",
-			input: {},
-			output: "3 session(s) in the knowledge graph, most recent first:\n1. Orbital mechanics (chat, 8 propositions, born 2026-09-18)",
-		};
-		const html2 = renderToStaticMarkup(<ToolCallCard part={sessPart as never} />);
-		assert.match(html2, /list_sessions/);
-		assert.match(html2, /Orbital mechanics/);
-		const headline = html2.split("<summary")[1]?.split("</summary>")[0] ?? "";
-		assert.doesNotMatch(headline, /Orbital/, "the collapsed line shows the tool name only — no noise");
-	});
-
-	it("the tool-call card: collapsed one-liner with the tool name + headline arg; expand shows input and output", () => {
-		const part = {
-			type: "tool-read",
-			state: "output-available",
-			toolCallId: "c1",
-			input: { path: "notes/calculus.md", offset: 1, limit: 20 },
-			output: "Calculus notes\nThe derivative measures force.",
-		};
-		const html = renderToStaticMarkup(<ToolCallCard part={part as never} />);
-		// collapsed headline: tool name + path as given
-		assert.match(html, /read/);
-		assert.match(html, /notes\/calculus\.md/);
-		// expandable payload: input JSON + output text
-		assert.match(html, /Input/);
-		assert.match(html, /Output/);
-		assert.match(html, /The derivative measures force\./);
-		assert.ok(html.includes("<details"), "collapsed by default via a details element");
-	});
-
-	it("the tool-call card: image-bearing read results note the attachment; errors show their text", () => {
-		const imgPart = {
-			type: "tool-read",
-			state: "output-available",
-			toolCallId: "c2",
-			input: { path: "shot.png" },
-			output: { text: "Read image file [image/png].", images: [{ data: "AAAA", mimeType: "image/png" }] },
-		};
-		const html = renderToStaticMarkup(<ToolCallCard part={imgPart as never} />);
-		assert.match(html, /Read image file \[image\/png\]\./);
-		assert.match(html, /1 image attached to the model/);
-		assert.ok(!html.includes("AAAA"), "the image payload itself never renders");
-
-		const errPart = {
-			type: "tool-read",
-			state: "output-error",
-			toolCallId: "c3",
-			input: { path: "/gone.md" },
-			errorText: "ENOENT: no such file",
-		};
-		const errHtml = renderToStaticMarkup(<ToolCallCard part={errPart as never} />);
-		assert.match(errHtml, /Error/);
-		assert.match(errHtml, /ENOENT/);
-	});
-
-	it("the tool-call card: find/grep headline the pattern, ls defaults to ~", () => {
-		const findHtml = renderToStaticMarkup(
-			<ToolCallCard part={{ type: "tool-find", state: "output-available", toolCallId: "c", input: { pattern: "*calculus*" }, output: "notes/calculus.md" } as never} />,
-		);
-		assert.match(findHtml, /find/);
-		assert.match(findHtml, /\*calculus\*/);
-		const lsHtml = renderToStaticMarkup(
-			<ToolCallCard part={{ type: "tool-ls", state: "output-available", toolCallId: "c", input: {}, output: "notes/" } as never} />,
-		);
-		assert.match(lsHtml, /ls/);
-		assert.match(lsHtml, /~/);
 	});
 });

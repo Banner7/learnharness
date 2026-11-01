@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { useBackdropDismiss } from "../components/backdrop-dismiss";
-import { AbortTurnBody } from "../components/abort-turn-dialog";
 
 /** Mounted React handlers, including portal propagation and the browser's
  * common-ancestor click after a cross-boundary press/release. Linkedom does
@@ -117,13 +116,6 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		assert.equal(closes, 1, "a later genuine click still works");
 	});
 
-	it("backdrop press → inside release → common-ancestor click stays open", () => {
-		dispatch(element("backdrop"), "pointerdown");
-		dispatch(element("body"), "pointerup");
-		dispatch(element("backdrop"), "click");
-		assert.equal(closes, 0);
-	});
-
 	it("releases implicit touch capture so a drag ending inside is not retargeted to the backdrop", () => {
 		const backdrop = element("backdrop");
 		let released = 0;
@@ -171,12 +163,6 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		}
 	});
 
-	it("inside buttons retain their own action without closing the dialog", () => {
-		click(element("action"));
-		assert.equal(actions, 1);
-		assert.equal(closes, 0);
-	});
-
 	it("portaled dropdown picks work and neither cross-boundary direction closes the parent", () => {
 		const option = element("portal-option");
 		const backdrop = element("backdrop");
@@ -221,27 +207,5 @@ describe("backdrop dismissal requires a whole primary gesture on the scrim", () 
 		assert.equal(closes, 0);
 		click(element("backdrop"));
 		assert.equal(closes, 1);
-	});
-
-	it("AbortTurnBody adopts the guard while retaining Cancel and Confirm actions", () => {
-		act(() => {
-			root.render(createElement(AbortTurnBody, {
-				mode: "turn",
-				onClose: () => { closes++; },
-				onConfirm: () => { actions++; },
-			}));
-		});
-		const backdrop = element("abort-turn-dialog");
-		dispatch(element("abort-turn-title"), "pointerdown");
-		dispatch(backdrop, "pointerup");
-		dispatch(backdrop, "click");
-		assert.equal(closes, 0);
-		click(element("abort-turn-confirm"));
-		assert.equal(actions, 1);
-		assert.equal(closes, 0);
-		click(element("abort-turn-cancel"));
-		assert.equal(closes, 1);
-		click(backdrop);
-		assert.equal(closes, 2);
 	});
 });

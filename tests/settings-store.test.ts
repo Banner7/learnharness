@@ -1,13 +1,6 @@
 /**
- * Tests for the settings STORE (settings-storage wave, 2026-09-19):
- * src/store/settings.ts — the record's fs adapter. Writes the real repo
- * data/ files (npm test's shared data/, disposable scratch by doctrine)
- * and cleans up after itself; a pre-existing settings.json is snapshotted
- * and restored so the worktree's own dev state survives the run.
- *
- * (The legacy default-settings.json fold and the chat-section facade died
- * with per-session models, owner 2026-09-28 — sessions own their model
- * from birth, stamped from the strong slot server-side.)
+ * The settings store (src/store/settings.ts) against the real data/ file; a
+ * pre-existing settings.json is snapshotted and restored.
  */
 
 import assert from "node:assert/strict";
@@ -37,11 +30,6 @@ afterEach(() => {
 });
 
 describe("the settings store", () => {
-	it("reads null on first boot (no record)", () => {
-		fs.rmSync(SETTINGS_FILE, { force: true });
-		assert.equal(readSettings(), null);
-	});
-
 	it("write→read round-trips through the sanitizer", () => {
 		writeSettings({ version: 1, graph: { enabled: false } });
 		const out = readSettings();

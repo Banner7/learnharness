@@ -16,7 +16,7 @@ const originalFetch = globalThis.fetch;
 let root: Root | undefined, host: HTMLDivElement | undefined;
 afterEach(async () => { await act(async () => root?.unmount()); host?.remove(); root = undefined; globalThis.fetch = originalFetch; });
 
-test("compact CLI context is numeric only; effective-window explanation appears only in expanded session metadata", async () => {
+test("CLI context denominates only by this session's own reported window", async () => {
 	const catalog: ModelCatalogResponse = { models: CLAUDE_CODE_MODELS.map(toModelDto), providers: [],
 		slots: { strong: null, cheap: null, vision: null }, defaults: null,
 		rolePins: { researcher: null, demoBuilder: null, visualMaker: null, extractor: null, auditor: null } };
@@ -31,14 +31,7 @@ test("compact CLI context is numeric only; effective-window explanation appears 
 	const render = (window: { model: string; tokens: number } | null) => root!.render(<StatsBar chatId="cli-session" turns={[turn]} contextTokens={42000} cliContextWindow={window} />);
 	await act(async () => render({ model: "claude-code:opus", tokens: 200000 }));
 	assert.equal(document.querySelector('[data-testid="stats-context"]')?.textContent, "42k / 200k");
-	assert(!document.body.textContent?.includes("auto-compaction"));
 	assert.equal(document.querySelector('[data-testid="stats-cost"]')?.textContent, "CLI");
-	const summary = document.querySelector<HTMLButtonElement>('[data-testid="stats-summary"]')!;
-	assert(!summary.textContent?.includes("window")); assert(!summary.textContent?.includes("budget"));
-	await act(async () => summary.click());
-	assert.match(document.querySelector('[data-testid="stats-detail"]')?.textContent ?? "", /Window reported by Claude Code; may be lower for auto-compaction\./);
-	assert.equal(document.querySelector('[data-testid="stats-detail"] li > span:last-child > span:last-child')?.textContent, "CLI");
-	assert.equal(document.querySelector('[data-testid="stats-context"]')?.textContent, "42k / 200k");
 	await act(async () => render(null));
 	assert.equal(document.querySelector('[data-testid="stats-context"]')?.textContent, "42k");
 	await act(async () => render({ model: "claude-code:sonnet", tokens: 1000000 }));

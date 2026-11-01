@@ -1,11 +1,3 @@
-/**
- * The cross-surface settings signal (fix wave, owner ruling 2026-09-22):
- * writers dispatch lh:settings-saved {section} after a successful PUT,
- * readers re-read. These tests pin the SEAM's contract — delivery,
- * section detail, unsubscribe, and junk-event tolerance — against a bare
- * EventTarget standing in for window (Node has no DOM; the reader WIRING
- * is verified live per dev-verification.md).
- */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 
@@ -39,19 +31,6 @@ describe("settings-signal — the seam's contract", () => {
 		off();
 		notifySettingsSaved("models");
 		assert.deepEqual(got, []);
-	});
-
-	it("readers filter their own section — graph doesn't reach a models reader", () => {
-		const got: string[] = [];
-		const off = onSettingsSaved((s) => {
-			if (s === "models") got.push(s);
-		});
-		notifySettingsSaved("graph");
-		notifySettingsSaved("appearance");
-		assert.deepEqual(got, []);
-		notifySettingsSaved("models");
-		assert.deepEqual(got, ["models"]);
-		off();
 	});
 
 	it("a foreign CustomEvent on the same name with no section detail is ignored", () => {

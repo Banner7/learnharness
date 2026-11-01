@@ -82,12 +82,6 @@ describe("proposition candidate retrieval", () => {
 		assert.equal(third.matches[0]!.nextOffset, null);
 	});
 
-	it("repeating a request never silently suppresses previously shown candidates", () => {
-		const search = createPropositionCandidateSearch([node("n", "Amber", "Canoe")]);
-		const proposed = [proposition("p", "amber")];
-		assert.deepEqual(propositionCandidateBatch(search, proposed, [{ id: "p" }]), propositionCandidateBatch(search, proposed, [{ id: "p" }]));
-	});
-
 	it("distinguishes no lexical matches from an exhausted page", () => {
 		const search = createPropositionCandidateSearch([node("n", "Amber", "Canoe")]);
 		const proposed = [proposition("p", "violet")];

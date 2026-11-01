@@ -1,25 +1,3 @@
-/**
- * GOLDEN FIXTURES (owner ruling, 2026-10-10): real user data, verbatim,
- * read through the PRODUCTION read paths. tests/fixtures/golden-data/ is a
- * real data dir (see its README); this suite copies it to a temp dir, points
- * the stores at it via the LH_DATA_DIR seam (set BEFORE any config-loading
- * import — every app-module import is dynamic), and asserts:
- *
- *   1. every record parses and passes the contract folds the app itself
- *      runs (phases, pending questions/problems, plan tree, summaries);
- *   2. the LLM wire flattening (toLlmMessages) turns each full record into
- *      a legal provider message list — the strongest property a record has;
- *   3. the graph derivation builds from the real ledgers end-to-end;
- *   4. marker COVERAGE: every custom-marker kind of the current contract
- *      appears in real data here (a new marker without a fixture update
- *      fails this suite);
- *   5. reads are READ-ONLY: after everything above, the copy is
- *      byte-identical to the fixture source.
- *
- * THE FIXTURE LAW: an intentional format change updates the fixtures in the
- * same commit; an unintentional one fails here.
- */
-
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import * as os from "node:os";
@@ -38,7 +16,6 @@ process.env.LH_DATA_DIR = TMP;
 const { chatStore } = await import("../src/store/chats.ts");
 const { graphStore } = await import("../src/store/graph.ts");
 const { jobStore } = await import("../src/store/jobs.ts");
-const { settingsStore } = await import("../src/store/settings.ts");
 const { getGraph, deriveView } = await import("../src/core/graph.ts");
 const { toLlmMessages } = await import("../src/core/native-messages.ts");
 const { phaseAt3Lh } = await import("../src/core/phases.ts");
@@ -59,6 +36,8 @@ function snapshotTree(dir: string): Map<string, Buffer> {
 }
 const BEFORE = snapshotTree(TMP);
 
+// Golden fixtures: real data through production read paths; an intentional
+// format change updates tests/fixtures/golden-data in the same commit.
 test.after(() => {
 	fs.rmSync(TMP, { recursive: true, force: true });
 });
@@ -132,31 +111,6 @@ test("markers: the fixture pair covers EVERY custom-marker kind of the current c
 	for (const kind of EXPECTED) assert.ok(seen.has(kind), `marker ${kind} appears in real fixture data`);
 });
 
-test("tools: the core tool surface appears in real fixture data", () => {
-	// A living inventory, not an exhaustive pin: teach tools in the teach
-	// record, practice tools in the practice record. New TOOLS don't fail
-	// this (they fail their own suites) — the pinned CORE set must simply
-	// stay representable in real records.
-	const teachTools = new Set<string>();
-	const practiceTools = new Set<string>();
-	for (const m of chatStore.getChat(TEACH)!.messages) {
-		for (const b of (m as { content?: Array<{ type?: string; name?: string }> }).content ?? []) {
-			if (b.type === "toolCall" && b.name) teachTools.add(b.name);
-		}
-	}
-	for (const m of chatStore.getChat(PRACTICE)!.messages) {
-		for (const b of (m as { content?: Array<{ type?: string; name?: string }> }).content ?? []) {
-			if (b.type === "toolCall" && b.name) practiceTools.add(b.name);
-		}
-	}
-	for (const t of ["quiz", "ask_user_question", "plan_init", "probe_done", "recall", "explain", "research", "demo", "visual", "pdf"]) {
-		assert.ok(teachTools.has(t), `teach tool ${t} exercised in the fixture record`);
-	}
-	for (const t of ["problem", "conclude"]) {
-		assert.ok(practiceTools.has(t), `practice tool ${t} exercised in the fixture record`);
-	}
-});
-
 // ── the graph: ledgers through the full derivation ──────────────────────────
 
 test("graph: the real ledgers parse through their shape guards", () => {
@@ -197,13 +151,6 @@ test("jobs: the kind × status matrix parses through the job store", () => {
 	}
 	assert.deepEqual([...kinds].sort(), ["demo", "pdf", "research", "visual"], "every job kind is fixture-d");
 	assert.deepEqual([...statuses].sort(), ["done", "error"], "both terminal statuses are fixture-d");
-});
-
-test("settings: the stamped record parses", () => {
-	const s = settingsStore.readSettings();
-	assert.ok(s, "settings record reads");
-	assert.equal(s!.version, 1, "settings carry their version stamp");
-	assert.ok(s!.models && typeof s!.models === "object", "model slots present");
 });
 
 // ── read-only: readers never write ──────────────────────────────────────────

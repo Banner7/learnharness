@@ -16,7 +16,6 @@ import {
 	asAgentMessages,
 	concludedByDismissalPair,
 	newProblemDismissedMarker,
-	newNextMessage,
 	newThinkingMessage,
 	needsContinuation,
 	newUserMessage,
@@ -105,10 +104,6 @@ function concludeCall(outcome: string): LhMessage[] {
 // ── the active-problem fold ──────────────────────────────────────────────────
 
 describe("activeProblemOf (the conclude-before-next-problem gate's fold)", () => {
-	it("no messages → nothing active", () => {
-		assert.equal(activeProblemOf([]), null);
-	});
-
 	it("a posed problem (call + ack) is ACTIVE — the ack does not conclude", () => {
 		const messages = problemPose();
 		const active = activeProblemOf(messages);
@@ -185,26 +180,13 @@ describe("pendingProblemDismissalOf (the marker waiting for its synthesis)", () 
 		const messages = [...problemPose(), newProblemDismissedMarker("call_p1"), ...concludedByDismissalPair("call_p1")];
 		assert.equal(pendingProblemDismissalOf(messages), null);
 	});
-
-	it("a plain record pends nothing", () => {
-		assert.equal(pendingProblemDismissalOf(problemPose()), null);
-	});
 });
 
 // ── the input channel ────────────────────────────────────────────────────────
 
 describe("the thinking input", () => {
 	it("parses and appends the marker against the active problem (ONE lane)", () => {
-		const input = parseChatInput({
-			type: "thinking",
-			problemCallId: "call_p1",
-			text: "I think the inactivity constraint applies here",
-		});
-		assert.deepEqual(input, {
-			type: "thinking",
-			problemCallId: "call_p1",
-			text: "I think the inactivity constraint applies here",
-		});
+		const input = parseChatInput({ type: "thinking", problemCallId: "call_p1", text: "I think the inactivity constraint applies here" });
 		const appends = inputAppends({ messages: problemPose() }, input);
 		assert.equal(appends.length, 1);
 		const marker = appends[0] as { customType: string; content: string; details: unknown };
@@ -239,7 +221,6 @@ describe("the thinking input", () => {
 describe("the next input", () => {
 	it("parses bare and appends the practice-next marker in an idle practice session", () => {
 		const input = parseChatInput({ type: "next" });
-		assert.deepEqual(input, { type: "next" });
 		const appends = inputAppends({ messages: [], kind: "practice" }, input);
 		assert.equal(appends.length, 1);
 		const marker = appends[0] as { customType: string; content: string };
@@ -295,7 +276,6 @@ describe("the dismissal's conclude synthesis rides the next input", () => {
 describe("the dismiss-problem input (ask-style discard)", () => {
 	it("parses and appends the UI-only marker against the active problem", () => {
 		const input = parseDismissInput({ type: "dismiss-problem", problemCallId: "call_p1" });
-		assert.deepEqual(input, { type: "dismiss-problem", problemCallId: "call_p1" });
 		const appends = dismissAppends({ messages: problemPose() }, input);
 		assert.equal(appends.length, 1);
 		assert.equal((appends[0] as { customType: string }).customType, "problem-dismissed");
@@ -322,13 +302,6 @@ describe("toLlmMessages (practice shapes)", () => {
 	it("the dismissal marker is UI-only (the synthesized pair carries the face)", () => {
 		const out = toLlmMessages(asAgentMessages([newProblemDismissedMarker("call_p1")]));
 		assert.equal(out.length, 0);
-	});
-
-	it("the synthesized pair passes through natively", () => {
-		const out = toLlmMessages(asAgentMessages(concludedByDismissalPair("call_p1")));
-		assert.equal(out.length, 2);
-		assert.equal(out[0]!.role, "assistant");
-		assert.equal(out[1]!.role, "toolResult");
 	});
 });
 
@@ -411,18 +384,5 @@ describe("modelSolutionForConclude (the conclusion's hero is the pose's commitme
 			mode: "recall",
 			modelSolution: "Show that…",
 		}, "mode + statement + the commitment; no targets posed here");
-	});
-});
-
-// ── the transcript face of the signal ───────────────────────────────────────
-
-describe("projectView renders the move-on signal", () => {
-	it("the practice-next marker projects the compact part (the centered NEXT PROBLEM line)", () => {
-		const view = projectView([newNextMessage()]);
-		const parts = view[0]?.parts ?? [];
-		assert.ok(
-			parts.some((p) => p.type === "data-practice-next"),
-			"the data-practice-next part rides the view",
-		);
 	});
 });

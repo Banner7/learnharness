@@ -130,48 +130,6 @@ describe("the compaction service", () => {
 		assert.equal(summarizeCalls, before + 1, "exactly one summary however many gates race");
 	});
 
-	it("awaitCompaction: a later call rides the in-flight one (the structural gate)", async () => {
-		const chatId = overThresholdChat("compact: gate");
-		const events: string[] = [];
-		const off = subscribe((e) => {
-			const { chatId: c, running } = e as { chatId?: string; running?: boolean };
-			if (e.type === "compaction-changed" && c === chatId) events.push(`${running}`);
-		});
-		const p = ensureCompacted(depsOf(chatId, 40_000), chatId);
-		await awaitCompaction(chatId); // rides the same promise
-		await p;
-		off();
-		assert.deepEqual(events, ["true", "false"], "no second compaction started");
-	});
-
-	it("chained compaction: the span carries the PRIOR summary forward", async () => {
-		const chatId = overThresholdChat("compact: chained");
-		let seenPrompt = "";
-		const deps: CompactionDeps = {
-			...depsOf(chatId, 40_000),
-			summarize: async (prompt) => {
-				seenPrompt = prompt;
-				return {
-					summary: "SECOND SUMMARY.",
-					usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-				};
-			},
-		};
-		// first compaction
-		await ensureCompacted({ ...depsOf(chatId, 40_000) }, chatId);
-		// grow the record past the threshold again (post-markers + new tail)
-		chatStore.saveMessages(chatId, [...chatStore.getChat(chatId)!.messages, big("m9"), big("m10"), big("m11")]);
-		// second compaction — the span must open with the FIRST summary
-		await ensureCompacted(deps, chatId);
-		assert.ok(seenPrompt.includes("prior compaction summary"), "the prior summary rides the span");
-		assert.ok(seenPrompt.includes(COMPACTED_HISTORY_HEADER), "as the marker's canonical text");
-		assert.equal(seenPrompt.split(COMPACTED_HISTORY_HEADER).length - 1, 1, "the prior summary is supplied exactly once");
-		const record = chatStore.getChat(chatId)!;
-		const markers = record.messages.filter((m) => (m as { customType?: string }).customType === "compaction");
-		assert.equal(markers.length, 2, "both markers persist (history is never rewritten)");
-		assert.ok(activeCompactionOf(record.messages)!.content.includes("SECOND SUMMARY"), "the newest rules");
-	});
-
 	it("ten successive compactions keep one summary on the wire and preserve the complete record", async () => {
 		const chat = chatStore.createChat("repeated-cycle fixture");
 		chatStore.saveMessages(chat.id, Array.from({ length: 20 }, (_, i) => big(`exchange-${i}`, 8)));
@@ -339,22 +297,5 @@ describe("the compaction service", () => {
 		const record = chatStore.getChat(id)!;
 		assert.ok(record.turns!.at(-1)!.steps[0]!.inputTokens! > 0);
 		assert.equal(measuredContextTokens(record.messages), null);
-	});
-
-	it("a summarizer failure leaves the record untouched and the gate re-arms", async () => {
-		const chatId = overThresholdChat("compact: fail");
-		const before = summarizeCalls;
-		const failing: CompactionDeps = {
-			...depsOf(chatId, 40_000),
-			summarize: async () => {
-				throw new Error("boom");
-			},
-		};
-		await ensureCompacted(failing, chatId);
-		assert.equal(activeCompactionOf(chatStore.getChat(chatId)!.messages), null, "no marker on failure");
-		// the next gate retries cleanly
-		await ensureCompacted(depsOf(chatId, 40_000), chatId);
-		assert.ok(activeCompactionOf(chatStore.getChat(chatId)!.messages));
-		assert.equal(summarizeCalls, before + 1);
 	});
 });

@@ -35,24 +35,15 @@ describe("native renderSvg (resvg in-process, browser fallback)", () => {
 		assert.equal(f.idats, 1, "single-IDAT canonical PNG");
 	});
 
-	it("viewBox-only SVG gets the 900px-wide default", async () => {
+	it("viewBox-only SVG gets the 900px-wide default; width/height opts override it", async () => {
 		// No width attr anywhere (svgViewport grabs the FIRST width= in the
-		// document — children included — a pre-existing quirk kept for
-		// parity; use a circle so the default branch is exercised).
+		// document — children included — so a circle exercises the default branch).
 		const svg =
 			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><circle cx="150" cy="100" r="90" fill="#aa5533"/></svg>';
-		const png = await realHeadless.renderSvg(svg);
-		const f = pngFacts(png);
+		const f = pngFacts(await realHeadless.renderSvg(svg));
 		assert.equal(f.w, 900, "svgViewport default width");
 		assert.equal(f.h, 600, "aspect preserved from viewBox");
-	});
-
-	it("width/height opts override for viewBox-only SVGs", async () => {
-		const svg =
-			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100"><rect width="400" height="100" fill="#33aa55"/></svg>';
-		const png = await realHeadless.renderSvg(svg, { width: 500, height: 125 });
-		const f = pngFacts(png);
-		assert.equal(f.w, 500);
+		assert.equal(pngFacts(await realHeadless.renderSvg(svg, { width: 450, height: 300 })).w, 450);
 	});
 
 	it("text-bearing SVG renders with system fonts (non-trivial output)", async () => {

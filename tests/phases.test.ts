@@ -59,10 +59,10 @@ test("phaseAt3: probe until a concluded probe_done; plan until the first nodeId-
 		user("teach me"),
 		assistantTool("probe_done", "output-available", DONE_ASSESSMENT),
 		assistantTool("plan_init", "output-available", PLAN_OK),
-		user("looks good, go"),
+		user("The plan is accepted — begin teaching."), // words alone
+		assistantQuiz({ question: "ad-hoc check", correctAnswer: "a" }), // untagged
 	]);
-	assert.equal(presented, "plan", "plan_init + the learner's go-ahead TEXT present and sanction nothing");
-
+	assert.equal(presented, "plan", "plan_init, the learner's go-ahead TEXT, and untagged checks sanction nothing");
 	const teaching = phaseAt3([
 		user("teach me"),
 		assistantTool("probe_done", "output-available", DONE_ASSESSMENT),
@@ -81,41 +81,19 @@ test("phaseAt3: probe until a concluded probe_done; plan until the first nodeId-
 	assert.equal(failedPlan, "teach", "a tagged quiz begins teaching even after a failed init attempt");
 });
 
-test("phaseAt3: the tag is the seam — natural text and untagged questions never start teaching", () => {
-	const plainText = phaseAt3([
-		user("teach me"),
-		assistantTool("probe_done", "output-available", DONE_ASSESSMENT),
-		assistantTool("plan_init", "output-available", PLAN_OK),
-		user("The plan is accepted — begin teaching."), // words alone
-		assistantQuiz({ question: "ad-hoc check", correctAnswer: "a" }), // untagged
-	]);
-	assert.equal(plainText, "plan", "only a nodeId-tagged quiz flips the seam — text and ad-hoc checks never do");
-
-	const taggedOutOfOrder = phaseAt3([
-		user("teach me"),
-		assistantQuiz({ question: "q", nodeId: "n1", correctAnswer: "a" }), // before probe_done
-	]);
-	assert.equal(taggedOutOfOrder, "probe", "the chain never skips");
+test("phaseAt3: the chain never skips — a tagged quiz before probe_done stays probe", () => {
+	assert.equal(phaseAt3([user("teach me"), assistantQuiz({ question: "q", nodeId: "n1", correctAnswer: "a" })]), "probe");
 });
 
-test("phaseAt3: a mere probe_done CALL (input-available, not yet concluded) keeps the probe open", () => {
-	const still = phaseAt3([user("teach me"), assistantTool("probe_done", "input-available")]);
-	assert.equal(still, "probe");
-});
-
-test("phaseAt3 and phaseTimeline: explicit probe refusals never advance the UI phase", () => {
+test("phaseAt3: refused, errored, or merely-called probe_done never advances the phase", () => {
+	assert.equal(phaseAt3([]), "probe");
+	assert.equal(phaseAt3([user("teach me"), assistantTool("probe_done", "input-available")]), "probe");
+	assert.equal(phaseAt3([user("teach me lacan"), assistantTool("plan_init", "output-available", PLAN_OK)]), "probe", "plan_init alone never flips a phase");
 	const refused = assistantTool("probe_done", "output-available", { ok: false, error: "question open" });
 	const errored = assistantTool("probe_done", "output-error", { ok: true });
 	const tagged = assistantQuiz({ nodeId: "n1" });
 	const clean = assistantTool("probe_done", "output-available", { ok: true });
-	const messages = [refused, errored, tagged, clean, tagged];
-	assert.equal(phaseAt3(messages, 2), "probe");
-	assert.deepEqual(phaseTimeline(messages), ["probe", "probe", "probe", "plan", "teach"]);
-});
-
-test("phaseAt3: legacy transcripts without probe_done read as probe (no backwards compat — data wiped)", () => {
-	const legacy = phaseAt3([user("teach me lacan"), assistantTool("plan_init", "output-available", PLAN_OK)]);
-	assert.equal(legacy, "probe", "plan_init alone never flips a phase post-split");
+	assert.deepEqual(phaseTimeline([refused, errored, tagged, clean, tagged]), ["probe", "probe", "probe", "plan", "teach"]);
 });
 
 test("phaseTimeline: folds messages into phase spans for the dividers", () => {
@@ -125,16 +103,10 @@ test("phaseTimeline: folds messages into phase spans for the dividers", () => {
 		assistantTool("probe_done", "output-available", DONE_ASSESSMENT),
 		assistantTool("plan_init", "output-available", PLAN_OK),
 		user("what does node 1 mean?"), // side question — still planning
-		user("go on"),
 		assistantQuiz({ question: "q", nodeId: "n1", correctAnswer: "a" }),
 		assistantQuiz({ question: "q2", nodeId: "n2", correctAnswer: "a" }),
 	]);
-	assert.deepEqual(timeline satisfies Phase3[], ["probe", "probe", "plan", "plan", "plan", "plan", "teach", "teach"]);
-	assert.equal(timeline.length, 8);
-});
-
-test("phaseAt3: empty transcript is probe", () => {
-	assert.equal(phaseAt3([]), "probe");
+	assert.deepEqual(timeline satisfies Phase3[], ["probe", "probe", "plan", "plan", "plan", "teach", "teach"]);
 });
 
 // ─── the native fold (phaseAt3Lh over LhMessage[]) ──────────────────────────

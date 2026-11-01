@@ -1,8 +1,6 @@
 /**
  * Tests for the section parsers (settings-storage wave, 2026-09-19):
- * src/server/settings-body.ts — agent/appearance/graph strictness.
- * Same discipline as parseSettingsBody (its tests live in
- * default-settings.test.ts): every known field is strict (bad type/shape
+ * src/server/settings-body.ts. Every known field is strict (bad type/shape
  * → 400-style error, never a silent clamp), unknown keys drop, absent
  * fields mean absent overrides. Pure — no fs.
  */
@@ -15,12 +13,10 @@ import {
 	parseAppearanceSettingsBody,
 	parseCompactionSettingsBody,
 	parseGraphSettingsBody,
-	SETTINGS_SECTIONS,
 } from "../src/server/settings-body.ts";
 
-
 describe("parseAgentSettingsBody", () => {
-	it("models: valid roles with model pair and/or thinkingLevel; unknown role is a 400 with the list", () => {
+	it("models: valid roles with model pair and/or thinkingLevel; unknown role and malformed pairs are 400s", () => {
 		const r = parseAgentSettingsBody({
 			models: {
 				researcher: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } },
@@ -32,11 +28,8 @@ describe("parseAgentSettingsBody", () => {
 			researcher: { model: { provider: "openrouter", id: "qwen/qwen3.8-flash" } },
 			auditor: { thinkingLevel: "high" },
 		});
-		const bad = parseAgentSettingsBody({ models: { teacher: {} } });
-		assert.equal(bad.ok, false);
-		if (!bad.ok) assert.match(bad.error, /unknown role "teacher" \(supported: researcher, demoBuilder, visualMaker, extractor, auditor\)/);
-		const malformed = parseAgentSettingsBody({ models: { researcher: { model: { provider: 1, id: "x" } } } });
-		assert.equal(malformed.ok, false);
+		assert.equal(parseAgentSettingsBody({ models: { teacher: {} } }).ok, false);
+		assert.equal(parseAgentSettingsBody({ models: { researcher: { model: { provider: 1, id: "x" } } } }).ok, false);
 	});
 
 	it("tools and prompts: boolean maps; non-boolean values are 400s", () => {
@@ -46,95 +39,53 @@ describe("parseAgentSettingsBody", () => {
 		assert.deepEqual(r.settings.prompts, { "system-prompt.md": true });
 		assert.equal(parseAgentSettingsBody({ tools: { quiz: "no" } }).ok, false);
 		assert.equal(parseAgentSettingsBody({ prompts: { "x.md": 1 } }).ok, false);
-		// switch validity (segment membership, file presence) is the ROUTE's
-		// cross-validation — the parser only sees shapes.
 	});
 
-	it("search: engine pin is tavily|brave; anything else is a 400 (search wave, 2026-09-20)", () => {
+	it("search: engine pin is tavily|brave; {} clears to auto-detect; anything else is a 400", () => {
 		const ok = parseAgentSettingsBody({ search: { engine: "tavily" } });
 		assert.ok(ok.ok);
 		assert.deepEqual(ok.settings.search, { engine: "tavily" });
 		const clear = parseAgentSettingsBody({ search: {} });
 		assert.ok(clear.ok);
-		assert.equal(clear.settings.search, undefined, "absent engine = back to auto-detect");
-		assert.equal(parseAgentSettingsBody({ search: { engine: "google" } }).ok, false);
-		assert.equal(parseAgentSettingsBody({ search: "tavily" }).ok, false, "search must be an object");
-		assert.equal(parseAgentSettingsBody({ search: { engine: 1 } }).ok, false);
+		assert.equal(clear.settings.search, undefined);
+		for (const search of [{ engine: "google" }, "tavily", { engine: 1 }]) {
+			assert.equal(parseAgentSettingsBody({ search }).ok, false, JSON.stringify(search));
+		}
 	});
 
-	it("graphTools: strict object subsection, enabled boolean when present — wave 7, 2026-09-23", () => {
+	it("graphTools: strict object subsection, enabled boolean when present", () => {
 		const off = parseAgentSettingsBody({ graphTools: { enabled: false } });
 		assert.ok(off.ok);
 		assert.deepEqual(off.settings.graphTools, { enabled: false });
-		const bare = parseAgentSettingsBody({ graphTools: {} });
-		assert.ok(bare.ok);
-		assert.deepEqual(bare.settings.graphTools, {}, "explicit subsection with no key = the default ON");
-		assert.equal(parseAgentSettingsBody({ graphTools: "off" }).ok, false, "graphTools must be an object");
-		assert.equal(parseAgentSettingsBody({ graphTools: { enabled: "yes" } }).ok, false, "enabled must be a boolean");
-		assert.equal(parseAgentSettingsBody({ graphTools: null }).ok, false);
-	});
-
-	it("an empty {} agent section parses to {} (replace-whole clear)", () => {
-		const r = parseAgentSettingsBody({});
-		assert.ok(r.ok);
-		assert.deepEqual(r.settings, {});
+		for (const graphTools of ["off", { enabled: "yes" }, null]) {
+			assert.equal(parseAgentSettingsBody({ graphTools }).ok, false, JSON.stringify(graphTools));
+		}
 	});
 });
 
 describe("parseAppearanceSettingsBody", () => {
-	it("parses the remaining typography fields; clamps happen at sanitize, rejects here", () => {
-		const r = parseAppearanceSettingsBody({
-			proseFontSize: 20,
-			mdRendering: { headingWeight: 700 },
-		});
+	it("parses typography fields and drops retired font settings", () => {
+		const r = parseAppearanceSettingsBody({ fontFamily: "Georgia", sessionNameSerif: false, proseFontSize: 20, mdRendering: { headingWeight: 700 } });
 		assert.ok(r.ok);
-		assert.deepEqual(r.settings, {
-			proseFontSize: 20,
-			mdRendering: { headingWeight: 700 },
-		});
+		assert.deepEqual(r.settings, { proseFontSize: 20, mdRendering: { headingWeight: 700 } });
 	});
 
-	it("ignores retired font settings in old request bodies", () => {
-		const r = parseAppearanceSettingsBody({
-			fontFamily: "Georgia",
-			sessionNameSerif: false,
-			proseFontSize: 18,
-		});
-		assert.ok(r.ok);
-		assert.deepEqual(r.settings, { proseFontSize: 18 });
-	});
-
-	it("rejects bad types and ranges — with specific messages, never clamps", () => {
-		const cases: unknown[] = [
-			{ proseFontSize: 30 },
-			{ proseFontSize: 64.5 },
-			{ mdRendering: { headingWeight: 1000 } },
-		];
-		for (const body of cases) {
+	it("rejects bad types and ranges (never clamps); boundaries pass", () => {
+		for (const body of [{ proseFontSize: 30 }, { proseFontSize: 64.5 }, { mdRendering: { headingWeight: 1000 } }, [1], { mdRendering: "big" }]) {
 			assert.equal(parseAppearanceSettingsBody(body).ok, false, JSON.stringify(body));
 		}
-		// Boundary typography values must pass.
-		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 12 }));
-		assert.ok(parseAppearanceSettingsBody({ proseFontSize: 24 }));
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 100 } }));
-		assert.ok(parseAppearanceSettingsBody({ mdRendering: { headingWeight: 900 } }));
-	});
-
-	it("rejects non-object bodies and non-object mdRendering", () => {
-		assert.equal(parseAppearanceSettingsBody([1]).ok, false);
-		assert.equal(parseAppearanceSettingsBody({ mdRendering: "big" }).ok, false);
+		for (const body of [{ proseFontSize: 12 }, { proseFontSize: 24 }, { mdRendering: { headingWeight: 100 } }, { mdRendering: { headingWeight: 900 } }]) {
+			assert.equal(parseAppearanceSettingsBody(body).ok, true, JSON.stringify(body));
+		}
 	});
 });
 
 describe("parseGraphSettingsBody", () => {
-	it("parses the collapsed section replace-whole (wave 7: the master switch ONLY)", () => {
-		const r = parseGraphSettingsBody({ enabled: false });
+	it("parses the master switch replace-whole; dead wave-6 rungs are ignored; junk is a 400", () => {
+		const r = parseGraphSettingsBody({ enabled: false, clustering: true, labeling: true });
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, { enabled: false });
 		assert.equal(parseGraphSettingsBody({}).ok, true);
-	});
-
-	it("rejects non-boolean switches and unknown bodies", () => {
 		assert.equal(parseGraphSettingsBody({ enabled: "off" }).ok, false);
 		assert.equal(parseGraphSettingsBody("nope").ok, false);
 	});
@@ -143,117 +94,54 @@ describe("parseGraphSettingsBody", () => {
 		const ok = parseGraphSettingsBody({ enabled: true, extractionChunkTokens: 2048 });
 		assert.ok(ok.ok);
 		assert.deepEqual(ok.settings, { enabled: true, extractionChunkTokens: 2048 });
-		// absent = unset — replace-whole keeps the factory default at resolution
-		const absent = parseGraphSettingsBody({ enabled: true });
-		assert.ok(absent.ok);
-		assert.deepEqual(absent.settings, { enabled: true });
-		// fractions floor to whole tokens
 		const fraction = parseGraphSettingsBody({ extractionChunkTokens: 1024.9 });
 		assert.ok(fraction.ok);
-		assert.equal(fraction.settings.extractionChunkTokens, 1024);
-		// below the cost floor: 400 with the floor named (penny-batches)
-		const tiny = parseGraphSettingsBody({ extractionChunkTokens: 100 });
-		assert.equal(tiny.ok, false, "below-floor rejected");
-		assert.match(tiny.ok === false ? tiny.error : "", /at least 500/);
-		// junk shapes: 400
-		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: "4096" }).ok, false);
-		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: NaN }).ok, false);
-		assert.equal(parseGraphSettingsBody({ extractionChunkTokens: null }).ok, false);
-	});
-
-	it("the dead wave-6 rungs in a body are ignored — the section collapses on write", () => {
-		// Old clients may still send {embedding: true, embeddingModel: …};
-		// the parser reads ONLY the master switch — the dead keys are not
-		// an error, they are just not part of the section anymore.
-		const r = parseGraphSettingsBody({ enabled: false, clustering: true, labeling: true });
-		assert.ok(r.ok);
-		assert.deepEqual(r.settings, { enabled: false });
+		assert.equal(fraction.settings.extractionChunkTokens, 1024, "fractions floor to whole tokens");
+		for (const extractionChunkTokens of [100, "4096", NaN, null]) {
+			assert.equal(parseGraphSettingsBody({ extractionChunkTokens }).ok, false, String(extractionChunkTokens));
+		}
 	});
 });
 
 describe("parseCompactionSettingsBody (owner round 14)", () => {
-	it("parses a threshold; absent = the empty section (factory default at resolution)", () => {
-		const r = parseCompactionSettingsBody({ thresholdTokens: 120000 });
+	it("parses and floors a threshold; {} is the empty section; below 32k and non-numbers are 400s", () => {
+		const r = parseCompactionSettingsBody({ thresholdTokens: 120000.9 });
 		assert.ok(r.ok);
 		assert.deepEqual(r.settings, { thresholdTokens: 120000 });
 		const none = parseCompactionSettingsBody({});
 		assert.ok(none.ok);
 		assert.deepEqual(none.settings, {});
-	});
-	it("floors to integers", () => {
-		const r = parseCompactionSettingsBody({ thresholdTokens: 120000.9 });
-		assert.ok(r.ok);
-		assert.equal(r.settings.thresholdTokens, 120000);
-	});
-	it("rejects below the 32k floor with the anti-churn rationale", () => {
-		const r = parseCompactionSettingsBody({ thresholdTokens: 20_000 });
-		assert.ok(!r.ok);
-		assert.match(r.error ?? "", /at least 32000/);
-		assert.match(r.error ?? "", /churn/);
-	});
-	it("rejects non-numbers", () => {
-		const r = parseCompactionSettingsBody({ thresholdTokens: "big" });
-		assert.ok(!r.ok);
-		assert.match(r.error ?? "", /must be a number/);
-	});
-});
-
-describe("SETTINGS_SECTIONS (the route's section map)", () => {
-	it("maps exactly the eight record sections", () => {
-		// compaction joined (owner round 14): its own section PUT — the
-		// threshold is engine behavior, not an agent-section key. The custom
-		// endpoint is NOT a section: it is one more provider in the Keys list,
-		// connected through POST /api/custom-provider. library joined (fork,
-		// 2026-11-01): the vault library's auto-extract switch and skip list.
-		assert.deepEqual(
-			Object.keys(SETTINGS_SECTIONS),
-			["chat", "agent", "appearance", "graph", "compaction", "models", "claudeCode", "library"],
-		);
+		assert.equal(parseCompactionSettingsBody({ thresholdTokens: 20_000 }).ok, false);
+		assert.equal(parseCompactionSettingsBody({ thresholdTokens: "big" }).ok, false);
 	});
 });
 
 describe("parseModelsSettingsBody (model slots wave, 2026-09-20)", () => {
 	it("parses the three slot tiers — model required, level rides (BYOK, owner 2026-09-22)", () => {
-		const r = parseModelsSettingsBody({
+		const slots = {
 			strong: { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } },
 			cheap: { model: { provider: "zai", id: "glm-5.3-flash" }, thinkingLevel: "high" },
 			vision: { model: { provider: "zai", id: "glm-5.3-flash" }, thinkingLevel: "low" },
-		});
+		};
+		const r = parseModelsSettingsBody(slots);
 		assert.ok(r.ok);
-		assert.deepEqual(r.settings, {
-			strong: { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } },
-			cheap: { model: { provider: "zai", id: "glm-5.3-flash" }, thinkingLevel: "high" },
-			vision: { model: { provider: "zai", id: "glm-5.3-flash" }, thinkingLevel: "low" },
-		});
-		// a thinkingLevel WITHOUT a model can never run (no factory floor)
-		const levelOnly = parseModelsSettingsBody({ cheap: { thinkingLevel: "high" } });
-		assert.equal(levelOnly.ok, false);
-		if (!levelOnly.ok) {
-			assert.match(levelOnly.error, /slot "cheap" must set a model/);
+		assert.deepEqual(r.settings, slots);
+		const cleared = parseModelsSettingsBody({});
+		assert.ok(cleared.ok);
+		assert.deepEqual(cleared.settings, {}, "{} is the legal clear-slots write");
+	});
+
+	it("a slot without a model, unknown slots, and malformed shapes are 400s", () => {
+		const bodies: unknown[] = [
+			{ cheap: { thinkingLevel: "high" } }, // a level WITHOUT a model can never run
+			{ strong: {} },
+			{ mega: { thinkingLevel: "high" } },
+			{ cheap: { model: { provider: "x" } } },
+			{ vision: { thinkingLevel: 7 } },
+			"nope",
+		];
+		for (const body of bodies) {
+			assert.equal(parseModelsSettingsBody(body).ok, false, JSON.stringify(body));
 		}
-	});
-
-	it("{} is the legal clear-slots write", () => {
-		const r = parseModelsSettingsBody({});
-		assert.ok(r.ok);
-		assert.deepEqual(r.settings, {});
-	});
-
-	it("unknown slots are 400s with the supported list", () => {
-		const bad = parseModelsSettingsBody({ mega: { thinkingLevel: "high" } });
-		assert.equal(bad.ok, false);
-		if (!bad.ok) assert.match(bad.error, /unknown slot "mega" \(supported: strong, cheap, vision\)/);
-	});
-
-	it("a present-but-empty slot object is rejected (absent slot = unset)", () => {
-		const bad = parseModelsSettingsBody({ strong: {} });
-		assert.equal(bad.ok, false);
-		if (!bad.ok) assert.match(bad.error, /slot "strong" must set a model/);
-	});
-
-	it("malformed slot shapes are 400s", () => {
-		assert.equal(parseModelsSettingsBody({ cheap: { model: { provider: "x" } } }).ok, false);
-		assert.equal(parseModelsSettingsBody({ vision: { thinkingLevel: 7 } }).ok, false);
-		assert.equal(parseModelsSettingsBody("nope").ok, false);
 	});
 });

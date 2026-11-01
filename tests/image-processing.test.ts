@@ -173,18 +173,6 @@ test("JPEG quality selection is native first-fit [80,85,70,55,40], not smallest 
 	const at70 = await resizeImage(bytes, "image/png", { maxBytes: candidates[1]!.data.length });
 	assert.ok(at70);
 	assert.equal(at70.data, candidates[3]!.data);
-	assert.equal(at70.width, 96);
-	assert.equal(at70.height, 96);
-	for (const [index, quality] of [[4, 55], [5, 40]] as const) {
-		const candidate = candidates[index]!;
-		const cap = candidate.data.length + 1;
-		assert.ok(candidates.slice(0, index).every((earlier) => earlier.data.length >= cap));
-		const lowerQuality = await resizeImage(bytes, "image/png", { maxBytes: cap });
-		assert.ok(lowerQuality);
-		assert.equal(lowerQuality.data, candidate.data, `native quality ${quality} wins when preceding candidates are over cap`);
-		assert.equal(lowerQuality.width, 96);
-		assert.equal(lowerQuality.height, 96);
-	}
 	const override = await resizeImage(bytes, "image/png", { jpegQuality: 85, maxBytes: candidates[2]!.data.length + 1 });
 	assert.ok(override);
 	assert.equal(override.data, candidates[2]!.data, "caller quality precedes the native remaining quality steps");

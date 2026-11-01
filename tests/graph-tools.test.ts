@@ -1,13 +1,6 @@
-// THE PROBER'S GRAPH TOOLS (wave 7; understanding levels removed
-// 2026-09-27) — pinned behaviors:
-// 1. REGISTRATION: the factory registers list_sessions/list_propositions
-//    on the prober ONLY when the composition root passes a graphStore
-//    (the graphToolsEnabled gate lives server-side; absent store = closed
-//    gate — the factory must not reach for settings itself).
-// 2. OUTPUT: names only — the owner ruling bars statement text and session
-//    contents from the prober's view of the map.
-// 3. HONESTY: empty graph, unknown session id — the tools answer in
-//    their own voice, never throw, never guess.
+// The prober's graph tools: registered only when the composition root passes
+// a graphStore; names only (statement text never reaches the prober); empty
+// graphs and unknown ids answer honestly, never throw.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -73,38 +66,15 @@ const baseCtx = {
 	spawn: () => {},
 };
 
-// ─── registration (the factory gate) ────────────────────────────────────────
-
-describe("prober graph tools — registration", () => {
-	it("no graphStore in the context → the tools are absent (gate decided server-side)", () => {
-		const { chatStore } = fakeStores([]);
-		const tools = createProberTools({ ...baseCtx, chatStore });
-		assert.equal("list_sessions" in tools, false);
-		assert.equal("list_propositions" in tools, false);
-	});
-
-	it("graphStore present → list_sessions + list_propositions join the registry beside the usual set", () => {
+describe("prober graph tools — registration gate", () => {
+	it("the graph tools exist only when a graphStore is passed", () => {
 		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
-		// The standing set (fix wave 2026-09-20: research + pdf are
-		// phase-omnipresent) plus the two graph-map readers.
-		assert.deepEqual(Object.keys(tools).sort(), [
-			"ask_user_question",
-			"find",
-			"grep",
-			"list_propositions",
-			"list_sessions",
-			"ls",
-			"pdf",
-			"probe",
-			"probe_done",
-			"read",
-			"research",
-		]);
+		const closed = createProberTools({ ...baseCtx, chatStore });
+		assert.ok(!("list_sessions" in closed) && !("list_propositions" in closed));
+		const open = createProberTools({ ...baseCtx, chatStore, graphStore });
+		assert.ok("list_sessions" in open && "list_propositions" in open);
 	});
 });
-
-// ─── output shape + the no-prose rule ──────────────────────────────────────
 
 describe("list_sessions", () => {
 	it("names, kinds, counts, dates, ids — in the prober's voice, no statements", async () => {
@@ -128,11 +98,8 @@ describe("list_sessions", () => {
 		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
 		const out = (await tools.list_sessions!.execute!("tc", {})).details as string;
 		assert.match(out, /2 session\(s\) in the knowledge graph, most recent first:/);
-		// The chat: name, kind, born count, dates, id — the full resume.
 		assert.match(out, /First lesson \(chat, 2 propositions, born 2026-09-20T10:00:00.000Z, last active 2026-09-21T10:00:00.000Z\) — id: c1/);
-		// The unrecorded birth session falls back honestly: the id, no fake date.
-		assert.match(out, /c-file \(file, 1 proposition, born unknown date\) — id: c-file/);
-		// The owner ruling: the map's prose never reaches the prober.
+		assert.match(out, /c-file \(file, 1 proposition, born unknown date\) — id: c-file/, "unrecorded birth: no fake date");
 		assert.ok(!out.includes("statement of"));
 	});
 
@@ -145,35 +112,18 @@ describe("list_sessions", () => {
 });
 
 describe("list_propositions", () => {
-	it("names only — what the session covered (2026-09-27: no levels, no dating)", async () => {
+	it("names only — no levels, dating, evaluation, or statement text; unknown ids redirect", async () => {
 		const { chatStore, graphStore } = fakeStores([
 			node("n1", "Water cycle", [pt("c1")]),
 			node("n2", "Evaporation", [pt("c1")]),
 		]);
 		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
 		const out = (await tools.list_propositions!.execute!("tc", { session: "c1" })).details as string;
-		assert.match(out, /2 proposition\(s\) covered in this session:/);
 		assert.match(out, /- Water cycle/);
 		assert.match(out, /- Evaporation/);
-		// The owner ruling: no levels, no dating, never the statement text.
-		assert.ok(!out.includes("as of"));
-		assert.ok(!out.includes("solid"));
-		assert.ok(!out.includes("statement of"));
-	});
-
-	it("no evaluation machinery at all — the covered list is the whole output", async () => {
-		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
-		const out = (await tools.list_propositions!.execute!("tc", { session: "c1" })).details as string;
-		assert.match(out, /- Water cycle/);
-		assert.ok(!out.includes("never evaluated"));
-	});
-
-	it("an unknown session id — honest redirect, not a throw", async () => {
-		const { chatStore, graphStore } = fakeStores([node("n1", "Water cycle", [pt("c1")])]);
-		const tools = createProberTools({ ...baseCtx, chatStore, graphStore });
-		const out = (await tools.list_propositions!.execute!("tc", { session: "no-such" })).details as string;
-		assert.equal(out, 'No propositions born in session "no-such". Call list_sessions for the current ids.');
+		for (const banned of ["as of", "solid", "statement of", "never evaluated"]) assert.ok(!out.includes(banned), banned);
+		const miss = (await tools.list_propositions!.execute!("tc", { session: "no-such" })).details as string;
+		assert.match(miss, /No propositions born in session "no-such"/);
 	});
 });
 

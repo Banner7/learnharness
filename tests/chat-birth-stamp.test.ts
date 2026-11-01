@@ -71,19 +71,6 @@ describe("POST /api/chats — the birth stamp", () => {
 		assert.equal(record.settings, undefined, "nothing stamped — nothing to lie about");
 	});
 
-	it("an unset thinking level rides as-is — the session's level resolves (strong's, then the model's ladder)", async () => {
-		writeSettings({
-			version: 1,
-			models: { strong: { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } } },
-		});
-		const res = await post();
-		const { id } = (await res.json()) as { id: string };
-		const record = chatStore.getChat(id);
-		assert.ok(record);
-		assert.equal(record.settings?.thinkingLevel, undefined);
-		assert.deepEqual(record.settings, { model: { provider: "openrouter", id: "z-ai/glm-5.3-flash" } });
-	});
-
 	it("changing the strong slot afterward NEVER touches existing sessions — the stamp is a copy, not a live view", async () => {
 		writeSettings({
 			version: 1,

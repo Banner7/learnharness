@@ -14,29 +14,36 @@ import {
 
 /**
  * The BYOK universal gate rendered honestly (owner, 2026-09-22): the server
- * refuses ALL turns with 503 {error, code: "models_not_configured", missing}
- * when a slot tier is unset. These pin the client's pure seams: the refusal
- * detector (the transport throws the 503 body verbatim as the error text)
- * and the job-record refusal matcher.
+ * refuses turns with 503 envelopes (models_not_configured /
+ * provider_key_missing). These pin the client's refusal detectors (the
+ * transport throws the 503 body verbatim as the error text) and the
+ * job-record refusal matchers.
  */
 
 const REFUSAL = JSON.stringify(modelsNotConfigured(["strong"]));
+const KEY_REFUSAL = JSON.stringify(providerKeyMissing("openrouter", ["strong"]));
 
-describe("parseModelsRefusal — the send refusal detector", () => {
-	it("reads the missing tiers from the envelope text", () => {
-		assert.deepEqual(parseModelsRefusal(REFUSAL), ["strong"]);
-		assert.deepEqual(parseModelsRefusal(JSON.stringify(modelsNotConfigured(["strong", "vision"]))), [
-			"strong",
-			"vision",
-		]);
+describe("send refusal detectors", () => {
+	it("parseModelsRefusal reads the missing tiers; anything else is a real error", () => {
+		assert.deepEqual(parseModelsRefusal(JSON.stringify(modelsNotConfigured(["strong", "vision"]))), ["strong", "vision"]);
+		for (const text of [
+			undefined,
+			"Something went wrong",
+			'{"error":"A turn is already running"}',
+			'{"code":"models_not_configured","missing":"strong"}',
+			'{"code":"models_not_configured","missing":[42]}',
+			KEY_REFUSAL,
+		]) {
+			assert.equal(parseModelsRefusal(text), null, String(text));
+		}
 	});
 
-	it("anything else is a real error — null, the honest banner stays", () => {
-		assert.equal(parseModelsRefusal(undefined), null);
-		assert.equal(parseModelsRefusal("Something went wrong"), null); // not JSON
-		assert.equal(parseModelsRefusal('{"error":"A turn is already running"}'), null); // JSON, wrong code
-		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":"strong"}'), null); // missing not an array
-		assert.equal(parseModelsRefusal('{"code":"models_not_configured","missing":[42]}'), null); // tiers are strings
+	it("parseProviderKeyRefusal reads the envelope's own code; anything else is a real error", () => {
+		assert.equal(parseProviderKeyRefusal(KEY_REFUSAL), true);
+		assert.equal(parseProviderKeyRefusal(JSON.stringify(providerKeyMissing("anthropic", ["strong", "vision"]))), true);
+		for (const text of [REFUSAL, "FAILED: headless crashed", undefined, "{not json"]) {
+			assert.equal(parseProviderKeyRefusal(text), false, String(text));
+		}
 	});
 });
 
@@ -62,9 +69,7 @@ describe("Retry owns no composer recovery draft", () => {
 			retryFailedResponse((input) => request = model.send(input), submittedDraft);
 			await request;
 			assert.equal(model.getState().error?.message, body, "503 stays raw for existing setup/picker routing");
-			assert.ok(parseModelsRefusal(body) || parseProviderKeyRefusal(body));
-			// The existing refusal effect restores only an owned submitted
-			// draft. Retry must leave this slot empty, not replace B with A.
+			// The refusal effect restores only an owned submitted draft.
 			if (submittedDraft.current !== null) composer = submittedDraft.current;
 			assert.equal(composer, "Unsent text B");
 			assert.deepEqual(model.getState().nativeMessages, durable, "Retry adds no optimistic learner message");
@@ -86,68 +91,36 @@ describe("Retry owns no composer recovery draft", () => {
 
 	it("ordinary text refusals still keep their submitted draft for recovery", async () => {
 		const submittedDraft: { current: string | null } = { current: "Ordinary text C" };
-		const body = JSON.stringify(providerKeyMissing("openrouter", ["strong"]));
 		const model = new SessionModel({
 			chatId: "fixture", initialMessages: [],
-			fetch: async () => new Response(body, { status: 503 }),
+			fetch: async () => new Response(KEY_REFUSAL, { status: 503 }),
 		});
 		await model.send({ type: "text", text: submittedDraft.current! });
 		assert.equal(submittedDraft.current, "Ordinary text C");
-		assert.equal(model.getState().error?.message, body);
-		assert.equal(parseProviderKeyRefusal(model.getState().error?.message), true);
+		assert.equal(model.getState().error?.message, KEY_REFUSAL);
 	});
 });
 
-describe("isModelsRefusal — the job-record matcher", () => {
-	it("matches the runner's composed wording, not real failures", () => {
-		assert.equal(isModelsRefusal(`${modelsNotConfigured(["vision"]).error} (missing: vision)`), true);
-		assert.equal(isModelsRefusal(modelsNotConfigured(["cheap"]).error), true);
-		assert.equal(isModelsRefusal(undefined), false);
-		assert.equal(isModelsRefusal("FAILED: headless crashed"), false);
-	});
-});
-
-describe("providerKeyMissing — the envelope factory (provider-key interlude, 2026-09-25)", () => {
-	it("names the provider from the curated label and carries the exact machine code", () => {
-		const envelope = providerKeyMissing("openrouter", ["strong"]);
-		assert.deepEqual(envelope, {
+describe("providerKeyMissing + job-record matchers", () => {
+	it("the envelope names the provider (raw id when unknown) and carries the exact machine code", () => {
+		assert.deepEqual(providerKeyMissing("openrouter", ["strong"]), {
 			error: "No OpenRouter credential is configured — configure it on the server",
 			code: PROVIDER_KEY_MISSING_CODE,
 			provider: "openrouter",
 			slots: ["strong"],
 		});
-		assert.equal(envelope.code, "provider_key_missing");
+		assert.equal(PROVIDER_KEY_MISSING_CODE, "provider_key_missing");
+		assert.match(providerKeyMissing("weird", ["cheap"]).error, /^No weird credential/);
 	});
 
-	it("an unknown provider falls back to its raw id as the label", () => {
-		const envelope = providerKeyMissing("weird", ["cheap"]);
-		assert.equal(envelope.error, "No weird credential is configured — configure it on the server");
-	});
-});
-
-describe("parseProviderKeyRefusal — the send refusal detector's twin (zero-keys wave)", () => {
-	it("reads the envelope's own code + invariant tail — the wording can never drift client-side", () => {
-		const REFUSED = JSON.stringify(providerKeyMissing("openrouter", ["strong"]));
-		assert.equal(parseProviderKeyRefusal(REFUSED), true);
-		assert.equal(parseProviderKeyRefusal(JSON.stringify(providerKeyMissing("anthropic", ["strong", "vision"]))), true);
-	});
-
-	it("anything else is a real error — false, the honest banner stays", () => {
-		assert.equal(parseProviderKeyRefusal(REFUSAL), false); // the models refusal is NOT this one
-		assert.equal(parseProviderKeyRefusal("FAILED: headless crashed"), false);
-		assert.equal(parseProviderKeyRefusal(undefined), false);
-		assert.equal(parseProviderKeyRefusal("{not json"), false);
-	});
-});
-
-describe("isProviderKeyRefusal — the job-record matcher (provider-key interlude)", () => {
-	it("matches the envelope wording regardless of provider label, not real failures", () => {
+	it("each matcher recognizes only its own refusal, never real failures", () => {
+		assert.equal(isModelsRefusal(`${modelsNotConfigured(["vision"]).error} (missing: vision)`), true);
+		assert.equal(isModelsRefusal(modelsNotConfigured(["cheap"]).error), true);
 		assert.equal(isProviderKeyRefusal(providerKeyMissing("together", ["cheap"]).error), true);
-		assert.equal(isProviderKeyRefusal(providerKeyMissing("openai", ["strong"]).error), true);
-		assert.equal(isProviderKeyRefusal(""), false);
-		assert.equal(isProviderKeyRefusal(undefined), false);
-		assert.equal(isProviderKeyRefusal("FAILED: headless crashed"), false);
-		assert.equal(isProviderKeyRefusal(modelsNotConfigured(["strong"]).error), false, "the models refusal is a different failure");
+		assert.equal(isProviderKeyRefusal(modelsNotConfigured(["strong"]).error), false);
+		for (const text of [undefined, "", "FAILED: headless crashed"]) {
+			assert.equal(isModelsRefusal(text), false);
+			assert.equal(isProviderKeyRefusal(text), false);
+		}
 	});
 });
-

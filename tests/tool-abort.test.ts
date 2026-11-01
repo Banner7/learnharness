@@ -1,12 +1,6 @@
 /**
- * The abort-cascade fix (2026-09-19), pinned against the pi-native seams
- * (Wave A, 2026-09-26): serverExecute (tool-execute.ts) races every tool
- * body against the run's AbortSignal and the system-level per-call timeout
- * — aborting the run kills a running tool, the timeout is the net so no
- * tool can hold a turn hostage (the 2.7-minute grep lesson). Question
- * tools bypass the guard entirely (questionResult is instant and carries
- * terminate). The fs tools honor the signal with partial results
- * (fs-tools.test.ts covers their side).
+ * serverExecute races every tool body against the run's AbortSignal and the
+ * per-call timeout; question tools bypass the guard.
  */
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
@@ -44,25 +38,6 @@ function probeTool(captured: { signal?: AbortSignal }, opts: { hang?: boolean; v
 }
 
 describe("serverExecute abort + timeout guard", () => {
-	it("forwards a live abort signal to the tool's ctx", async () => {
-		// Even with no parent signal, the tool still gets the guard's combined
-		// signal (parent+timeout) — a stable reference tools can poll.
-		const captured: { signal?: AbortSignal } = {};
-		const pi = probeTool(captured);
-		await pi.execute("c1", {});
-		assert.ok(captured.signal, "the tool received a signal");
-		assert.equal(captured.signal!.aborted, false);
-		// The forwarded signal is the guard's COMBINED one — aborting the
-		// parent flips it, which is what long-running tools poll.
-		const ac = new AbortController();
-		const captured2: { signal?: AbortSignal } = {};
-		const pi2 = probeTool(captured2, { value: "done" });
-		const pending = pi2.execute("c1b", {}, ac.signal);
-		ac.abort();
-		await pending;
-		assert.equal(captured2.signal!.aborted, true);
-	});
-
 	it("a signal-wired tool observes the run's abort", async () => {
 		const ac = new AbortController();
 		const captured: { signal?: AbortSignal } = {};

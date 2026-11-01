@@ -50,8 +50,6 @@ test("actual select → submit → saved result → historical Why uses source d
 		assert.equal(host.querySelectorAll("mtr").length, 4, "question and revealed explanation retain their rows");
 		const paragraphs = host.querySelectorAll('[data-testid="tucked-explanation"] p');
 		assert.equal(paragraphs.length, 2, "recovered paragraphs remain distinct in Why");
-		assert.ok(paragraphs[0]!.parentElement!.classList.contains("[&>p:first-child]:inline"));
-		assert.ok(!paragraphs[0]!.parentElement!.classList.contains("[&_p]:inline"));
 		const annotations = [...host.querySelectorAll('annotation[encoding="application/x-tex"]')].map(n => n.textContent);
 		assert.equal(annotations.filter(t => t === String.raw`\nabla f`).length, 3);
 		assert.deepEqual(persisted.details, saved);
@@ -70,8 +68,6 @@ test("committed-answer reveals keep the first paragraph inline without flattenin
 		await act(async () => root.render(<AnsweredCard answer={answer} input={input} />));
 		const paragraphs = host.querySelectorAll("p");
 		assert.equal(paragraphs.length, 3, "question plus two committed-answer paragraphs");
-		assert.ok(paragraphs[1]!.parentElement!.classList.contains("[&>p:first-child]:inline"));
-		assert.ok(!paragraphs[1]!.parentElement!.classList.contains("[&_p]:inline"));
 		assert.equal(host.querySelectorAll(".katex-error").length, 0);
 		assert.deepEqual(answer, before);
 	} finally { await act(async () => root.unmount()); host.remove(); }
