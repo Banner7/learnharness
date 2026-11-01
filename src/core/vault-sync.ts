@@ -52,8 +52,12 @@ export function reconcileVault(
 		const source = byPath.get(file.path);
 		if (!source) { unmatched.push(file); continue; }
 		const vault = source.vault!;
-		if (vault.contentHash === file.hash && !vault.missingSince) continue;
+		// Backfill (review 2026-11-01): notes followed before wikilinks existed
+		// have no stored targets; save the scan's parse without counting an edit.
+		const backfill = vault.links === undefined && file.links !== undefined;
+		if (vault.contentHash === file.hash && !vault.missingSince && !backfill) continue;
 		const next = { ...vault };
+		if (backfill) next.links = file.links;
 		if (vault.missingSince) { delete next.missingSince; result.restored++; }
 		if (vault.contentHash !== file.hash) {
 			next.contentHash = file.hash;

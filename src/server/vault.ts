@@ -77,9 +77,10 @@ async function scanOnce(): Promise<VaultReconcile | null> {
 	try {
 		const root = VAULT_DIR!;
 		await fs.promises.access(root, fs.constants.R_OK);
-		// The previous scan's hashes decide what to re-parse (owner, 2026-11-01).
+		// The previous scan's hashes decide what to re-parse (owner, 2026-11-01);
+		// a note with no stored targets yet is parsed once (backfill).
 		const priorHashes = new Map(stores.graphStore.readSources()
-			.filter((source) => source.vault !== undefined)
+			.filter((source) => source.vault?.links !== undefined)
 			.map((source) => [source.vault!.path, source.vault!.contentHash] as const));
 		const files = await scanVaultFiles(root, libraryPreferences().exclude, priorHashes);
 		const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),

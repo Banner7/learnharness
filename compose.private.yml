@@ -21,6 +21,9 @@ services:
       - ./secrets:/secrets
       # Claude Code CLI state (CLAUDE_CONFIG_DIR); owned by uid 1000 (node).
       - ./claude:/claude
+      # Optional vault library: a Markdown notes folder, read-only. Set
+      # LH_VAULT_DIR=/vault in secrets/runtime.env to follow it.
+      # - /path/to/notes:/vault:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
