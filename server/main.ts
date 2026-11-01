@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import { app } from "./app.ts";
-import { loadClaudeCodeModelNames } from "@/src/server";
+import { loadClaudeCodeModelNames, startVaultFollower } from "@/src/server";
 
 const server = serve({
 	fetch: app.fetch,
@@ -13,6 +13,8 @@ const server = serve({
 // Fork (2026-10-29): read Claude Code's model names before the first picker
 // load asks for them; /api/models also waits (bounded) if this is still running.
 void loadClaudeCodeModelNames();
+// Fork (2026-11-01): follow LH_VAULT_DIR's notes as sources (no-op when unset).
+startVaultFollower();
 
 let stopping = false;
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

@@ -82,6 +82,21 @@ export interface ProvenancePoint {
 	messageId: string;
 }
 
+/** A followed vault file's sync state (fork, 2026-11-01). Hashes are
+ *  sha256 hex of the file bytes. `contentHash` is what the scanner last
+ *  saw; `extractedHash` is the content the graph reflects (absent until a
+ *  first extraction finishes). They differ while a note awaits extraction. */
+export interface VaultFileState {
+	path: string;
+	contentHash: string;
+	/** ISO — when the scanner first saw `contentHash` (the quiet-period clock). */
+	changedAt: string;
+	extractedHash?: string;
+	/** ISO — set while the file is absent from the vault; ideas stay until
+	 *  the learner confirms deletion. */
+	missingSince?: string;
+}
+
 /** One imported notes file — the format-agnostic front door's bookkeeping
  *  (DECIDED 2026-09-13): personal notes in ARBITRARY formats run through the
  *  same extractor → auditor → merger pipeline, with the file itself as the
@@ -102,6 +117,10 @@ export interface NotesSource {
 	/** The run's usage log — same append-only discipline as
 	 *  ChatRecord.extractions, idempotent per startedAt. */
 	extractions?: ExtractionRunUsage[];
+	/** Vault library (fork, 2026-11-01): set only for sources that follow a
+	 *  file under LH_VAULT_DIR. The id is opaque and survives renames; this
+	 *  vault-relative POSIX path is where the file lives now. */
+	vault?: VaultFileState;
 }
 
 /** The graph-family format version this build writes and understands

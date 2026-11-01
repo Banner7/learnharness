@@ -12,6 +12,7 @@ export { commitPositions } from "./commit-positions.ts";
 export { readRenderSettings, writeRenderSettings } from "../store/render-settings.ts";
 export * from "./source-organization.ts";
 export * from "./source-deletion.ts";
+export { startVaultFollower, syncVault } from "./vault.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export { convertPdf } from "../agent/subagents/pdf-ops.ts";
 export { joinPages } from "../agent/subagents/pdf-markdown.ts";

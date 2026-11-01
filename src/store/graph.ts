@@ -238,11 +238,15 @@ export const graphStore: GraphStore = {
 
 	// ── imported-notes bookkeeping (config.SOURCES_FILE — a JSON map) ──
 
-	/** Upsert: keeps the existing record's usage log when re-importing. */
+	/** Upsert: keeps the existing record's usage log when re-importing, and
+	 *  its vault sync state (fork, 2026-11-01) unless the caller sends one —
+	 *  the extraction pipeline's metadata write must not unlink a vault note. */
 	upsertSource(source: NotesSource): void {
 		const all = readSourceMap();
 		const prev = all[source.id];
-		all[source.id] = prev ? { ...source, extractions: prev.extractions } : source;
+		all[source.id] = prev
+			? { ...source, extractions: prev.extractions, ...(source.vault ?? prev.vault ? { vault: source.vault ?? prev.vault } : {}) }
+			: source;
 		writeSourceMap(all);
 	},
 	readSources(): NotesSource[] {

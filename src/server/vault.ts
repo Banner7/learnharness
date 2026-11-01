@@ -1,0 +1,83 @@
+import { createHash, randomBytes } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { VAULT_DIR, VAULT_EXCLUDE_RAW } from "../../config.ts";
+import { emit } from "../core/events.ts";
+import { parseVaultExclude, reconcileVault, vaultPathExcluded, type VaultFile, type VaultReconcile } from "../core/vault-sync.ts";
+import { stores } from "./stores.ts";
+
+/**
+ * The vault follower (fork, 2026-11-01): scans LH_VAULT_DIR for Markdown
+ * notes and reconciles source records — no upload, no import button. The
+ * vault is mounted read-only; nothing here ever writes inside it.
+ *
+ * Polling, not fs.watch: a sync tool replaces files by rename, recursive
+ * watches drop events across bind mounts, and hashing a study vault every
+ * 30 s costs milliseconds. The scan reads asynchronously; the reconcile and
+ * its writes run in one synchronous stretch so no extraction write
+ * interleaves between reading and writing the source map.
+ */
+const POLL_MS = 30_000;
+
+async function walk(root: string, dir: string, exclude: readonly string[], out: VaultFile[]): Promise<void> {
+	let entries: fs.Dirent[];
+	try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+	catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return; throw err; }
+	for (const entry of entries) {
+		if (entry.name.startsWith(".")) continue;
+		const full = path.join(dir, entry.name);
+		const rel = path.relative(root, full).split(path.sep).join("/");
+		if (entry.isDirectory()) {
+			if (!vaultPathExcluded(`${rel}/`, exclude)) await walk(root, full, exclude, out);
+		} else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md") && !vaultPathExcluded(rel, exclude)) {
+			let bytes: Buffer;
+			// A file deleted between readdir and read is simply absent this scan.
+			try { bytes = await fs.promises.readFile(full); } catch { continue; }
+			out.push({ path: rel, hash: createHash("sha256").update(bytes).digest("hex") });
+		}
+	}
+}
+
+export async function scanVaultFiles(root: string, exclude: readonly string[]): Promise<VaultFile[]> {
+	const files: VaultFile[] = [];
+	await walk(root, root, exclude, files);
+	return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+let scanning: Promise<VaultReconcile | null> | null = null;
+
+/** One scan + reconcile. Concurrent callers share the in-flight scan. An
+ * unreadable vault root (unmounted, permissions) skips the reconcile rather
+ * than marking every note missing. */
+export function syncVault(): Promise<VaultReconcile | null> {
+	if (!VAULT_DIR) return Promise.resolve(null);
+	scanning ??= (async () => {
+		try {
+			const root = VAULT_DIR!;
+			await fs.promises.access(root, fs.constants.R_OK);
+			const files = await scanVaultFiles(root, parseVaultExclude(VAULT_EXCLUDE_RAW));
+			const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
+				() => `src_${randomBytes(6).toString("hex")}`);
+			for (const source of result.upserts) stores.graphStore.upsertSource(source);
+			if (result.upserts.length > 0) {
+				console.info(`[vault] ${result.created} new, ${result.renamed} moved, ${result.changed} edited, ${result.missing} missing, ${result.restored} back`);
+				emit("sources-changed", {});
+			}
+			return result;
+		} catch (err) {
+			console.error("[vault] scan failed", err);
+			return null;
+		} finally {
+			scanning = null;
+		}
+	})();
+	return scanning;
+}
+
+/** Boot hook: an immediate scan, then a light poll. No-op without LH_VAULT_DIR. */
+export function startVaultFollower(): void {
+	if (!VAULT_DIR) return;
+	console.info(`[vault] following ${VAULT_DIR}`);
+	void syncVault();
+	setInterval(() => { void syncVault(); }, POLL_MS).unref();
+}

@@ -10,6 +10,12 @@ const DATA_ROOT = process.env.LH_DATA_DIR
 	? path.resolve(process.env.LH_DATA_DIR)
 	: path.join(ROOT, "data");
 
+/** Vault library (fork, 2026-11-01): LH_VAULT_DIR is a Markdown vault LH
+ * follows read-only; unset disables the feature. LH_VAULT_EXCLUDE lists
+ * comma-separated vault-relative folders ("name/") or files to skip. */
+export const VAULT_DIR = process.env.LH_VAULT_DIR ? path.resolve(process.env.LH_VAULT_DIR) : null;
+export const VAULT_EXCLUDE_RAW = process.env.LH_VAULT_EXCLUDE;
+
 export const PATHS = {
 	root: ROOT,
 	/** Teacher system prompt — the agent's instructions (src/agent/). */
