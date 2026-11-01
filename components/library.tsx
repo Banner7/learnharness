@@ -20,6 +20,7 @@ export interface LibraryStatus {
 	notes: number;
 	waiting: number;
 	missing: number;
+	skipped: number;
 	extracting: string | null;
 	draining: boolean;
 }
@@ -52,6 +53,7 @@ export function LibraryBar() {
 	const parts = [`${status.notes} ${status.notes === 1 ? "note" : "notes"}`];
 	if (status.waiting) parts.push(`${status.waiting} waiting`);
 	if (status.missing) parts.push(`${status.missing} missing`);
+	if (status.skipped) parts.push(`${status.skipped} skipped`);
 	return (
 		<div data-testid="library-bar" className="flex items-center gap-3 border-b border-border px-4 py-2 font-ui text-sm">
 			<span className="min-w-0 flex-1 truncate text-muted-foreground">

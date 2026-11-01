@@ -87,7 +87,7 @@ export interface ChainSort {
 
 /** Vault note row states (fork, 2026-11-01); "ready" shows nothing. */
 const VAULT_STATE_LABEL: Record<Exclude<VaultEntryState, "ready">, string> = {
-	waiting: "waiting", extracting: "extracting…", failed: "failed, retries on sync", missing: "missing from vault",
+	waiting: "waiting", extracting: "extracting…", failed: "failed, retries on sync", missing: "missing from vault", skipped: "skipped",
 };
 
 /** A cluster's chains share the conclusion's birth (owner ruling). This

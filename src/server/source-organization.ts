@@ -7,7 +7,7 @@ import {
 	applyOrganizationAction, overlayVaultFolders, parseOrganizationAction, placeImportedSource, placementOf, VAULT_FOLDER_PREFIX, vaultEntryState,
 	type SourceDirectory, type SourceEntry,
 } from "../core/source-organization.ts";
-import { vaultExtracting } from "./vault.ts";
+import { libraryPreferences, vaultExtracting } from "./vault.ts";
 
 export class SourceOrganizationInputError extends Error {}
 
@@ -20,7 +20,7 @@ export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: 
 		for (const s of deps.graphStore.readSources()) entries.set(s.id, {
 			id: s.id, kind: "notes", label: placementOf(organization, s.id)?.name ?? sourceFileLabel(s.filePath),
 			filePath: s.filePath, createdAt: s.importedAt,
-			...(s.vault ? { vault: vaultEntryState(s, vaultExtracting.id) } : {}),
+			...(s.vault ? { vault: vaultEntryState(s, vaultExtracting.id, libraryPreferences().exclude) } : {}),
 		});
 		// Preserve graph groups whose naming record is gone; do not resurrect a chat.
 		for (const node of getGraph(deps.graphStore).nodes) for (const p of node.provenance) {

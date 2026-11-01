@@ -8,6 +8,7 @@ import { detachSourceTraces, pruneDetachedNodes } from "../core/graph-deletion.t
 import { extraction } from "./chat-handler.ts";
 import { stores } from "./stores.ts";
 import { libraryPreferences, syncVault, vaultExtracting } from "./vault.ts";
+import { vaultEntryState } from "../core/source-organization.ts";
 
 /**
  * The vault library's extraction side (fork, 2026-11-01). Notes whose
@@ -30,6 +31,7 @@ export interface LibraryStatus {
 	notes: number;
 	waiting: number;
 	missing: number;
+	skipped: number;
 	extracting: string | null;
 	draining: boolean;
 }
@@ -49,7 +51,8 @@ export function libraryStatus(): LibraryStatus {
 		exclude,
 		notes: sources.filter((s) => !s.vault!.missingSince).length,
 		waiting: sources.filter(vaultNoteWaiting).length,
-		missing: sources.filter((s) => s.vault!.missingSince).length,
+		missing: sources.filter((s) => vaultEntryState(s, null, exclude) === "missing").length,
+		skipped: sources.filter((s) => vaultEntryState(s, null, exclude) === "skipped").length,
 		extracting: vaultExtracting.id,
 		draining: draining !== null,
 	};

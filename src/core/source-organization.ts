@@ -1,4 +1,5 @@
 import type { NotesSource } from "./contracts.ts";
+import { vaultPathExcluded } from "./vault-sync.ts";
 
 /** Source organization is presentation metadata, never graph/extraction identity.
  * A source has one parent; folders have stable IDs independent of names/paths. */
@@ -31,11 +32,14 @@ export interface SourceEntry {
 }
 /** ready: the graph reflects the file · waiting: new or edited, not yet
  *  extracted · extracting: running now · failed: the last run failed (still
- *  waiting; retried by the next sync) · missing: gone from the vault. */
-export type VaultEntryState = "ready" | "waiting" | "extracting" | "failed" | "missing";
-export function vaultEntryState(source: NotesSource, extractingId: string | null): VaultEntryState {
+ *  waiting; retried by the next sync) · missing: gone from the vault ·
+ *  skipped: still there but on the skip list (owner, 2026-11-01: "skipped",
+ *  not "missing" — derived from the live list, so un-skipping restores it
+ *  exactly like a note coming back). */
+export type VaultEntryState = "ready" | "waiting" | "extracting" | "failed" | "missing" | "skipped";
+export function vaultEntryState(source: NotesSource, extractingId: string | null, exclude: readonly string[] = []): VaultEntryState {
 	const vault = source.vault!;
-	if (vault.missingSince) return "missing";
+	if (vault.missingSince) return vaultPathExcluded(vault.path, exclude) ? "skipped" : "missing";
 	if (source.id === extractingId) return "extracting";
 	if (vault.contentHash === vault.extractedHash) return "ready";
 	return vault.lastError ? "failed" : "waiting";

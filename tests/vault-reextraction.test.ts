@@ -63,3 +63,11 @@ it("a vault note still in the vault cannot be deleted or reorganized from LH; a 
 	assert.ok(!ids().has("idea"));
 	assert.deepEqual(stores.sourceOrganizationStore.read().folders, [], "the vault folder overlay is never persisted");
 });
+
+it("a vanished note reads as skipped while its path is on the skip list, missing otherwise", async () => {
+	const { vaultEntryState } = await import("../src/core/source-organization.ts");
+	const source = { id: "src_s", filePath: "reading/Book.md", importedAt: "2026-11-01", vault: { path: "reading/Book.md", contentHash: "h", changedAt: "2026-11-01", extractedHash: "h", missingSince: "2026-11-02" } };
+	assert.equal(vaultEntryState(source, null, ["reading/"]), "skipped");
+	assert.equal(vaultEntryState(source, null, ["read"]), "missing", "a partial file pattern is not a folder prefix");
+	assert.equal(vaultEntryState(source, null, []), "missing");
+});
