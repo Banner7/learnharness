@@ -49,6 +49,21 @@ This fork changes the shell around that engine: a browser app you host yourself,
 
 Upstream releases are ported selectively by applying diffs, not merged. The [custom-endpoint guide](docs/custom-providers.md) is upstream's and describes its settings-based endpoint, not `LH_CUSTOM_PROVIDERS`.
 
+### How notes get in
+
+| | Upstream | This fork |
+| --- | --- | --- |
+| How notes arrive | You upload them each time | The server scans the vault every 30 s |
+| Copy of the note | None; text is read once, only the path is kept | None; the vault file is re-read when it is extracted |
+| Source id | Hash of the file path | Random `src_` id; survives a rename because the content hash matches |
+| Edited note | Re-import it by hand | Detected by hash; re-extracted, and ideas nothing supports any more are pruned |
+| Deleted note | Not noticed | Flagged "missing", then Review → Delete |
+| When extraction runs | Straight away on import | On **Sync now**, or automatically after 5 quiet minutes |
+| Folders | App folders and drag-and-drop | Vault folders (read-only), plus flat Uploads and Chats groups |
+| `source-organization.json` | v1: folders + placements | v2: names only (v1 migrates on read) |
+| Graph files (`nodes.jsonl`, `chains.jsonl`) | Same | Same; the extraction engine is unchanged |
+| PDF upload | Same route | Same route, kept for one-off files |
+
 ## Self-hosting
 
 You need Docker on an x64 host, a tailnet-only HTTPS proxy (Tailscale Serve), and — for Claude — a token from `claude setup-token`. The image is [`banner7/learnharness`](https://hub.docker.com/r/banner7/learnharness) (`linux/amd64` only): `latest` follows `main`, and `sha-<commit>` pins a build.
