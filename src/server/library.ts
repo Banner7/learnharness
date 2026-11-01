@@ -5,6 +5,7 @@ import { VAULT_DIR } from "../../config.ts";
 import type { NotesSource } from "../core/contracts.ts";
 import { emit } from "../core/events.ts";
 import { detachSourceTraces, pruneDetachedNodes } from "../core/graph-deletion.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError } from "../core/settings.ts";
 import { extraction } from "./chat-handler.ts";
 import { stores } from "./stores.ts";
 import { libraryPreferences, syncVault, vaultExtracting } from "./vault.ts";
@@ -34,13 +35,22 @@ export interface LibraryStatus {
 	skipped: number;
 	extracting: string | null;
 	draining: boolean;
+	/** Why the last drain stopped before extracting anything (models or a
+	 *  provider key missing); cleared by the next drain that gets going. */
+	blocked: string | null;
 }
 
 const followed = (): NotesSource[] => stores.graphStore.readSources().filter((s) => s.vault);
-export const vaultNoteWaiting = (s: NotesSource): boolean =>
+const vaultNoteWaiting = (s: NotesSource): boolean =>
 	!!s.vault && !s.vault.missingSince && s.vault.contentHash !== s.vault.extractedHash;
 
 let draining: Promise<void> | null = null;
+/** A "Sync now" that arrives while an auto drain runs widens that drain to
+ *  notes still inside their quiet period (it re-checks on every pick). */
+let manualRequested = false;
+let blocked: string | null = null;
+const isSetupRefusal = (err: unknown): boolean =>
+	err instanceof ModelsNotConfiguredError || err instanceof ProviderKeyMissingError;
 
 export function libraryStatus(): LibraryStatus {
 	const sources = followed();
@@ -55,6 +65,7 @@ export function libraryStatus(): LibraryStatus {
 		skipped: sources.filter((s) => vaultEntryState(s, null, exclude) === "skipped").length,
 		extracting: vaultExtracting.id,
 		draining: draining !== null,
+		blocked,
 	};
 }
 
@@ -71,6 +82,9 @@ async function extractNote(source: NotesSource): Promise<void> {
 	try { bytes = await fs.promises.readFile(path.join(VAULT_DIR!, vault.path)); }
 	catch { return; } // gone since the scan — the next scan marks it missing
 	const hash = createHash("sha256").update(bytes).digest("hex");
+	// Refuse BEFORE detaching (review, 2026-11-01): a run that cannot start
+	// must leave the note's chains and coverage exactly as they were.
+	extraction.assertReady();
 	vaultExtracting.id = source.id;
 	emit("sources-changed", {});
 	try {
@@ -86,8 +100,9 @@ async function extractNote(source: NotesSource): Promise<void> {
 			return { ...rest, extractedHash: hash };
 		});
 	} catch (err) {
+		if (isSetupRefusal(err)) throw err; // a setup problem, not this note's
 		const message = err instanceof Error ? err.message : String(err);
-		console.error(`[library] ${vault.path}: extraction failed`, err);
+		console.error(`[library] ${vault.path}: extraction failed: ${message}`);
 		patchVault(source.id, (v) => ({ ...v, lastError: message }));
 	} finally {
 		vaultExtracting.id = null;
@@ -95,10 +110,13 @@ async function extractNote(source: NotesSource): Promise<void> {
 	}
 }
 
-/** Drain waiting notes. "manual" ignores the quiet period. A drain already
- * running absorbs the request (it re-reads the waiting list each note). */
+/** Drain waiting notes. "manual" ignores the quiet period and retries
+ * failed notes; "auto" takes quiet notes that have not failed on their
+ * current bytes (a failure would otherwise re-run, and bill, every poll).
+ * A setup refusal stops the drain and is reported once via `blocked`. */
 export function drainLibrary(mode: "manual" | "auto"): Promise<void> {
 	if (!VAULT_DIR) return Promise.resolve();
+	if (mode === "manual") manualRequested = true;
 	draining ??= (async () => {
 		try {
 			await syncVault();
@@ -106,13 +124,22 @@ export function drainLibrary(mode: "manual" | "auto"): Promise<void> {
 			for (;;) {
 				const now = Date.now();
 				const next = followed().find((s) => vaultNoteWaiting(s) && !tried.has(s.id)
-					&& (mode === "manual" || now - Date.parse(s.vault!.changedAt) >= QUIET_MS));
+					&& (manualRequested || (!s.vault!.lastError && now - Date.parse(s.vault!.changedAt) >= QUIET_MS)));
 				if (!next) return;
 				tried.add(next.id); // one attempt per note per drain: a failure must not spin
-				await extractNote(next);
+				try {
+					await extractNote(next);
+					blocked = null;
+				} catch (err) {
+					if (!isSetupRefusal(err)) throw err;
+					blocked = (err as Error).message;
+					console.info(`[library] sync stopped: ${blocked}`);
+					return;
+				}
 			}
 		} finally {
 			draining = null;
+			manualRequested = false;
 			emit("sources-changed", {});
 		}
 	})();

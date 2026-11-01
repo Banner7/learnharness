@@ -99,7 +99,9 @@ export interface VaultFileState {
 	 *  detachSourceTraces) that a successful run has not yet pruned. Kept
 	 *  across failures so a later success still removes stale ideas. */
 	detached?: string[];
-	/** The last failed extraction's message; cleared on success. */
+	/** The last failed extraction's message; cleared on success and when
+	 *  the scanner sees new bytes. Auto-extract skips a note carrying one
+	 *  (the same bytes would fail again); "Sync now" retries it. */
 	lastError?: string;
 }
 

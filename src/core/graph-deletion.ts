@@ -383,10 +383,17 @@ export function detachSourceTraces(graphStore: GraphStore, sourceId: string): Se
  * that is still provenance-free (nothing re-linked it — not the re-run,
  * not a concurrent chat extraction). Returns how many nodes died. */
 export function pruneDetachedNodes(graphStore: GraphStore, candidates: ReadonlySet<string>): number {
-	let removed = 0;
-	for (const id of candidates) {
-		const lines = nodeLinesOf(graphStore, id);
-		if (lines.length > 0 && lines.every((line) => line.provenance.length === 0) && deleteNodeTraces(graphStore, id)) removed++;
+	if (candidates.size === 0) return 0;
+	// One ledger read finds the orphans; the loop below has no await, so no
+	// writer can re-link one between this check and its deletion.
+	const supported = new Set<string>();
+	const present = new Set<string>();
+	for (const line of graphStore.readNodes()) {
+		if (!candidates.has(line.id)) continue;
+		present.add(line.id);
+		if (line.provenance.length > 0) supported.add(line.id);
 	}
+	let removed = 0;
+	for (const id of present) if (!supported.has(id) && deleteNodeTraces(graphStore, id)) removed++;
 	return removed;
 }

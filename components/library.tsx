@@ -23,6 +23,8 @@ export interface LibraryStatus {
 	skipped: number;
 	extracting: string | null;
 	draining: boolean;
+	/** Why the last drain stopped on a setup refusal, else null. */
+	blocked: string | null;
 }
 
 export function useLibrary(): { status: LibraryStatus | null; syncNow: () => Promise<void>; error: string | null } {
@@ -59,6 +61,7 @@ export function LibraryBar() {
 			<span className="min-w-0 flex-1 truncate text-muted-foreground">
 				<span className="text-foreground">Vault</span> · {parts.join(" · ")}
 				{error && <span role="alert" className="ml-2 text-wrong">{error}</span>}
+				{status.blocked && <span className="ml-2 text-wrong">Sync stopped: {status.blocked}</span>}
 			</span>
 			<button type="button" data-testid="library-sync" disabled={busy || status.waiting === 0}
 				onClick={() => void syncNow()}

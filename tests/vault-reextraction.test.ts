@@ -11,6 +11,7 @@ const { stores } = await import("../src/server/stores.ts");
 const { getGraph } = await import("../src/core/graph.ts");
 const { detachSourceTraces, pruneDetachedNodes } = await import("../src/core/graph-deletion.ts");
 const { DELETE, POST } = await import("../server/routes/graph/sources/route.ts");
+const { writeSettings } = await import("../src/store/settings.ts");
 beforeEach(() => { fs.rmSync(root, { recursive: true, force: true }); fs.mkdirSync(root); fs.writeFileSync(process.env.LH_AUTH_FILE!, "{}\n"); });
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -62,6 +63,23 @@ it("a vault note still in the vault cannot be deleted or reorganized from LH; a 
 	assert.equal((await remove()).status, 200);
 	assert.ok(!ids().has("idea"));
 	assert.deepEqual(stores.sourceOrganizationStore.read().folders, [], "the vault folder overlay is never persisted");
+
+	// A vanished note on the skip list (state "skipped") is outside what LH
+	// follows, so its ideas may be deleted too.
+	writeSettings({ library: { exclude: ["math/"] } });
+	stores.graphStore.upsertSource({ id: "src_v", filePath: "math/Note.md", importedAt: "2026-11-01", vault: vault("2026-11-02") });
+	stores.graphStore.appendNode(node("idea2", ["src_v"]));
+	assert.equal((await remove()).status, 200);
+	assert.ok(!ids().has("idea2"));
+});
+
+it("deleting a missing note prunes ideas left detached by a failed re-extraction", async () => {
+	stores.graphStore.upsertSource({ id: "src_d", filePath: "math/Gone.md", importedAt: "2026-11-01",
+		vault: { path: "math/Gone.md", contentHash: "h", changedAt: "2026-11-01", extractedHash: "h", missingSince: "2026-11-02", detached: ["orphan"] } });
+	stores.graphStore.appendNode(node("orphan", []));
+	const response = await DELETE(new Request("http://localhost/api/graph/sources", { method: "DELETE", body: JSON.stringify({ sourceIds: ["src_d"], folderIds: [], deleteSessions: false }) }));
+	assert.equal(response.status, 200);
+	assert.ok(!ids().has("orphan"), "the detached idea is pruned, not orphaned");
 });
 
 it("a vanished note reads as skipped while its path is on the skip list, missing otherwise", async () => {

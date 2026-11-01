@@ -80,6 +80,19 @@ if (existsSync(bin)) {
 		if (!existsSync(path.join(bin, link))) rmSync(path.join(bin, link), { force: true });
 	}
 }
+// Fork (2026-11-01): kept packages still ship source maps, type declarations
+// and Markdown docs — about 110 MB the server never loads (measured in the
+// 0.4.1-banner.3 image). A missing map only costs mapped stack frames.
+const NOT_RUNTIME = /\.(?:map|d\.ts|d\.mts|d\.cts|md|markdown)$/i;
+let stripped = 0;
+const strip = (dir) => {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) strip(full);
+		else if (entry.isFile() && NOT_RUNTIME.test(entry.name)) { rmSync(full, { force: true }); stripped++; }
+	}
+};
+strip(modules);
 const after = dirSize(modules);
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(0)} MB`;
-console.log(`prune-runtime: kept ${keep.size} packages, removed ${removed}; node_modules ${mb(before)} -> ${mb(after)}`);
+console.log(`prune-runtime: kept ${keep.size} packages, removed ${removed}, stripped ${stripped} non-runtime files; node_modules ${mb(before)} -> ${mb(after)}`);

@@ -17,10 +17,14 @@ export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: 
 		const organization = deps.sourceOrganizationStore.read();
 		const entries = new Map<string, SourceEntry>();
 		for (const c of deps.chatStore.listChats()) entries.set(c.id, { id: c.id, kind: "chat", label: c.title, createdAt: c.createdAt });
-		for (const s of deps.graphStore.readSources()) entries.set(s.id, {
+		// One sources read and one skip-list read per directory view (fork,
+		// 2026-11-01): both feed the entries loop and the vault overlay below.
+		const sources = deps.graphStore.readSources();
+		const exclude = libraryPreferences().exclude;
+		for (const s of sources) entries.set(s.id, {
 			id: s.id, kind: "notes", label: placementOf(organization, s.id)?.name ?? sourceFileLabel(s.filePath),
 			filePath: s.filePath, createdAt: s.importedAt,
-			...(s.vault ? { vault: vaultEntryState(s, vaultExtracting.id, libraryPreferences().exclude) } : {}),
+			...(s.vault ? { vault: vaultEntryState(s, vaultExtracting.id, exclude) } : {}),
 		});
 		// Preserve graph groups whose naming record is gone; do not resurrect a chat.
 		for (const node of getGraph(deps.graphStore).nodes) for (const p of node.provenance) {
@@ -28,7 +32,7 @@ export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: 
 		}
 		// Vault library (fork, 2026-11-01): followed notes sit in read-only
 		// folders mirroring the vault, overlaid here and never stored.
-		const vaultNotes = deps.graphStore.readSources().filter((s) => s.vault).map((s) => ({ id: s.id, path: s.vault!.path, createdAt: s.importedAt }));
+		const vaultNotes = sources.filter((s) => s.vault).map((s) => ({ id: s.id, path: s.vault!.path, createdAt: s.importedAt }));
 		return { organization: overlayVaultFolders(organization, vaultNotes), sources: [...entries.values()] };
 	}
 	function change(raw: unknown): SourceDirectory & { createdFolderId?: string } {

@@ -784,6 +784,10 @@ export interface ExtractionPipeline {
 	/** Vault library (fork, 2026-11-01): the same run for a followed vault
 	 *  note under its stored, rename-stable source id. */
 	extractVaultNote(input: NotesImportInput & { id: string }): Promise<EmissionStats>;
+	/** Throws ModelsNotConfiguredError / ProviderKeyMissingError when a run
+	 *  would be refused (fork, 2026-11-01): the vault library checks before
+	 *  it detaches a note's traces, never after. */
+	assertReady(): void;
 }
 
 /** pi's per-step usage, flattened to the persisted CallUsage fields
@@ -1458,6 +1462,6 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 		}
 	}
 
-	return { runExtraction, importNotes, extractVaultNote };
+	return { runExtraction, importNotes, extractVaultNote, assertReady: refuseIfStagesUnready };
 }
 

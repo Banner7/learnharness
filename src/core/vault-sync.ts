@@ -54,6 +54,7 @@ export function reconcileVault(
 		if (vault.contentHash !== file.hash) {
 			next.contentHash = file.hash;
 			next.changedAt = now;
+			delete next.lastError; // new bytes deserve a fresh attempt
 			result.changed++;
 		}
 		result.upserts.push({ ...source, vault: next });

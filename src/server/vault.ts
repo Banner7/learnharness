@@ -52,35 +52,47 @@ async function walk(root: string, dir: string, exclude: readonly string[], out: 
 	}
 }
 
-export async function scanVaultFiles(root: string, exclude: readonly string[]): Promise<VaultFile[]> {
+async function scanVaultFiles(root: string, exclude: readonly string[]): Promise<VaultFile[]> {
 	const files: VaultFile[] = [];
 	await walk(root, root, exclude, files);
 	return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 let scanning: Promise<VaultReconcile | null> | null = null;
+let rescan = false;
 
-/** One scan + reconcile. Concurrent callers share the in-flight scan. An
+async function scanOnce(): Promise<VaultReconcile | null> {
+	try {
+		const root = VAULT_DIR!;
+		await fs.promises.access(root, fs.constants.R_OK);
+		const files = await scanVaultFiles(root, libraryPreferences().exclude);
+		const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
+			() => `src_${randomBytes(6).toString("hex")}`);
+		for (const source of result.upserts) stores.graphStore.upsertSource(source);
+		if (result.upserts.length > 0) {
+			console.info(`[vault] ${result.created} new, ${result.renamed} moved, ${result.changed} edited, ${result.missing} missing, ${result.restored} back`);
+			emit("sources-changed", {});
+		}
+		return result;
+	} catch (err) {
+		console.error("[vault] scan failed", err);
+		return null;
+	}
+}
+
+/** One scan + reconcile. Concurrent callers share the in-flight scan, and
+ * a call arriving mid-scan queues exactly one more — a skip list saved
+ * while an old-list scan runs still applies now, not a poll later. An
  * unreadable vault root (unmounted, permissions) skips the reconcile rather
  * than marking every note missing. */
 export function syncVault(): Promise<VaultReconcile | null> {
 	if (!VAULT_DIR) return Promise.resolve(null);
-	scanning ??= (async () => {
+	if (scanning) { rescan = true; return scanning; }
+	scanning = (async () => {
 		try {
-			const root = VAULT_DIR!;
-			await fs.promises.access(root, fs.constants.R_OK);
-			const files = await scanVaultFiles(root, libraryPreferences().exclude);
-			const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
-				() => `src_${randomBytes(6).toString("hex")}`);
-			for (const source of result.upserts) stores.graphStore.upsertSource(source);
-			if (result.upserts.length > 0) {
-				console.info(`[vault] ${result.created} new, ${result.renamed} moved, ${result.changed} edited, ${result.missing} missing, ${result.restored} back`);
-				emit("sources-changed", {});
-			}
+			let result = await scanOnce();
+			while (rescan) { rescan = false; result = await scanOnce(); }
 			return result;
-		} catch (err) {
-			console.error("[vault] scan failed", err);
-			return null;
 		} finally {
 			scanning = null;
 		}
