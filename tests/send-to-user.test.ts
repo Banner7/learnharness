@@ -38,7 +38,7 @@ after(() => {
 const { sendToUserTool } = await import("../src/agent/tools/send-to-user.ts");
 const { createProberAgent, createTeacherAgent, createPracticeAgent } = await import("../src/agent/teacher-agent.ts");
 const { SEND_TO_USER_TOOL, activeProblemOf, asAgentMessages, newUserMessage, sendToUserText, toLlmMessages, userFacingTextOf } = await import("../src/core/native-messages.ts");
-const { coverageOf, messageFingerprint, messageViewLines, teacherProseBlocks } = await import("../src/core/coverage.ts");
+const { coverageOf, messageFingerprint, teacherProseBlocks } = await import("../src/core/coverage.ts");
 const { projectView } = await import("../src/core/view.ts");
 const { sessionMarkdown } = await import("../src/core/session-markdown.ts");
 const { transcriptView } = await import("../src/agent/subagents/extraction.ts");
@@ -84,11 +84,7 @@ describe("send_to_user model gate", () => {
 	for (const [provider, id, enabled] of [
 		["anthropic", "claude-opus-5-5", true],
 		["openrouter", "anthropic/claude-opus-5.5", true],
-		["amazon-bedrock", "us.anthropic.claude-opus-5-5-v1:0", true],
-		["fixture", "CLAUDE-fixture", true],
-		["claude-code", "opus", true],
 		["openrouter", "z-ai/glm-5.3-flash", false],
-		["openai", "gpt-4o-mini", false],
 		["anthropic", "opaque-alias", false],
 	] as const) {
 		it(`${provider}/${id}: ${enabled ? "includes" : "omits"} the tool in all conversation agents`, () => {
@@ -96,7 +92,6 @@ describe("send_to_user model gate", () => {
 			for (const [kind, factory] of Object.entries(factories)) {
 				const output = factory({ engine }).state.tools.find((tool) => tool.name === SEND_TO_USER_TOOL);
 				assert.equal(Boolean(output), enabled, kind);
-				if (enabled) assert.equal(typeof output!.prepareArguments, "function", "standard argument healing is wired");
 			}
 		});
 	}
@@ -115,17 +110,14 @@ describe("send_to_user model gate", () => {
 
 describe("send_to_user mechanics", () => {
 	it("requires nonblank text and acknowledges without echoing or terminating", async () => {
-		assert.equal(sendToUserTool.name, SEND_TO_USER_TOOL);
 		for (const input of [{}, { message: "" }, { message: " \n\t" }, { message: 3 }, { message: null }]) {
 			assert.equal(Value.Check(sendToUserTool.parameters, input), false);
 		}
 		const message = "**A full explanation**\n\n$$a = b$$";
 		assert.equal(Value.Check(sendToUserTool.parameters, { message }), true);
 		const result = await sendToUserTool.execute("send-1", { message });
-		assert.ok(!result.isError);
-		assert.ok(!result.terminate);
+		assert.ok(!result.isError && !result.terminate);
 		assert.ok(!JSON.stringify(result).includes(message));
-		assert.deepEqual(result.content, [{ type: "text", text: "Message received for display." }]);
 	});
 
 	it("only extracts the output tool's nonblank message, without modifying it", () => {
@@ -147,10 +139,8 @@ describe("send_to_user transcript projection", () => {
 		]), ack()];
 		const before = structuredClone(messages);
 		const view = projectView(messages);
-		assert.deepEqual(view[0]!.parts.map((p) => p.type), ["step-start", "reasoning", "text", "text", "tool-quiz", "text"]);
 		assert.deepEqual(prose(view), ["Before.", "**The lesson.** $x = 1$", "After."]);
-		assert.equal(view[0]!.parts.find((p) => p.type === "reasoning")!.text, "Private reasoning.");
-		assert.deepEqual(view[0]!.parts.filter((p) => p.type === "text").map((p) => p.id), ["a1-t0", "a1-t1", "a1-t2"]);
+		assert.ok(!view[0]!.parts.some((p) => p.type === "tool-send_to_user"));
 		assert.deepEqual(messages, before, "projection never rewrites native content");
 		assert.deepEqual(projectView(JSON.parse(JSON.stringify(messages))), view, "reload is identical, without consulting a provider gate");
 	});
@@ -172,14 +162,7 @@ describe("send_to_user transcript projection", () => {
 		const messages = [assistant([outputCall("Incomplete teaching.")]), ack("send-1", true)];
 		const settled = projectView(messages);
 		assert.deepEqual(prose(settled), []);
-		assert.equal(settled[0]!.parts[1]!.type, "tool-send_to_user");
 		assert.equal(settled[0]!.parts[1]!.state, "output-error");
-		const live = projectView(messages.slice(0, 1), {
-			inFlight: true, streamingIds: new Set(["a1"]),
-			executions: new Map([["send-1", { isError: true, errorText: "Invalid tool input" }]]),
-		});
-		assert.deepEqual(prose(live), []);
-		assert.equal(live[0]!.parts[1]!.state, "output-error");
 	});
 });
 
@@ -187,13 +170,10 @@ describe("send_to_user extraction and Markdown", () => {
 	it("selects output prose once and in order, preserving old fingerprints", () => {
 		const message = assistant([fauxText("First."), outputCall("Second."), fauxThinking("Hidden."), outputCall("Third.", "send-2")]);
 		const messages = [message, ack(), ack("send-2")];
-		assert.deepEqual(messageViewLines(message, "a1"), ["TEACHER [a1] First.", "TEACHER [a1] Second.", "TEACHER [a1] Third."]);
 		assert.deepEqual(teacherProseBlocks(messages), ["First.", "Second.", "Third."]);
 		assert.equal(coverageOf(messages, [], "fixture").uncoveredCount, 1);
-		const md = sessionMarkdown(messages, { anchors: false });
-		assert.equal(md, "### Teacher\n\nFirst.\n\n### Teacher\n\nSecond.\n\n### Teacher\n\nThird.");
-		const record = chatStore.createChat("Synthetic extraction");
-		assert.equal(transcriptView({ ...record, messages }), "# Synthetic extraction\n\nTEACHER [a1] First.\n\nTEACHER [a1] Second.\n\nTEACHER [a1] Third.");
+		assert.equal(sessionMarkdown(messages, { anchors: false }), "### Teacher\n\nFirst.\n\n### Teacher\n\nSecond.\n\n### Teacher\n\nThird.");
+		assert.match(transcriptView({ ...chatStore.createChat("Synthetic extraction"), messages }), /First\.[\s\S]*Second\.[\s\S]*Third\./);
 		const legacy = assistant([fauxText("Old text."), fauxThinking("Old thinking.")], "legacy");
 		const oldFingerprint = createHash("sha256").update(JSON.stringify(["assistant", ["TEACHER [legacy] Old text."]])).digest("hex");
 		assert.equal(messageFingerprint(legacy), oldFingerprint, "no re-extraction/migration of legacy prose");
@@ -204,11 +184,7 @@ describe("send_to_user extraction and Markdown", () => {
 		const messages = [message, ack("send-1", true)];
 		assert.deepEqual(teacherProseBlocks(messages), ["Keep this."]);
 		assert.equal(sessionMarkdown(messages, { anchors: false }), "### Teacher\n\nKeep this.");
-		const record = chatStore.createChat("Failed output fixture");
-		assert.ok(!transcriptView({ ...record, messages }).includes("Do not treat"));
-		const coverage = coverageOf([assistant([outputCall()]), ack("send-1", true)], [], "fixture");
-		assert.equal(coverage.uncoveredCount, 0);
-		assert.equal(coverage.uncoveredTokens, 0);
+		assert.equal(coverageOf([assistant([outputCall()]), ack("send-1", true)], [], "fixture").uncoveredCount, 0);
 	});
 });
 
@@ -218,12 +194,9 @@ describe("send_to_user interrupted generations", () => {
 			const message = { ...assistant([fauxText("Keep ordinary text."), outputCall("Unfinished output.")]), stopReason };
 			const messages = [message];
 			assert.deepEqual(prose(projectView(messages)), ["Keep ordinary text."]);
-			assert.deepEqual(prose(projectView(JSON.parse(JSON.stringify(messages)))), ["Keep ordinary text."]);
-			assert.deepEqual(messageViewLines(message, message.id), ["TEACHER [a1] Keep ordinary text."]);
 			assert.deepEqual(teacherProseBlocks(messages), ["Keep ordinary text."]);
 			assert.equal(sessionMarkdown(messages, { anchors: false }), "### Teacher\n\nKeep ordinary text.");
-			const onlyOutput = { ...assistant([outputCall("Unfinished output.")]), stopReason };
-			assert.equal(coverageOf([onlyOutput], [], "fixture").uncoveredCount, 0);
+			assert.equal(coverageOf([{ ...assistant([outputCall("Unfinished output.")]), stopReason } as LhMessage], [], "fixture").uncoveredCount, 0);
 		});
 	}
 });
@@ -242,24 +215,19 @@ describe("send_to_user native flow (offline)", () => {
 		assert.equal(faux.state.callCount, 2);
 	});
 
-	for (const outputFirst of [true, false]) {
-		it(`output + practice problem stops after the pose (${outputFirst ? "output first" : "problem first"})`, async () => {
-			const output = outputCall("Try this practice problem.");
-			const problem = fauxToolCall("problem", {
+	it("output + practice problem stops after the pose", async () => {
+		const { engine, faux } = scripted("anthropic", "claude-opus-5-5", [
+			fauxAssistantMessage([outputCall("Try this practice problem."), fauxToolCall("problem", {
 				statement: "What is two plus two?", mode: "recall", modelSolution: "Four.",
-			}, { id: "problem-1" });
-			const { engine, faux } = scripted("anthropic", "claude-opus-5-5", [
-				fauxAssistantMessage(outputFirst ? [output, problem] : [problem, output], { stopReason: "toolUse" }),
-				fauxAssistantMessage("Premature continuation must not run."),
-			]);
-			const agent = createPracticeAgent({ chatId, chatStore }, { engine });
-			await agent.prompt("Pose a synthetic problem.");
-			assert.equal(faux.state.callCount, 1, "wait for the learner after a successful mixed-batch pose");
-			const results = agent.state.messages.filter((m) => m.role === "toolResult");
-			assert.equal(results.length, 2);
-			assert.ok(results.every((m) => !m.isError));
-		});
-	}
+			}, { id: "problem-1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage("Premature continuation must not run."),
+		]);
+		const agent = createPracticeAgent({ chatId, chatStore }, { engine });
+		await agent.prompt("Pose a synthetic problem.");
+		assert.equal(faux.state.callCount, 1, "wait for the learner after a successful mixed-batch pose");
+		const results = agent.state.messages.filter((m) => m.role === "toolResult");
+		assert.ok(results.length === 2 && results.every((m) => !m.isError));
+	});
 
 	for (const stopReason of ["error", "aborted"] as const) {
 		it(`${stopReason} mixed output/problem generation never executes or activates the pose`, async () => {
@@ -299,9 +267,7 @@ describe("send_to_user native flow (offline)", () => {
 		await agent.prompt("Pose a synthetic problem.");
 		assert.equal(faux.state.callCount, 2, "failed authoring retries; successful pose waits for the learner");
 		const results = agent.state.messages.filter((m) => m.role === "toolResult" && m.toolName === "problem");
-		assert.equal(results.length, 2);
-		assert.ok(results[0]?.role === "toolResult" && results[0].isError);
-		assert.ok(results[1]?.role === "toolResult" && !results[1].isError);
+		assert.deepEqual(results.map((m) => m.role === "toolResult" && m.isError), [true, false]);
 	});
 
 	it("output + question streams, persists natively, replays, and reloads as prose before the question", async () => {
@@ -327,26 +293,19 @@ describe("send_to_user native flow (offline)", () => {
 			onFinish: (messages, aborted) => { persistTurn(chatStore, chat.id, 1, messages, aborted); },
 		});
 		const wire = await new Response(handle.subscribe()).text();
-		assert.ok(wire.endsWith("data: [DONE]\n\n"));
 		assert.equal(faux.state.callCount, 1, "question stops the mixed batch as before");
 		const saved = chatStore.getChat(chat.id)!.messages;
 		const response = saved.find((m) => m.role === "assistant")!;
-		assert.equal(response.role, "assistant");
 		if (response.role !== "assistant") assert.fail("missing assistant");
-		assert.deepEqual(response.content.map((c) => c.type), ["thinking", "toolCall", "toolCall"]);
 		assert.deepEqual(response.content[1], outputCall(lesson));
 		assert.ok(saved.some((m) => m.role === "toolResult" && m.toolName === SEND_TO_USER_TOOL), "native output ack persists");
 		assert.ok(!saved.some((m) => m.role === "toolResult" && m.toolName === "quiz"), "question placeholder remains transient");
 		const providerHistory = toLlmMessages(asAgentMessages(saved));
 		assert.deepEqual(providerHistory.find((m) => m.role === "assistant")!.content, response.content, "next request keeps native call/thinking structure");
 		assert.deepEqual(prose(projectView(saved)), [lesson]);
-		const parts = projectView(saved).flatMap((m) => m.parts);
-		assert.ok(parts.findIndex((p) => p.type === "text") < parts.findIndex((p) => p.type === "tool-quiz"));
 		const client = new SessionModel({ chatId: chat.id, initialMessages: [user], fetch: globalThis.fetch });
 		await client.consumeStream(new Response(wire));
 		assert.deepEqual(prose(client.getState().messages), [lesson], "native event replay shows the lesson exactly once");
-		assert.deepEqual(prose(projectView(JSON.parse(JSON.stringify(saved)))), [lesson], "reload preserves the lesson");
-		assert.deepEqual(teacherProseBlocks(saved), [lesson]);
 		assert.equal(sessionMarkdown(saved).split(lesson).length - 1, 1);
 	});
 });

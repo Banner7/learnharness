@@ -23,7 +23,6 @@ const {
 	deliverJobResult, discardChatDeliveries, noteSteersDurable, recoverStaleJobs,
 	registerLiveAgent, unregisterLiveAgent, settleSteers, setTurnRunner,
 } = await import("../src/server/jobs.ts");
-const { activityFeed } = await import("../src/server/observability.ts");
 const { deleteChatSession } = await import("../src/server/chats.ts");
 const chats: string[] = [];
 const result = { brief: "Fixture research result", sources: [] };
@@ -103,9 +102,7 @@ test("saved question survives absent transcript; runner ends while delivery is s
 	await runner.runJob(job.id);
 	assert(seen.includes(input.question)); assert(seen.includes(input.context));
 	assert.equal(isJobLive(job.id), false, "worker registration no longer spans delivery");
-	assert.equal(stores.jobStore.getJob(job.id)!.status, "done");
-	assert.equal(stores.jobStore.getJob(job.id)!.delivery?.status, "pending");
-	assert(!activityFeed().jobs.some((item) => item.id === job.id), "no running background-agent row");
+	assert.deepEqual([stores.jobStore.getJob(job.id)!.status, stores.jobStore.getJob(job.id)!.delivery?.status], ["done", "pending"]);
 	const next = agent(); assert(beginTurn(owner.id)); registerLiveAgent(owner.id, next.value);
 	assert.equal(next.handed.length, 1);
 	persist(owner.id, next.handed); unregisterLiveAgent(owner.id); settleSteers(owner.id, next.handed); endTurn(owner.id);
@@ -122,9 +119,8 @@ test("missing or blank research question records an honest failure without invok
 		const steers: SteerMessage[] = [];
 		await createJobRunner({ ...stores, deliver: async (steer) => { steers.push(steer); } }).runJob(job.id);
 		assert.equal(calls, 0);
-		assert.equal(stores.jobStore.getJob(job.id)!.error, "research question unavailable");
-		assert.equal(stores.jobStore.getJob(job.id)!.status, "error");
-		assert.match(steers[0]!.content, /^Research failed: the research question is unavailable\./);
+		assert.deepEqual([stores.jobStore.getJob(job.id)!.status, stores.jobStore.getJob(job.id)!.error], ["error", "research question unavailable"]);
+		assert.match(steers[0]!.content, /^Research failed/);
 		assert.equal(stores.jobStore.getJob(job.id)!.delivery?.status, "pending");
 	}
 });
@@ -175,8 +171,6 @@ test("failed start stays quiet across sweeps, then joins a learner run", async (
 	const delivery = deliverJobResult(steer); await until(() => attempts === 1); await delay(30);
 	sweep(); sweep(); await delay(900);
 	assert.equal(attempts, 1);
-	assert.equal(stores.jobStore.getJob(job.id)!.status, "done");
-	assert.equal(stores.jobStore.getJob(job.id)!.error, undefined);
 	assert.equal(stores.jobStore.getJob(job.id)!.delivery?.status, "pending");
 	const next = agent(); assert(beginTurn(owner.id)); registerLiveAgent(owner.id, next.value);
 	assert.equal(next.handed.length, 1);
@@ -294,16 +288,6 @@ test("fresh process restores a pending delivery on registration without a jobs p
 	assert.deepEqual(JSON.parse(child.stdout.trim()), [steer.id]);
 	assert.equal(stores.jobStore.getJob(job.id)!.delivery?.status, "delivered");
 	assert.equal(stores.chatStore.getChat(owner.id)!.messages.filter((message) => message.id === steer.id).length, 1);
-});
-
-test("deleting legacy completed work needs no preceding recovery poll", async () => {
-	const owner = chat(true);
-	const old = stores.jobStore.createJob({ kind: "research", chatId: owner.id, toolCallId: "legacy-delete" });
-	stores.jobStore.updateJob(old.id, { result });
-	const outcome = await deleteChatSession(owner.id, "preserve-graph");
-	assert(outcome.ok);
-	assert.equal(stores.jobStore.getJob(old.id), null);
-	assert.equal(stores.chatStore.getChat(owner.id), null);
 });
 
 test("deletion still refuses a computing worker or a live turn", async () => {

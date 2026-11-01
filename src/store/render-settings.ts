@@ -39,4 +39,3 @@ export function writeRenderSettings(raw: unknown): GraphRenderSettings {
 	return settings;
 }
 
-export { DEFAULT_RENDER_SETTINGS };

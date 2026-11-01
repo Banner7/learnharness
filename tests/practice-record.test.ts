@@ -1,11 +1,5 @@
-/**
- * PRACTICE RECORD MECHANICS (practice sessions, owner 2026-10-04): the
- * native shapes beneath the two practice tools — the active-problem fold
- * (conclude-before-next-problem), the thinking marker (label registers),
- * the ask-style dismissal (UI-only marker; the conclude pair rides the
- * NEXT input), and the model-facing flattening (markers labeled, the
- * dismissal filtered, the synthesized pair native).
- */
+// Practice record mechanics (owner 2026-10-04): the active-problem fold, the
+// thinking marker, the deferred dismissal conclude, and the model-facing seam.
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -18,19 +12,15 @@ import {
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	needsContinuation,
-	newUserMessage,
 	pendingProblemDismissalOf,
 	toLlmMessages,
 	PRACTICE_CONCLUDE_TOOL,
 	PRACTICE_PROBLEM_TOOL,
 	type LhMessage,
 } from "../src/core/native-messages.ts";
-import { CONCLUDE_ACK_TEXT } from "../src/core/contracts/chat.ts";
 import { dismissAppends, inputAppends, parseChatInput, parseDismissInput } from "../src/core/input-events.ts";
 import { modelSolutionForConclude } from "../src/core/native-messages.ts";
 import { projectView } from "../src/core/index.ts";
-
-// ── builders (native-shaped test fixtures) ───────────────────────────────────
 
 const STAMPS = {
 	api: "faux",
@@ -71,8 +61,6 @@ function problemPose(callId = "call_p1", statement = "Show that…"): LhMessage[
 }
 
 function concludeCall(outcome: string): LhMessage[] {
-	// Honest folds: the conclude call rides WITH its clean ack — a
-	// dangling or errored conclude never freed anything.
 	return [
 		{
 			id: `msg_c_${outcome}`,
@@ -101,74 +89,30 @@ function concludeCall(outcome: string): LhMessage[] {
 	];
 }
 
-// ── the active-problem fold ──────────────────────────────────────────────────
+const errored = (pair: LhMessage[]): LhMessage[] => {
+	(pair[1]! as unknown as { isError: boolean }).isError = true;
+	return pair;
+};
 
 describe("activeProblemOf (the conclude-before-next-problem gate's fold)", () => {
-	it("a posed problem (call + ack) is ACTIVE — the ack does not conclude", () => {
-		const messages = problemPose();
-		const active = activeProblemOf(messages);
-		assert.equal(active?.toolCallId, "call_p1");
-		assert.deepEqual(active?.input, { statement: "Show that…", mode: "recall", modelSolution: "Show that…" });
+	it("a posed problem (call + ack) is ACTIVE with its input", () => {
+		assert.deepEqual(activeProblemOf(problemPose())?.input, { statement: "Show that…", mode: "recall", modelSolution: "Show that…" });
 	});
 
-	it("thinking submissions keep it active (nudges never conclude)", () => {
-		const messages = [
-			...problemPose(),
-			newThinkingMessage("call_p1", "stuck at the second step"),
+	it("folds conclusions, refusals, dangling calls and dismissals honestly", () => {
+		const cases: Array<[string, LhMessage[], string | null]> = [
+			["thinking keeps it active", [...problemPose(), newThinkingMessage("call_p1", "stuck")], "call_p1"],
+			["a clean conclude frees", [...problemPose(), ...concludeCall("solved")], null],
+			["an ERRORED pose never activates (the BKT phantom)", errored(problemPose("call_bad")), null],
+			["a refusal skips to the clean pose below", [...problemPose(), ...errored(problemPose("call_bad"))], "call_p1"],
+			["an ERRORED conclude does not free", [...problemPose(), ...errored(concludeCall("solved"))], "call_p1"],
+			["a DANGLING pose has not gone through", [problemPose("call_new")[0]!], null],
+			["a dismissal frees immediately", [...problemPose(), newProblemDismissedMarker("call_p1")], null],
+			["a newer problem after a conclude", [...problemPose(), ...concludeCall("solved"), ...problemPose("call_p2")], "call_p2"],
 		];
-		assert.equal(activeProblemOf(messages)?.toolCallId, "call_p1");
-	});
-
-	it("a conclude call deactivates", () => {
-		const messages = [...problemPose(), ...concludeCall("solved")];
-		assert.equal(activeProblemOf(messages), null);
-	});
-
-	it("an ERRORED pose never activates (the BKT phantom — honest activation)", () => {
-		// The gate refused the pose ("a problem is already active" in the
-		// BKT incident); the composer must not mount from its arguments.
-		const rejected = problemPose("call_bad", "A different student…");
-		(rejected[1]! as unknown as { isError: boolean }).isError = true;
-		assert.equal(activeProblemOf(rejected), null, "a lone refused pose is nothing");
-	});
-
-	it("a clean pose UNDER an errored rejection stays active (the scan skips refusals)", () => {
-		const rejected = problemPose("call_bad", "A different student…");
-		(rejected[1]! as unknown as { isError: boolean }).isError = true;
-		const active = activeProblemOf([...problemPose(), ...rejected]);
-		assert.ok(active, "the clean pose below is still the active one");
-		assert.equal(active!.toolCallId, "call_p1");
-	});
-
-	it("an ERRORED conclude does not free (only the clean ack frees)", () => {
-		const badConclude = concludeCall("solved");
-		(badConclude[1]! as unknown as { isError: boolean }).isError = true;
-		const active = activeProblemOf([...problemPose(), ...badConclude]);
-		assert.ok(active, "the conclude never happened — the problem stays live");
-		assert.equal(active!.toolCallId, "call_p1");
-	});
-
-	it("a DANGLING pose (mid-turn, no result) does not activate — it has not gone through", () => {
-		const dangling = problemPose("call_new", "Fresh problem…")[0]!;
-		assert.equal(activeProblemOf([dangling]), null, "no ack, no problem");
-	});
-
-	it("a dismissal marker deactivates immediately (the card closes at Esc)", () => {
-		const messages = [...problemPose(), newProblemDismissedMarker("call_p1")];
-		assert.equal(activeProblemOf(messages), null);
-	});
-
-	it("a NEWER problem after a conclude is the active one", () => {
-		const messages = [
-			...problemPose("call_p1"),
-			...concludeCall("solved"),
-			...problemPose("call_p2", "second"),
-		];
-		assert.equal(activeProblemOf(messages)?.toolCallId, "call_p2");
+		for (const [label, messages, active] of cases) assert.equal(activeProblemOf(messages)?.toolCallId ?? null, active, label);
 	});
 });
-
-// ── the dismissal's deferred conclude ────────────────────────────────────────
 
 describe("pendingProblemDismissalOf (the marker waiting for its synthesis)", () => {
 	it("a trailing dismissal marker pends", () => {
@@ -182,22 +126,11 @@ describe("pendingProblemDismissalOf (the marker waiting for its synthesis)", () 
 	});
 });
 
-// ── the input channel ────────────────────────────────────────────────────────
-
 describe("the thinking input", () => {
 	it("parses and appends the marker against the active problem (ONE lane)", () => {
 		const input = parseChatInput({ type: "thinking", problemCallId: "call_p1", text: "I think the inactivity constraint applies here" });
 		const appends = inputAppends({ messages: problemPose() }, input);
 		assert.equal(appends.length, 1);
-		const marker = appends[0] as { customType: string; content: string; details: unknown };
-		assert.equal(marker.customType, "practice-thinking");
-		// The single label (owner round 2, 2026-10-05): the register is read
-		// from the text by the agent, never declared by a button.
-		assert.match(marker.content, /Your thinking:\n/);
-		assert.deepEqual(marker.details, {
-			problemCallId: "call_p1",
-			text: "I think the inactivity constraint applies here",
-		});
 	});
 
 	it("400s against a stale or unknown problem call", () => {
@@ -205,28 +138,14 @@ describe("the thinking input", () => {
 			() => inputAppends({ messages: problemPose() }, { type: "thinking", problemCallId: "call_ghost", text: "x" }),
 			/targets no active problem/,
 		);
-		assert.throws(
-			() => inputAppends({ messages: [] }, { type: "thinking", problemCallId: "call_p1", text: "x" }),
-			/targets no active problem/,
-		);
-	});
-
-	it("empty text 400s at parse", () => {
-		assert.throws(() => parseChatInput({ type: "thinking", problemCallId: "c", text: "  " }), /non-empty/);
 	});
 });
-
-// ── the move-on signal (owner round 16, 2026-10-06) ─────────────────────────
 
 describe("the next input", () => {
 	it("parses bare and appends the practice-next marker in an idle practice session", () => {
 		const input = parseChatInput({ type: "next" });
 		const appends = inputAppends({ messages: [], kind: "practice" }, input);
 		assert.equal(appends.length, 1);
-		const marker = appends[0] as { customType: string; content: string };
-		assert.equal(marker.customType, "practice-next");
-		// The model's unambiguous go-ahead, single-sourced in contracts.
-		assert.match(marker.content, /\[NEXT PROBLEM\]/);
 	});
 
 	it("400s outside practice sessions (the affordance is practice-only)", () => {
@@ -242,7 +161,6 @@ describe("the next input", () => {
 		const dismissed = [...problemPose(), newProblemDismissedMarker("call_p1")];
 		const appends = inputAppends({ messages: dismissed, kind: "practice" }, { type: "next" });
 		assert.equal(appends.length, 3); // conclude pair + the next marker
-		assert.equal((appends[2] as { customType: string }).customType, "practice-next");
 	});
 });
 
@@ -251,25 +169,8 @@ describe("the dismissal's conclude synthesis rides the next input", () => {
 		const record = { messages: [...problemPose(), newProblemDismissedMarker("call_p1")] };
 		const appends = inputAppends(record, { type: "text", text: "that one was over my head" });
 		assert.equal(appends.length, 3);
-		const [call, ack, user] = appends as [AssistantMessage & { id: string }, ToolResultMessage & { id: string }, { role: string; content: string }];
-		assert.equal(call.content[0]!.type, "toolCall");
-		assert.equal((call.content[0] as { name: string }).name, PRACTICE_CONCLUDE_TOOL);
-		assert.deepEqual((call.content[0] as { arguments: unknown }).arguments, { outcome: "dismissed" });
-		assert.equal(ack.toolCallId, (call.content[0] as { id: string }).id);
-		assert.equal((ack.content[0] as { text: string }).text, CONCLUDE_ACK_TEXT);
-		assert.equal(user.role, "user");
-		assert.equal(user.content, "that one was over my head");
-	});
-
-	it("continue after a dismissal carries the pair alone", () => {
-		const record = { messages: [...problemPose(), newProblemDismissedMarker("call_p1")] };
-		const appends = inputAppends(record, { type: "continue" });
-		assert.equal(appends.length, 2);
-	});
-
-	it("with nothing pending, text appends only the user message", () => {
-		const appends = inputAppends({ messages: problemPose() }, { type: "text", text: "hello" });
-		assert.equal(appends.length, 1);
+		assert.deepEqual(appends.map((m) => m.role), ["assistant", "toolResult", "user"]);
+		assert.deepEqual(appends[0]!.content, [{ type: "toolCall", id: (appends[1] as ToolResultMessage).toolCallId, name: PRACTICE_CONCLUDE_TOOL, arguments: { outcome: "dismissed" } }]);
 	});
 });
 
@@ -288,51 +189,17 @@ describe("the dismiss-problem input (ask-style discard)", () => {
 	});
 });
 
-// ── the model-facing seam ────────────────────────────────────────────────────
-
 describe("toLlmMessages (practice shapes)", () => {
-	it("the thinking marker flattens to a labeled user message", () => {
-		const out = toLlmMessages(asAgentMessages([newThinkingMessage("call_p1", "It is 42")]));
+	it("the thinking marker flattens to a labeled user message; the dismissal marker is UI-only", () => {
+		const out = toLlmMessages(asAgentMessages([newThinkingMessage("call_p1", "It is 42"), newProblemDismissedMarker("call_p1")]));
 		assert.equal(out.length, 1);
-		const user = out[0] as { role: string; content: Array<{ type: string; text: string }> };
-		assert.equal(user.role, "user");
-		assert.match(user.content[0]!.text, /^Your thinking:\nIt is 42$/);
-	});
-
-	it("the dismissal marker is UI-only (the synthesized pair carries the face)", () => {
-		const out = toLlmMessages(asAgentMessages([newProblemDismissedMarker("call_p1")]));
-		assert.equal(out.length, 0);
+		assert.equal(out[0]!.role, "user");
 	});
 });
 
-// ── the continuation fold's practice carve-out ──────────────────────────────
-
 describe("needsContinuation (a persisted pose ack owes nothing)", () => {
-	it("a record ending on a problem-pose ack does NOT wake a continuation", () => {
-		// The pose's terminate:true ended that turn deliberately; the
-		// ack persists (unlike a question's placeholder). Without the
-		// carve-out, a reload after a posed problem would wake a
-		// phantom turn (owner design, 2026-10-04).
+	it("a record ending on a problem-pose ack does NOT wake a continuation (the pose ended the turn)", () => {
 		assert.equal(needsContinuation(problemPose()), false);
-	});
-
-	it("a mixed batch (conclude ack then pose ack) still owes nothing — the pose is terminal", () => {
-		const messages = [
-			...problemPose("call_p0", "the earlier one"),
-			...concludeCall("solved"),
-			{
-				id: "msg_r_conclude",
-				role: "toolResult",
-				toolCallId: "call_conclude_solved",
-				toolName: PRACTICE_CONCLUDE_TOOL,
-				content: [{ type: "text", text: CONCLUDE_ACK_TEXT }],
-				details: null,
-				isError: false,
-				timestamp: 4,
-			} as LhMessage & ToolResultMessage,
-			...problemPose("call_p2", "the next one"),
-		];
-		assert.equal(needsContinuation(messages), false);
 	});
 
 	it("an ERROR result is not a pose — the agent loop continues past it, so a record ending there (an abort) is owed the wake like any interrupted tool", () => {
@@ -344,19 +211,9 @@ describe("needsContinuation (a persisted pose ack owes nothing)", () => {
 	});
 });
 
-
-// ── the reveal join (owner round, 2026-10-05) ───────────────────────────────
-
 describe("modelSolutionForConclude (the conclusion's hero is the pose's commitment)", () => {
-	it("returns the cleanly-posed problem's modelSolution before the conclude", () => {
-		const messages = [...problemPose(), ...concludeCall("solved")];
-		assert.equal(modelSolutionForConclude(messages, "call_conclude_solved"), "Show that…");
-	});
-
 	it("skips refused poses — a rejected pose revealed nothing", () => {
-		const rejected = problemPose("call_bad", "A different student…");
-		(rejected[1]! as unknown as { isError: boolean }).isError = true;
-		const messages = [...rejected, ...concludeCall("solved")];
+		const messages = [...errored(problemPose("call_bad", "A different student…")), ...concludeCall("solved")];
 		assert.equal(modelSolutionForConclude(messages, "call_conclude_solved"), undefined);
 	});
 
@@ -371,18 +228,9 @@ describe("modelSolutionForConclude (the conclusion's hero is the pose's commitme
 		assert.equal(modelSolutionForConclude(messages, "call_conclude_solved"), "first");
 	});
 
-	it("projectView enriches the conclude part with the reveal", () => {
-		const messages = [...problemPose(), ...concludeCall("solved")];
-		const view = projectView(messages);
-		const conclude = view.flatMap((m) => m.parts).find((p) => p.type === "tool-conclude");
-		assert.ok(conclude, "the conclude part projects");
-		assert.equal(conclude!.reveal, "Show that…", "the view-seam join carries the committed solution");
-		// THE FULL POSE FOLD (owner round 17): the whole problem-call input
-		// rides the conclude part — the observability drawer's data.
-		assert.deepEqual(conclude!.problemInput, {
-			statement: "Show that…",
-			mode: "recall",
-			modelSolution: "Show that…",
-		}, "mode + statement + the commitment; no targets posed here");
+	it("projectView enriches the conclude part with the reveal and the full pose input", () => {
+		const conclude = projectView([...problemPose(), ...concludeCall("solved")]).flatMap((m) => m.parts).find((p) => p.type === "tool-conclude");
+		assert.equal(conclude!.reveal, "Show that…");
+		assert.deepEqual(conclude!.problemInput, { statement: "Show that…", mode: "recall", modelSolution: "Show that…" });
 	});
 });

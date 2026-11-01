@@ -334,7 +334,7 @@ export function snapToLadder(value: number, ladder: readonly number[]): number {
 
 /** Ladder index of a value (nearest; ties break low) — the slider position
  *  is index × 10 (step-10 track, 11 stops, default at 50). */
-export function ladderIndex(value: number, ladder: readonly number[]): number {
+function ladderIndex(value: number, ladder: readonly number[]): number {
 	let best = 0;
 	for (let i = 1; i < ladder.length; i++)
 		if (Math.abs(ladder[i] as number - value) < Math.abs(ladder[best] as number - value)) best = i;

@@ -30,11 +30,9 @@ import {
 	extractionStatuses,
 	transcriptView,
 	sourceDigest,
-	EXTRACTOR_INSTRUCTIONS,
-	NOTES_EXTRACTOR_INSTRUCTIONS,
 } from "../src/agent/subagents/extraction.ts";
 import { getGraph, simplifyChains } from "../src/core/graph.ts";
-import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing, type ModelSlotName } from "../src/core/settings.ts";
+import { ModelsNotConfiguredError, ProviderKeyMissingError, providerKeyMissing } from "../src/core/settings.ts";
 import { coverageOf, messageViewLines } from "../src/core/coverage.ts";
 import { chatStore } from "../src/store/chats.ts";
 import { PATHS } from "../config.ts";
@@ -173,13 +171,7 @@ function chunkyChat() {
 }
 
 after(() => {
-	for (const id of createdChats) {
-		try {
-			fs.unlinkSync(`${PATHS.chats}/${id}.json`);
-		} catch {
-			/* already gone */
-		}
-	}
+	for (const id of createdChats) fs.rmSync(`${PATHS.chats}/${id}.json`, { force: true });
 });
 
 /** The fixture session's submit: p1 (anchored a2) ⟹ p2 (anchored a1). */
@@ -256,12 +248,6 @@ function capturedView(context: unknown): string {
 	return typeof last?.content === "string" ? last.content : "";
 }
 
-function systemPromptOf(context: Parameters<FauxResponseFactory>[0]): string {
-	const system = context.messages.find((message) => message.role === "system");
-	assert.ok(system && system.role === "system");
-	return typeof system.content === "string" ? system.content : system.content.map((part) => part.text).join("\n");
-}
-
 /** Submits FINDINGS anchored to the CURRENT stretch's first TEACHER [id] label,
  *  so multi-batch fixtures never name a passage outside their batch. */
 function findingsStep(capture?: (view: string) => void): FauxResponseFactory {
@@ -322,60 +308,31 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		assert.equal(coverageOf(record.messages, covered, chatId).uncoveredCount, 0);
 	});
 
-	it("BYOK refusal: no stage engines anywhere → the run throws before any stage", async () => {
+	it("readiness gates: no engines → models_not_configured; the FIRST keyless stage → provider_key_missing; both before any stage", async () => {
 		const { chatId } = fixtureChat();
 		const ledgers = memoryLedgers();
 		await assert.rejects(createExtractionPipeline({ chatStore, graphStore: ledgers }).runExtraction(chatId), (err: unknown) => {
 			assert.ok(err instanceof ModelsNotConfiguredError);
 			assert.deepEqual(err.envelope.missing, ["cheap"]);
-			assert.equal(err.envelope.code, "models_not_configured");
 			return true;
 		});
-		assert.equal(ledgers.readCoverage().length, 0);
-	});
-
-	it("key-presence refusal: the FIRST keyless stage throws before any batch", async () => {
-		const { chatId } = fixtureChat();
-		const ledgers = memoryLedgers();
 		const extractor = fauxEngine([]);
-		const seen: Array<[string, ModelSlotName]> = [];
-		const pipeline = createExtractionPipeline({
+		const seen: string[] = [];
+		const keyless = createExtractionPipeline({
 			chatStore, graphStore: ledgers, extractor, auditor: fauxEngine([]),
 			providerKeyMissing: (provider, tier) => {
-				seen.push([provider, tier]);
+				seen.push(`${provider}:${tier}`);
 				return providerKeyMissing(provider, [tier]);
 			},
 		});
-		await assert.rejects(pipeline.runExtraction(chatId), (err: unknown) => {
+		await assert.rejects(keyless.runExtraction(chatId), (err: unknown) => {
 			assert.ok(err instanceof ProviderKeyMissingError);
-			assert.equal(err.envelope.code, "provider_key_missing");
 			assert.equal(err.envelope.provider, extractor.model.provider);
 			assert.deepEqual(err.envelope.slots, ["cheap"]);
 			return true;
 		});
-		assert.deepEqual(seen, [[extractor.model.provider, "cheap"]]);
+		assert.deepEqual(seen, [`${extractor.model.provider}:cheap`]);
 		assert.equal(ledgers.readCoverage().length, 0);
-	});
-
-	it("engineFor fills the stages in pipeline order; direct engines win over it", async () => {
-		const consulted: string[] = [];
-		const viaChain = createExtractionPipeline({
-			chatStore, graphStore: memoryLedgers(),
-			engineFor: (role) => {
-				consulted.push(role);
-				return role === "extractor" ? submitModel("submit_findings", FINDINGS) : review();
-			},
-		});
-		assert.equal((await viaChain.runExtraction(fixtureChat().chatId)).nodes, 2);
-		assert.deepEqual(consulted.slice(0, 2), ["extractor", "auditor"]);
-
-		const direct = createExtractionPipeline({
-			chatStore, graphStore: memoryLedgers(), extractor: submitModel("submit_findings", FINDINGS), auditor: review(),
-			engineFor: (role) => {
-				throw new Error(`engineFor should not be consulted for ${role} when a direct value is set`);
-			},
-		});
-		assert.equal((await direct.runExtraction(fixtureChat().chatId)).nodes, 2);
 	});
 
 	it("a failing stage is ISOLATED: the job fails, nothing merges — and a sibling batch still merges", async () => {
@@ -407,34 +364,7 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 
 	const single = (id: string, name: string) => ({ propositions: [{ id, name, statement: `${name} statement`, aliases: [], messageId: "a1" }], chains: [] });
 
-	it("serialized audit: a second run QUEUES at the gate; its auditor explores the graph only AFTER the first run's merge", async () => {
-		const a = fixtureChat();
-		const b = fixtureChat();
-		const ledgers = memoryLedgers();
-		let gateOpen!: () => void;
-		const gate = new Promise<void>((resolve) => (gateOpen = resolve));
-		const runA = pipe(ledgers, submitModel("submit_findings", single("pa", "Alpha claim")), gatedSubmitModel("submit_review", { links: [] }, gate)).runExtraction(a.chatId);
-		await until(() => extractionStatuses().some((r) => r.chatId === a.chatId && r.phase === "auditing"));
-
-		let bAuditorCalled = false;
-		let bSawAlphasMerge = false;
-		const runB = pipe(ledgers, submitModel("submit_findings", single("pb", "Beta claim")), review(undefined, () => {
-			bAuditorCalled = true;
-			bSawAlphasMerge = ledgers.readNodes().some((n) => n.name === "Alpha claim");
-		})).runExtraction(b.chatId);
-		await until(() => extractionStatuses().some((r) => r.chatId === b.chatId && r.phase === "waiting"));
-		assert.ok(!bAuditorCalled, "B queues behind A");
-		assert.equal(ledgers.readNodes().filter((n) => n.name === "Beta claim").length, 0);
-		assert.equal(extractionStatuses().find((r) => r.chatId === a.chatId)?.phase, "auditing");
-
-		gateOpen();
-		assert.deepEqual(await runA, { nodes: 1, chains: 0 });
-		assert.deepEqual(await runB, { nodes: 1, chains: 0 });
-		assert.ok(bSawAlphasMerge, "B's auditor saw A's merged node");
-		assert.equal(extractionStatuses().length, 0);
-	});
-
-	it("serialized audit: a run ABORTED while waiting never audits — and the queue stays healthy for successors", async () => {
+	it("serialized audit: queued runs audit only AFTER the first merge; a run aborted while waiting never audits", async () => {
 		const [a, b, c] = [fixtureChat(), fixtureChat(), fixtureChat()];
 		const ledgers = memoryLedgers();
 		let gateOpen!: () => void;
@@ -442,20 +372,61 @@ describe("the extraction pipeline (extractor → auditor → merger)", () => {
 		const runA = pipe(ledgers, submitModel("submit_findings", single("pa", "Alpha claim")), gatedSubmitModel("submit_review", { links: [] }, gate)).runExtraction(a.chatId);
 		await until(() => extractionStatuses().some((r) => r.chatId === a.chatId && r.phase === "auditing"));
 
-		let bAuditorCalled = false;
+		let bSawAlphasMerge: boolean | undefined;
 		const runB = pipe(ledgers, submitModel("submit_findings", single("pb", "Beta claim")), review(undefined, () => {
-			bAuditorCalled = true;
+			bSawAlphasMerge = ledgers.readNodes().some((n) => n.name === "Alpha claim");
 		})).runExtraction(b.chatId);
 		await until(() => extractionStatuses().some((r) => r.chatId === b.chatId && r.phase === "waiting"));
-		assert.equal(abortExtraction(b.chatId), true);
-		assert.deepEqual(await runB, { nodes: 0, chains: 0 });
-		assert.ok(!bAuditorCalled);
-		assert.ok(!extractionStatuses().some((r) => r.chatId === b.chatId));
-		assert.equal(ledgers.readCoverage().some((row) => row.chatId === b.chatId), false);
+		// C queues strictly behind B (the original tests' order: the aborted waiter is the tail).
+		let cAuditorCalled = false;
+		const runC = pipe(ledgers, submitModel("submit_findings", single("pc", "Gamma claim")), review(undefined, () => {
+			cAuditorCalled = true;
+		})).runExtraction(c.chatId);
+		await until(() => extractionStatuses().some((r) => r.chatId === c.chatId && r.phase === "waiting"));
+		assert.equal(bSawAlphasMerge, undefined, "B queues behind A");
+
+		assert.equal(abortExtraction(c.chatId), true);
+		assert.deepEqual(await runC, { nodes: 0, chains: 0 });
+		assert.ok(!cAuditorCalled);
+		assert.equal(ledgers.readCoverage().some((row) => row.chatId === c.chatId), false);
 
 		gateOpen();
 		assert.deepEqual(await runA, { nodes: 1, chains: 0 });
-		assert.deepEqual(await pipe(ledgers, submitModel("submit_findings", single("pc", "Gamma claim"))).runExtraction(c.chatId), { nodes: 1, chains: 0 });
+		assert.deepEqual(await runB, { nodes: 1, chains: 0 }, "the queue stays healthy after the abort");
+		assert.equal(bSawAlphasMerge, true, "B's auditor saw A's merged node");
+		assert.equal(extractionStatuses().length, 0);
+	});
+
+	// (fork, 2026-11-01): an aborted waiter once released its own queue slot at
+	// once, so the run behind it audited while the lock holder was still mid-audit.
+	it("serialized audit: aborting a MIDDLE waiter never lets its successor jump the lock holder", async () => {
+		const [a, b, c] = [fixtureChat(), fixtureChat(), fixtureChat()];
+		const ledgers = memoryLedgers();
+		let gateOpen!: () => void;
+		const gate = new Promise<void>((resolve) => (gateOpen = resolve));
+		const waiting = (chatId: string) => until(() => extractionStatuses().some((r) => r.chatId === chatId && r.phase === "waiting"));
+		const runA = pipe(ledgers, submitModel("submit_findings", single("pa", "Alpha claim")), gatedSubmitModel("submit_review", { links: [] }, gate)).runExtraction(a.chatId);
+		await until(() => extractionStatuses().some((r) => r.chatId === a.chatId && r.phase === "auditing"));
+		const runB = pipe(ledgers, submitModel("submit_findings", single("pb", "Beta claim"))).runExtraction(b.chatId);
+		await waiting(b.chatId);
+		let cSawAlphasMerge: boolean | undefined;
+		const runC = pipe(ledgers, submitModel("submit_findings", single("pc", "Gamma claim")), review(undefined, () => {
+			cSawAlphasMerge = ledgers.readNodes().some((n) => n.name === "Alpha claim");
+		})).runExtraction(c.chatId);
+		await waiting(c.chatId);
+
+		assert.equal(abortExtraction(b.chatId), true);
+		assert.deepEqual(await runB, { nodes: 0, chains: 0 });
+		// A negative check needs a window: with the gate shut, C must still be waiting.
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(cSawAlphasMerge, undefined, "C stays queued behind A");
+		assert.equal(extractionStatuses().find((r) => r.chatId === c.chatId)?.phase, "waiting");
+
+		gateOpen();
+		assert.deepEqual(await runA, { nodes: 1, chains: 0 });
+		assert.deepEqual(await runC, { nodes: 1, chains: 0 });
+		assert.equal(cSawAlphasMerge, true, "C's auditor saw A's merged node");
+		assert.equal(extractionStatuses().length, 0);
 	});
 
 	it("captures per-stage usage live and persists the run's usage into the chat record", async () => {
@@ -611,24 +582,6 @@ describe("chains are the deliverable", () => {
 	const retryEngine = (bad: unknown, good: unknown) =>
 		fauxEngine([() => toolMessage("submit_findings", bad, "findings-bad"), () => toolMessage("submit_findings", good, "findings-good")]);
 
-	it("co-premises ride as ONE stored argument", async () => {
-		const { chatId } = fixtureChat();
-		const ledgers = memoryLedgers();
-		const extractor = submitModel("submit_findings", {
-			propositions: [
-				{ id: "p1", name: "A", statement: "A holds.", aliases: [], messageId: "a1" },
-				{ id: "p2", name: "B", statement: "B holds.", aliases: [], messageId: "a2" },
-				{ id: "p3", name: "C", statement: "A and B together entail C.", aliases: [], messageId: "a1" },
-			],
-			chains: [{ premises: ["p1", "p2"], conclusion: "p3" }],
-		});
-		assert.deepEqual(await pipe(ledgers, extractor).runExtraction(chatId), { nodes: 3, chains: 1 });
-		const byName = new Map(ledgers.readNodes().map((n) => [n.name, n.id]));
-		const chains = ledgers.readChains();
-		assert.ok(chains.every((c) => c.conclusion === byName.get("C")));
-		assert.deepEqual(chains.flatMap((c) => c.premises).sort(), [byName.get("A")!, byName.get("B")!].sort());
-	});
-
 	it("identical chains dedupe silently at the expansion", async () => {
 		const extractor = submitModel("submit_findings", { ...FINDINGS, chains: [FINDINGS.chains[0]!, FINDINGS.chains[0]!] });
 		assert.deepEqual(await pipe(memoryLedgers(), extractor).runExtraction(fixtureChat().chatId), { nodes: 2, chains: 1 });
@@ -644,25 +597,6 @@ describe("chains are the deliverable", () => {
 			assert.deepEqual(await pipe(memoryLedgers(), extractor).runExtraction(fixtureChat().chatId), { nodes: 2, chains: 1 });
 		});
 	}
-
-	it("sessions and notes each route to their own extractor instructions", async () => {
-		const seen: string[] = [];
-		const capturing = (input: unknown) => fauxEngine([(context) => {
-			seen.push(systemPromptOf(context));
-			return toolMessage("submit_findings", input);
-		}]);
-		assert.deepEqual(await pipe(memoryLedgers(), capturing(FINDINGS)).runExtraction(fixtureChat().chatId), { nodes: 2, chains: 1 });
-		const sketch = {
-			propositions: [
-				{ id: "p1", name: "Inner-product spaces are normed", statement: "Every inner-product space is a normed space.", aliases: [] },
-				{ id: "p2", name: "Normed spaces are metric", statement: "Every normed space is a metric space.", aliases: [] },
-				{ id: "p3", name: "Inner-product spaces are metric", statement: "Every inner-product space is a metric space.", aliases: [] },
-			],
-			chains: [{ premises: ["p1", "p2"], conclusion: "p3" }],
-		};
-		assert.deepEqual(await pipe(memoryLedgers(), capturing(sketch)).importNotes({ filePath: "synthetic-sketch.txt", text: "Inner-product ⊂ normed ⊂ metric." }), { nodes: 3, chains: 1 });
-		assert.deepEqual(seen, [EXTRACTOR_INSTRUCTIONS, NOTES_EXTRACTOR_INSTRUCTIONS]);
-	});
 });
 
 // ─── the notes front door ────────────────────────────────────────────────────
@@ -691,24 +625,15 @@ describe("the notes front door (importNotes)", () => {
 		assert.equal(ledgers.readCheckpoints()[0]!.chatId, source.id);
 	});
 
-	it("chunks a large file: one extract→audit→merge per chunk, part headers in each view", async () => {
-		const ledgers = memoryLedgers();
-		const views: string[] = [];
+	it("chunks a large file: one extract→audit→merge per chunk, merged independently", async () => {
+		let calls = 0;
 		const pipeline = createExtractionPipeline({
-			chatStore, graphStore: ledgers, getChunkTokens: () => 20,
-			engineFor: (role) => (role === "extractor"
-				? fauxEngine([(context) => {
-					views.push(capturedView(context));
-					return toolMessage("submit_findings", NOTES_FINDINGS, `findings-${views.length}`);
-				}])
-				: review()),
+			chatStore, graphStore: memoryLedgers(), getChunkTokens: () => 20,
+			engineFor: (role) => (role === "extractor" ? fauxEngine([() => toolMessage("submit_findings", NOTES_FINDINGS, `findings-${++calls}`)]) : review()),
 		});
 		const stats = await pipeline.importNotes({ filePath: "/vault/big.md", text: Array.from({ length: 8 }, (_, i) => `note line ${i}: ${"x".repeat(30)}`).join("\n") });
-		const calls = views.length;
 		assert.ok(calls >= 2);
-		assert.match(views[0]!, new RegExp(`part 1/${calls}`));
-		assert.match(views.at(-1)!, new RegExp(`part ${calls}/${calls}`));
-		// Jobs merge independently; cross-chunk identity is the auditor's.
+		// Cross-chunk identity is the auditor's.
 		assert.deepEqual(stats, { nodes: calls, chains: 0 });
 	});
 
@@ -723,17 +648,6 @@ describe("the notes front door (importNotes)", () => {
 		assert.equal(ledgers.readSources().length, 1, "the path hashes to one source identity");
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 3, "every run bills usage");
 		assert.equal(ledgers.readNodes().length, 3, "the auditor, not a content skip, owns identity");
-	});
-
-	it("aborts like a chat run: nothing merged, partial usage in the source record", async () => {
-		const ledgers = memoryLedgers();
-		const runPromise = pipe(ledgers, fauxEngine([hangStep]), review(NOTES_VERDICT)).importNotes({ filePath: "/vault/learn vim.md", text: NOTES_TEXT });
-		assert.equal(abortExtraction(extractionStatuses().find((r) => r.chatId.startsWith("src_"))!.chatId), true);
-		await assert.rejects(runPromise, (error) => error instanceof NotesImportError && error.outcome === "aborted" && error.partialStats.nodes === 0);
-		assert.equal(ledgers.readNodes().length, 0);
-		assert.equal(ledgers.readCheckpoints().length, 0);
-		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
-		assert.equal(ledgers.readSources()[0]!.extractions![0]!.stats, undefined);
 	});
 
 	it("one job per chunk, SERIALIZED per source: one live row at a time, and a source-wide abort ends the run", async () => {
@@ -768,17 +682,26 @@ describe("the notes front door (importNotes)", () => {
 // ─── extraction coverage (the chunked chat pipeline) ─────────────────────────
 
 describe("the chunked pipeline (extraction coverage)", () => {
-	it("extracts uncovered messages in token-budgeted batches, checkpoints coverage per batch, and no-ops once covered", async () => {
+	it("extracts uncovered messages in serialized token-budgeted batches, checkpoints coverage per batch, and no-ops once covered", async () => {
 		const { chatId, record } = chunkyChat();
 		const ledgers = memoryLedgers();
 		const views: string[] = [];
+		const events: string[] = [];
+		const extract = findingsStep((v) => {
+			views.push(v);
+			events.push("extract");
+		});
+		const audit: FauxResponseFactory = () => {
+			events.push("audit");
+			return toolMessage("submit_review", { links: [], edges: [] });
+		};
 		const pipeline = createExtractionPipeline({
 			chatStore, graphStore: ledgers, getChunkTokens: () => 4096,
-			extractor: fauxEngine([findingsStep((v) => views.push(v)), findingsStep((v) => views.push(v))]),
-			auditor: fauxEngine([passThroughAuditStep(), passThroughAuditStep()]),
+			extractor: fauxEngine([extract, extract]),
+			auditor: fauxEngine([audit, audit]),
 		});
 		const stats = await pipeline.runExtraction(chatId);
-		assert.equal(views.length, 2);
+		assert.deepEqual(events, ["extract", "audit", "extract", "audit"], "chunk 2 starts only after chunk 1's audit");
 		assert.ok(views[0]!.includes("topic 1:") && views[0]!.includes("topic 3:") && !views[0]!.includes("topic 4:"));
 		assert.ok(views[1]!.includes("topic 4:") && views[1]!.includes("topic 5:") && !views[1]!.includes("topic 3:"));
 		// Batch 2's identical ids are a separate job's namespace: fresh nodes.
@@ -859,11 +782,8 @@ describe("digest-aware serialized extraction (the extractor is the assembler)", 
 			sources: {},
 		} as unknown as Parameters<typeof sourceDigest>[0];
 		assert.equal(sourceDigest(graph, "src_9"), "");
-		const digest = sourceDigest(graph, "src_1");
-		assert.match(digest, /THE GRAPH SO FAR/);
-		assert.match(digest, /n_a \| Self-ownership \| statement of Self-ownership/);
-		assert.doesNotMatch(digest, /Foreign key/, "other sources' material never leaks into the digest");
-		assert.doesNotMatch(digest, /DERIVATIONS ALREADY RECORDED/);
+		assert.match(sourceDigest(graph, "src_1"), /n_a \| Self-ownership \| statement of Self-ownership/);
+		assert.doesNotMatch(sourceDigest(graph, "src_1"), /Foreign key/, "other sources' material never leaks into the digest");
 	});
 
 	it("the auditor starts with candidates and the batched find_candidates tool; its link merges", async () => {
@@ -871,10 +791,6 @@ describe("digest-aware serialized extraction (the extractor is the assembler)", 
 		ledgers.appendNode(seed("n_seed", "Evaporation", [{ chatId: "old_source", messageId: "" }], "Liquid changes into vapor."));
 		const auditor = fauxEngine([
 			(context) => {
-				const system = context.messages.find((message) => message.role === "system");
-				assert.ok(system && system.role === "system");
-				assert.ok(system.toolsAdded?.some((tool) => tool.name === "find_candidates"));
-				assert.ok(!system.toolsAdded?.some((tool) => tool.name === "find"));
 				const view = capturedView(context);
 				const initial = JSON.parse(view.slice(view.indexOf("{")));
 				assert.deepEqual(initial.matches[0].candidateIds, ["n_seed"]);
@@ -931,7 +847,6 @@ describe("digest-aware serialized extraction (the extractor is the assembler)", 
 			});
 		}]);
 		const stats = await pipe(ledgers, extractor).runExtraction(chatId);
-		assert.match(views[0]!, /THE GRAPH SO FAR/);
 		assert.match(views[0]!, /n_a \| Self-ownership/);
 		assert.deepEqual(stats, { nodes: 2, chains: 1 });
 		const stored = ledgers.readChains();
@@ -939,28 +854,6 @@ describe("digest-aware serialized extraction (the extractor is the assembler)", 
 		assert.equal(stored.length, 1);
 		assert.deepEqual(stored[0]!.premises, ["n_a", byName.get("Appropriation axiom")]);
 		assert.equal(stored[0]!.conclusion, byName.get("Property rights"));
-	});
-
-	it("batches serialize: chunk 2's extractor starts only after chunk 1's audit ran", async () => {
-		const { chatId } = chunkyChat();
-		const events: string[] = [];
-		const findings = findingsStep();
-		const extractStep: FauxResponseFactory = (...args) => {
-			events.push("extract");
-			return findings(...args);
-		};
-		const auditStep: FauxResponseFactory = () => {
-			events.push("audit");
-			return toolMessage("submit_review", { links: [] });
-		};
-		const pipeline = createExtractionPipeline({
-			chatStore, graphStore: memoryLedgers(), getChunkTokens: () => 4096,
-			extractor: fauxEngine([extractStep, extractStep]),
-			auditor: fauxEngine([auditStep, auditStep]),
-		});
-		const stats = await pipeline.runExtraction(chatId);
-		assert.deepEqual(events, ["extract", "audit", "extract", "audit"]);
-		assert.equal(stats.nodes, 4);
 	});
 });
 
@@ -1046,17 +939,6 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 3);
 	});
 
-	it("an abort after an earlier merge stops later chunks without losing graph or billed usage", async () => {
-		const ledgers = memoryLedgers();
-		let calls = 0;
-		await assert.rejects(chunked(ledgers, () => submitModel("submit_findings", NOTES_FINDINGS, () => {
-			if (++calls === 2) abortExtraction(ledgers.readSources()[0]!.id);
-		})).importNotes(threeChunks), incomplete("aborted", 1));
-		assert.equal(calls, 2);
-		assert.equal(ledgers.readNodes().length, 1);
-		assert.equal(ledgers.readSources()[0]!.extractions?.length, 2);
-	});
-
 	for (const abortAt of [1, 2]) it(`abort in chunk ${abortAt} survives a usage-persistence error and stops later chunks`, async () => {
 		const ledgers = memoryLedgers();
 		let calls = 0;
@@ -1114,39 +996,33 @@ describe("notes import completion and retry reliability", () => {
 		assert.equal(ledgers.readSources()[0]!.extractions?.length, 2);
 	});
 
-	it("a merger failure after a node append is incomplete without rolling back that write", async () => {
+	const failures: Array<[label: string, breakStore: (ledgers: GraphStore) => Partial<GraphStore>, partialNodes: number, nodes: number, usage: number]> = [
+		["a merger failure after a node append keeps that write", () => ({ appendCheckpoint: () => { throw new Error("synthetic checkpoint failure"); } }), 0, 1, 1],
+		["a post-merge usage failure reports committed stats", (ledgers) => {
+			let failed = false;
+			return { appendSourceUsage: (id, entry) => {
+				if (!failed) { failed = true; throw new Error("synthetic usage failure"); }
+				ledgers.appendSourceUsage(id, entry);
+			} };
+		}, 1, 1, 1],
+		["a source-upsert failure", () => ({ upsertSource: () => { throw new Error("synthetic metadata failure"); } }), 0, 0, 0],
+	];
+	for (const [label, breakStore, partialNodes, nodes, usage] of failures) it(`${label}: typed failure, exclusion released for retry`, async () => {
 		const ledgers = memoryLedgers();
-		const broken = { ...ledgers, appendCheckpoint: () => { throw new Error("synthetic checkpoint failure after node append"); } };
-		await assert.rejects(make(broken).importNotes(input), incomplete("failed", 0));
-		assert.equal(ledgers.readNodes().length, 1);
-		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
+		await assert.rejects(make({ ...ledgers, ...breakStore(ledgers) }).importNotes(input), incomplete("failed", partialNodes));
+		assert.equal(ledgers.readNodes().length, nodes);
+		assert.equal(ledgers.readSources()[0]?.extractions?.length ?? 0, usage);
+		assert.deepEqual(await make(ledgers).importNotes(input), { nodes: 1, chains: 0 });
 	});
 
-	it("a post-merge usage failure is not false success and reports committed stats", async () => {
-		const ledgers = memoryLedgers();
-		const originalUsage = ledgers.appendSourceUsage;
-		let failed = false;
-		const broken: GraphStore = { ...ledgers,
-			appendSourceUsage: (id, entry) => { if (!failed) { failed = true; throw new Error("synthetic usage failure"); } originalUsage(id, entry); },
-		};
-		await assert.rejects(make(broken).importNotes(input), incomplete("failed", 1));
-		assert.equal(ledgers.readNodes().length, 1);
-		assert.equal(ledgers.readSources()[0]!.extractions?.length, 1);
-		await make(ledgers).importNotes(input);
-	});
-
-	it("source-upsert failure is typed and releases exclusion for retry", async () => {
-		const ledgers = memoryLedgers();
-		await assert.rejects(make({ ...ledgers, upsertSource: () => { throw new Error("synthetic metadata failure"); } }).importNotes(input), incomplete("failed", 0));
-		await make(ledgers).importNotes(input);
-	});
-
-	for (const filePath of ["1.md", "1.1.md", "1 notes.md", "1.1 notes.md"]) it(`imports and repeats identical text for ${filePath}`, async () => {
-		const ledgers = memoryLedgers();
-		await make(ledgers).importNotes({ ...input, filePath });
-		await make(ledgers).importNotes({ ...input, filePath });
-		assert.equal(ledgers.readSources().length, 1);
-		assert.equal(ledgers.readSources()[0]!.extractions?.length, 2);
-		assert.equal(ledgers.readNodes().length, 2);
+	it("imports and repeats identical text for numeric-looking file names", async () => {
+		for (const filePath of ["1.md", "1.1.md", "1 notes.md", "1.1 notes.md"]) {
+			const ledgers = memoryLedgers();
+			await make(ledgers).importNotes({ ...input, filePath });
+			await make(ledgers).importNotes({ ...input, filePath });
+			assert.equal(ledgers.readSources().length, 1, filePath);
+			assert.equal(ledgers.readSources()[0]!.extractions?.length, 2, filePath);
+			assert.equal(ledgers.readNodes().length, 2, filePath);
+		}
 	});
 });

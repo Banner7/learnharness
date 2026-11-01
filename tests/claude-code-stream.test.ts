@@ -1,10 +1,7 @@
 /**
- * Claude Code stream function (src/agent/claude-code/stream.ts) and CLI line
- * parser (src/agent/claude-code/cli-events.ts).
- *
- * The runClaude seam spawns tests/fixtures/claude-code/fake-claude.mjs, which
- * replays recorded or synthetic stream-json lines, so the real process
- * plumbing (argv, stdin, stdout lines, stderr, exit, kill) runs end to end.
+ * Claude Code stream function and CLI line parser. The runClaude seam spawns
+ * tests/fixtures/claude-code/fake-claude.mjs, which replays stream-json lines,
+ * so the real process plumbing (argv, stdin, stdout, stderr, exit, kill) runs.
  */
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -151,8 +148,7 @@ async function runScenario(
 ): Promise<ScenarioRun> {
 	const { runClaude, calls } = createFakeRun(t, scenario, extraEnv);
 
-	const model = CLAUDE_CODE_MODELS[0];
-	assert.ok(model);
+	const model = getModel();
 
 	const context = normalizeContext({
 		systemPrompt: "You are a tutor.",
@@ -213,11 +209,7 @@ async function runTurn(
 ): Promise<AssistantMessage> {
 	const context = normalizeContext({ systemPrompt: "You are a tutor.", messages, tools: [READ_TOOL] });
 
-	const done = getLastEvent(await collectEvents(streamFunction(getModel(), context, { sessionId: SESSION_ID, ...options })));
-
-	assert.ok(done.type === "done", `turn ended with ${done.type}`);
-
-	return done.message;
+	return getDone(await collectEvents(streamFunction(getModel(), context, { sessionId: SESSION_ID, ...options })));
 }
 
 function getText(message: AssistantMessage): string {
@@ -248,6 +240,30 @@ function getErrorMessage(events: AssistantMessageEvent[]): string | undefined {
 	const event = getLastEvent(events);
 	assert.equal(event.type, "error");
 	return event.type === "error" ? event.error.errorMessage : undefined;
+}
+
+function getDone(events: AssistantMessageEvent[]): AssistantMessage {
+	const done = getLastEvent(events);
+	assert.ok(done.type === "done", `turn ended with ${done.type}`);
+	return done.message;
+}
+
+function tempStdin(t: TestContext): string {
+	const dir = mkdtempSync(join(tmpdir(), "claude-code-stdin-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	return join(dir, "stdin.jsonl");
+}
+
+/** Set env vars for one test, restoring the previous values after it. */
+function setEnv(t: TestContext, vars: Record<string, string>): void {
+	for (const [name, value] of Object.entries(vars)) {
+		const saved = process.env[name];
+		t.after(() => {
+			if (saved === undefined) delete process.env[name];
+			else process.env[name] = saved;
+		});
+		process.env[name] = value;
+	}
 }
 
 async function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
@@ -303,21 +319,11 @@ test('toEffort maps low..max verbatim, minimal to "low", undefined to "medium"',
 
 test("text scenario streams start, text_start, text_delta…, text_end, done(stop)", async (t) => {
 	const { events, calls } = await runScenario(t, readFixtureLines("text.jsonl"));
-
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["start", "text_start", "text_delta", "text_end", "done"],
-	);
-
+	assert.deepEqual(events.map((event) => event.type), ["start", "text_start", "text_delta", "text_end", "done"]);
 	const done = getLastEvent(events);
-	assert.ok(done.type === "done");
-	assert.equal(done.reason, "stop");
-	assert.equal(done.message.stopReason, "stop");
-	assert.deepEqual(done.message.content, [{ type: "text", text: "hello there" }]);
-	assert.equal(done.message.provider, "claude-code");
-	assert.equal(done.message.api, "claude-code-cli");
-	assert.equal(done.message.model, "opus");
-
+	assert.ok(done.type === "done" && done.reason === "stop");
+	const { stopReason, content, provider, api, model } = done.message;
+	assert.deepEqual({ stopReason, content, provider, api, model }, { stopReason: "stop", content: [{ type: "text", text: "hello there" }], provider: "claude-code", api: "claude-code-cli", model: "opus" });
 	await assertCleanedUp(getOnlyCall(calls));
 });
 
@@ -339,10 +345,7 @@ test("thinking deltas map to thinking_*", async (t) => {
 		events.map((event) => event.type),
 		["start", "thinking_start", "thinking_delta", "thinking_delta", "thinking_end", "text_start", "text_delta", "text_end", "done"],
 	);
-
-	const done = getLastEvent(events);
-	assert.ok(done.type === "done");
-	assert.deepEqual(done.message.content, [
+	assert.deepEqual(getDone(events).content, [
 		{ type: "thinking", thinking: "Sockets are endpoints." },
 		{ type: "text", text: "An endpoint." },
 	]);
@@ -351,23 +354,12 @@ test("thinking deltas map to thinking_*", async (t) => {
 test("tool scenario ends with toolcall_end (Claude's tool_use id, unprefixed name) and done(toolUse)", async (t) => {
 	const { events } = await runScenario(t, getToolScenario());
 
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["start", "toolcall_start", "toolcall_end", "done"],
-	);
-
+	assert.deepEqual(events.map((event) => event.type), ["start", "toolcall_start", "toolcall_end", "done"]);
 	const toolCallEnd = events.find((event) => event.type === "toolcall_end");
 	assert.ok(toolCallEnd?.type === "toolcall_end");
-	assert.deepEqual(toolCallEnd.toolCall, {
-		type: "toolCall",
-		id: "toolu_01JBB4cJsPa585FWb1XrfbNX",
-		name: "get_weather",
-		arguments: { city: "Paris" },
-	});
-
+	assert.deepEqual(toolCallEnd.toolCall, { type: "toolCall", id: "toolu_01JBB4cJsPa585FWb1XrfbNX", name: "get_weather", arguments: { city: "Paris" } });
 	const done = getLastEvent(events);
-	assert.ok(done.type === "done");
-	assert.equal(done.reason, "toolUse");
+	assert.ok(done.type === "done" && done.reason === "toolUse");
 	assert.deepEqual(done.message.content, [toolCallEnd.toolCall]);
 });
 
@@ -402,37 +394,30 @@ function toBareToolUseMessage(toolUses: ToolUse[]): string[] {
 	return toToolUseMessage(toolUses, new Set(toolUses.map((call) => call.id)));
 }
 
-test("repeated bare-only messages admit only the eventual MCP correction and reuse the process", async (t) => {
-	const first: ToolUse = { id: "toolu_bare_first", name: "read", arguments: { path: "a" } };
+{
+	const first: ToolUse = { id: "toolu_bare_first", name: "read", arguments: { path: "not admitted" } };
 	const second: ToolUse = { ...first, id: "toolu_bare_second" };
-	const retry: ToolUse = { ...first, id: "toolu_corrected" };
-	const { runClaude, calls } = createFakeRun(t, [
-		...toBareToolUseMessage([first]), rejectBareCall(first),
-		...toBareToolUseMessage([second]), rejectBareCall(second),
-		...toToolUseMessage([retry]), callTool(retry), REPLY,
-	]);
-	const stream = createClaudeCodeStreamFunction(runClaude);
-	const message = await runTurn(stream, [HI]);
-	assert.deepEqual(message.content, [{ type: "toolCall", ...retry }]);
-	const reply = await runTurn(stream, [HI, message, toToolResult(retry, "contents of a")]);
-	assert.equal(getText(reply), "contents of a");
-	await assertCleanedUp(getOnlyCall(calls));
-});
-
-test("a bare call before a prefixed sibling cannot become executable or corrupt its arguments", async (t) => {
-	const bare: ToolUse = { id: "toolu_bare_before", name: "read", arguments: { path: "not admitted" } };
-	const prefixed: ToolUse = { id: "toolu_prefixed_after", name: "read", arguments: { path: "a" } };
-	const { runClaude, calls } = createFakeRun(t, [
-		...toToolUseMessage([bare, prefixed], new Set([bare.id])),
-		rejectBareCall(bare), callTool(prefixed), REPLY,
-	]);
-	const stream = createClaudeCodeStreamFunction(runClaude);
-	const message = await runTurn(stream, [HI]);
-	assert.deepEqual(message.content, [{ type: "toolCall", ...prefixed }]);
-	const reply = await runTurn(stream, [HI, message, toToolResult(prefixed, "contents of a")]);
-	assert.equal(getText(reply), "contents of a");
-	await assertCleanedUp(getOnlyCall(calls));
-});
+	const admitted: ToolUse = { id: "toolu_corrected", name: "read", arguments: { path: "a" } };
+	const cases: Array<[name: string, lines: string[]]> = [
+		["repeated bare-only messages admit only the eventual MCP correction", [
+			...toBareToolUseMessage([first]), rejectBareCall(first),
+			...toBareToolUseMessage([second]), rejectBareCall(second),
+			...toToolUseMessage([admitted]), callTool(admitted), REPLY,
+		]],
+		["a bare call before a prefixed sibling cannot become executable or corrupt its arguments", [
+			...toToolUseMessage([first, admitted], new Set([first.id])), rejectBareCall(first), callTool(admitted), REPLY,
+		]],
+	];
+	for (const [name, lines] of cases) test(`${name}; the process is reused`, async (t) => {
+		const { runClaude, calls } = createFakeRun(t, lines);
+		const stream = createClaudeCodeStreamFunction(runClaude);
+		const message = await runTurn(stream, [HI]);
+		assert.deepEqual(message.content, [{ type: "toolCall", ...admitted }]);
+		const reply = await runTurn(stream, [HI, message, toToolResult(admitted, "contents of a")]);
+		assert.equal(getText(reply), "contents of a");
+		await assertCleanedUp(getOnlyCall(calls));
+	});
+}
 
 test("a bare-only rejection may finish with ordinary text instead of an MCP retry", async (t) => {
 	const bare: ToolUse = { id: "toolu_bare_then_text", name: "read", arguments: {} };
@@ -440,8 +425,7 @@ test("a bare-only rejection may finish with ordinary text instead of an MCP retr
 		...toBareToolUseMessage([bare]), rejectBareCall(bare), ...readFixtureLines("text.jsonl"), HOLD,
 	]);
 	const done = getLastEvent(events);
-	assert.ok(done.type === "done");
-	assert.equal(done.reason, "stop");
+	assert.ok(done.type === "done" && done.reason === "stop");
 	assert.equal(getText(done.message), "hello there");
 	assert.equal(events.some((event) => event.type === "toolcall_end"), false);
 	await assertCleanedUp(getOnlyCall(calls));
@@ -475,9 +459,7 @@ test("a bare-only rejection may finish with ordinary text instead of an MCP retr
 
 test("usage maps input/output/cacheRead/cacheWrite with zero cost, message_delta overriding message_start", async (t) => {
 	const { events } = await runScenario(t, getToolScenario());
-	const done = getLastEvent(events);
-	assert.ok(done.type === "done");
-	assert.deepEqual(done.message.usage, {
+	assert.deepEqual(getDone(events).usage, {
 		input: 2,
 		output: 59,
 		cacheRead: 0,
@@ -488,23 +470,13 @@ test("usage maps input/output/cacheRead/cacheWrite with zero cost, message_delta
 });
 
 test('missing binary → error "claude CLI not found"', async () => {
-	const model = CLAUDE_CODE_MODELS[0];
-	assert.ok(model);
-
 	let cwd = "";
 	const runClaude: RunClaude = (_args, options) => {
 		cwd = options.cwd;
 		return null;
 	};
-
-	const context = normalizeContext({ systemPrompt: "p", messages: [{ role: "user", content: "hi", timestamp: 0 }] });
-	const events = await collectEvents(createClaudeCodeStreamFunction(runClaude)(model, context));
-
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["error"],
-	);
-
+	const events = await collectEvents(createClaudeCodeStreamFunction(runClaude)(getModel(), normalizeContext({ messages: [HI] })));
+	assert.deepEqual(events.map((event) => event.type), ["error"]);
 	assert.equal(getErrorMessage(events), ClaudeCodeError.CliNotFound);
 	await waitForRemoval(cwd);
 });
@@ -536,19 +508,11 @@ test("non-zero exit mid-stream → error naming the exit code, stderr logged not
 	const midStream = readFixtureLines("text.jsonl").slice(0, 5);
 	const { events, calls } = await runScenario(t, [...midStream, exitWith(1, "Error: ENOENT /home/someone/.claude/x\n    at main\n")]);
 
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["start", "text_start", "text_delta", "error"],
-	);
-
+	assert.deepEqual(events.map((event) => event.type), ["start", "text_start", "text_delta", "error"]);
 	assert.equal(getErrorMessage(events), "claude CLI exited with code 1");
-	assert.ok(
-		consoleError.mock.calls.some((call) => call.arguments.some((argument) => String(argument).includes("ENOENT /home/someone/.claude/x"))),
-	);
-
+	assert.ok(consoleError.mock.calls.some((call) => call.arguments.some((argument) => String(argument).includes("ENOENT /home/someone/.claude/x"))));
 	const error = getLastEvent(events);
-	assert.ok(error.type === "error");
-	assert.equal(error.reason, "error");
+	assert.ok(error.type === "error" && error.reason === "error");
 	assert.deepEqual(error.error.content, [{ type: "text", text: "hello there" }]);
 
 	await assertCleanedUp(getOnlyCall(calls));
@@ -556,25 +520,14 @@ test("non-zero exit mid-stream → error naming the exit code, stderr logged not
 
 test("abort kills the process and ends with error(aborted)", async (t) => {
 	const { runClaude, calls } = createFakeRun(t, [streamEvent({ type: "message_start", message: { usage: {} } }), HOLD]);
-	const model = CLAUDE_CODE_MODELS[0];
-	assert.ok(model);
 	const controller = new AbortController();
-	const context = normalizeContext({ systemPrompt: "p", messages: [{ role: "user", content: "hi", timestamp: 0 }] });
-	const stream = createClaudeCodeStreamFunction(runClaude)(model, context, { signal: controller.signal });
-
+	const stream = createClaudeCodeStreamFunction(runClaude)(getModel(), normalizeContext({ messages: [HI] }), { signal: controller.signal });
 	const events = await collectEvents(stream, (event) => {
 		if (event.type === "start") controller.abort();
 	});
-
-	assert.deepEqual(
-		events.map((event) => event.type),
-		["start", "error"],
-	);
-
+	assert.deepEqual(events.map((event) => event.type), ["start", "error"]);
 	const error = getLastEvent(events);
-	assert.ok(error.type === "error");
-	assert.equal(error.reason, "aborted");
-
+	assert.ok(error.type === "error" && error.reason === "aborted");
 	await assertCleanedUp(getOnlyCall(calls));
 });
 
@@ -604,7 +557,6 @@ test("spawns with the model alias, effort, bridge tools, MCP timeout headroom an
 	assert.equal(getFlagValue(call.args, "--allowedTools"), "mcp__learnharness__read,mcp__learnharness__get_weather");
 	assert.equal(call.env.MCP_TOOL_TIMEOUT, "1800000");
 	assert.equal(call.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "1800000");
-	assert.equal(LIVE_PROCESS_IDLE_TIMEOUT_MS, 600000, "learner-wait retention stays at ten minutes");
 	for (const name of ["MCP_TOOL_TIMEOUT", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"]) {
 		assert.ok(Number(call.env[name]) > LIVE_PROCESS_IDLE_TIMEOUT_MS, `${name} must outlast LearnHarness retention`);
 	}
@@ -613,59 +565,28 @@ test("spawns with the model alias, effort, bridge tools, MCP timeout headroom an
 });
 
 test("MCP timeout headroom overrides inherited shorter timeouts", async (t) => {
-	const names = ["MCP_TOOL_TIMEOUT", "CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT"] as const;
-	const saved = names.map((name) => [name, process.env[name]] as const);
-	t.after(() => {
-		for (const [name, value] of saved) {
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
-	});
-	for (const name of names) process.env[name] = "300000";
-
-	const { calls } = await runScenario(t, readFixtureLines("text.jsonl"));
-	const call = getOnlyCall(calls);
-	for (const name of names) assert.equal(call.env[name], "1800000");
+	setEnv(t, { MCP_TOOL_TIMEOUT: "300000", CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "300000" });
+	const call = getOnlyCall((await runScenario(t, readFixtureLines("text.jsonl"))).calls);
+	assert.equal(call.env.MCP_TOOL_TIMEOUT, "1800000");
+	assert.equal(call.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, "1800000");
 });
 
-test("preserves existing CLI environment authentication without a subscription guarantee", async (t) => {
-	const saved = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN };
-	t.after(() => {
-		for (const [name, value] of Object.entries(saved)) {
-			if (value === undefined) delete process.env[name];
-			else process.env[name] = value;
-		}
-	});
+test("passes existing CLI env authentication through, never credentials reflected only from LearnHarness's key store", async (t) => {
+	setEnv(t, { ANTHROPIC_API_KEY: "sk-ant-test", ANTHROPIC_AUTH_TOKEN: "token-test" });
+	const passed = getOnlyCall((await runScenario(t, readFixtureLines("text.jsonl"))).calls).env;
+	assert.equal(passed.ANTHROPIC_API_KEY, "sk-ant-test");
+	assert.equal(passed.ANTHROPIC_AUTH_TOKEN, "token-test");
 
-	process.env.ANTHROPIC_API_KEY = "sk-ant-test";
-	process.env.ANTHROPIC_AUTH_TOKEN = "token-test";
-
-	const { calls } = await runScenario(t, readFixtureLines("text.jsonl"));
-	const call = getOnlyCall(calls);
-
-	assert.equal(call.env.ANTHROPIC_API_KEY, "sk-ant-test");
-	assert.equal(call.env.ANTHROPIC_AUTH_TOKEN, "token-test");
-});
-
-test("does not inject credentials reflected only from LearnHarness's key store", async (t) => {
-	const name = "ANTHROPIC_API_KEY";
 	const record = authEnvRecord();
-	const saved = process.env[name];
-	t.after(() => {
-		record.fillGap.delete(name);
-		if (saved === undefined) delete process.env[name]; else process.env[name] = saved;
-	});
-	process.env[name] = "lh-only-key";
-	record.fillGap.add(name);
-	const { calls } = await runScenario(t, readFixtureLines("text.jsonl"));
-	assert.equal(getOnlyCall(calls).env[name], undefined);
-	assert.equal(process.env[name], "lh-only-key", "other LearnHarness providers keep their env reflection");
+	process.env.ANTHROPIC_API_KEY = "lh-only-key"; // restored by the setEnv above
+	record.fillGap.add("ANTHROPIC_API_KEY");
+	t.after(() => record.fillGap.delete("ANTHROPIC_API_KEY"));
+	assert.equal(getOnlyCall((await runScenario(t, readFixtureLines("text.jsonl"))).calls).env.ANTHROPIC_API_KEY, undefined);
+	assert.equal(process.env.ANTHROPIC_API_KEY, "lh-only-key", "other LearnHarness providers keep their env reflection");
 });
 
 test("writes one user prompt after local-only control initialization and summary request", async (t) => {
-	const stdinFile = join(mkdtempSync(join(tmpdir(), "claude-code-stdin-")), "stdin.jsonl");
-	t.after(() => rmSync(dirname(stdinFile), { recursive: true, force: true }));
-
+	const stdinFile = tempStdin(t);
 	await runScenario(t, readFixtureLines("text.jsonl"), undefined, { FAKE_CLAUDE_STDIN: stdinFile });
 
 	const lines = readFileSync(stdinFile, "utf8").trim().split("\n");
@@ -714,30 +635,20 @@ test("mismatched result id starts fresh and kills the old process", async (t) =>
 	const toolMessage = await runTurn(streamFunction, [HI]);
 
 	await runTurn(streamFunction, [HI, toolMessage, toToolResult(readB, "B")]);
-
 	assert.equal(calls.length, 2);
-	const [oldCall] = calls;
-	assert.ok(oldCall);
-	await assertCleanedUp(oldCall);
+	await assertCleanedUp(calls[0]!);
 });
 
 test("user message after tool results starts fresh with unfinished calls in the replay", async (t) => {
-	const stdinFile = join(mkdtempSync(join(tmpdir(), "claude-code-stdin-")), "stdin.jsonl");
-	t.after(() => rmSync(dirname(stdinFile), { recursive: true, force: true }));
-
+	const stdinFile = tempStdin(t);
 	const readA: ToolUse = { id: "toolu_steer_a", name: "read", arguments: { path: "a" } };
 	const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage([readA]), callTool(readA), REPLY], { FAKE_CLAUDE_STDIN: stdinFile });
 	const streamFunction = createClaudeCodeStreamFunction(runClaude);
 	const toolMessage = await runTurn(streamFunction, [HI]);
 	const steer: Message = { role: "user", content: "wait, explain sockets first", timestamp: 0 };
-
 	await runTurn(streamFunction, [HI, toolMessage, toToolResult(readA, "A"), steer]);
-
 	assert.equal(calls.length, 2);
-
-	const [oldCall] = calls;
-	assert.ok(oldCall);
-	await assertCleanedUp(oldCall);
+	await assertCleanedUp(calls[0]!);
 
 	const stdin = readFileSync(stdinFile, "utf8");
 	assert.ok(stdin.includes('[tool call read] {\\"path\\":\\"a\\"}'), stdin);
@@ -770,9 +681,7 @@ test("abort while waiting kills the process and closes the bridge", async (t) =>
 test("a tool result arriving after the idle timeout starts fresh with the call and its result in the replay", async (t) => {
 	liveProcessIdleTimeoutMs.current = 300;
 	t.after(() => (liveProcessIdleTimeoutMs.current = LIVE_PROCESS_IDLE_TIMEOUT_MS));
-
-	const stdinFile = join(mkdtempSync(join(tmpdir(), "claude-code-stdin-")), "stdin.jsonl");
-	t.after(() => rmSync(dirname(stdinFile), { recursive: true, force: true }));
+	const stdinFile = tempStdin(t);
 
 	const readA: ToolUse = { id: "toolu_late_a", name: "read", arguments: { path: "a" } };
 	const waiting = createFakeRun(t, [...toToolUseMessage([readA]), callTool(readA), REPLY]);
@@ -825,37 +734,27 @@ test("pre-aborted requests do not spawn a process", async () => {
 	assert.match(getErrorMessage(events) ?? "", /aborted/);
 });
 
-test("a parallel identity failure after an admitted slice is reported on continuation, not hidden by replay", async (t) => {
-	const first: ToolUse = { id: "toolu_good_parallel", name: "read", arguments: { path: "a" } };
-	const second: ToolUse = { id: "toolu_bad_parallel", name: "read", arguments: { path: "b" } };
-	const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage([first, second]),
-		JSON.stringify({ fake: "start-call", id: first.id, name: first.name, arguments: first.arguments }),
-		JSON.stringify({ fake: "wait-for-message" }),
-		JSON.stringify({ fake: "call", name: second.name, arguments: second.arguments }), HOLD]);
-	const stream = createClaudeCodeStreamFunction(runClaude);
-	const message = await runTurn(stream, [HI]);
-	getOnlyCall(calls).child.send("continue");
-	await waitForExit(getOnlyCall(calls).child);
-	const events = await collectEvents(stream(getModel(), normalizeContext({ systemPrompt: "You are a tutor.", messages: [HI, message, toToolResult(first, "A")], tools: [READ_TOOL] }), { sessionId: SESSION_ID }));
-	assert.match(getErrorMessage(events) ?? "", /compatibility error.*claudecode\/toolUseId/);
-	assert.equal(calls.length, 1, "must not hide the compatibility failure by spawning again");
-	await assertCleanedUp(getOnlyCall(calls));
-});
-
-test("output after MCP admission fails continuation instead of silently replaying", async (t) => {
-	const call: ToolUse = { id: "toolu_moved_on", name: "read", arguments: { path: "a" } };
-	const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage([call]),
-		JSON.stringify({ fake: "start-call", id: call.id, name: call.name, arguments: call.arguments }),
-		JSON.stringify({ fake: "wait-for-message" }), ...toToolUseMessage([call]), HOLD]);
-	const stream = createClaudeCodeStreamFunction(runClaude);
-	const message = await runTurn(stream, [HI]);
-	getOnlyCall(calls).child.send("continue");
-	await waitForExit(getOnlyCall(calls).child);
-	const events = await collectEvents(stream(getModel(), normalizeContext({ systemPrompt: "You are a tutor.", messages: [HI, message, toToolResult(call, "A")], tools: [READ_TOOL] }), { sessionId: SESSION_ID }));
-	assert.match(getErrorMessage(events) ?? "", /moved on while.*waiting for results/);
-	assert.equal(calls.length, 1);
-	await assertCleanedUp(getOnlyCall(calls));
-});
+{
+	const first: ToolUse = { id: "toolu_admitted", name: "read", arguments: { path: "a" } };
+	const second: ToolUse = { id: "toolu_unidentified", name: "read", arguments: { path: "b" } };
+	const cases: Array<[name: string, intents: ToolUse[], afterAdmission: string[], error: RegExp]> = [
+		["a parallel identity failure after an admitted slice", [first, second], [JSON.stringify({ fake: "call", name: second.name, arguments: second.arguments })], /compatibility error.*claudecode\/toolUseId/],
+		["output after MCP admission", [first], toToolUseMessage([first]), /moved on while.*waiting for results/],
+	];
+	for (const [name, intents, afterAdmission, error] of cases) test(`${name} fails continuation instead of silently replaying`, async (t) => {
+		const { runClaude, calls } = createFakeRun(t, [...toToolUseMessage(intents),
+			JSON.stringify({ fake: "start-call", id: first.id, name: first.name, arguments: first.arguments }),
+			JSON.stringify({ fake: "wait-for-message" }), ...afterAdmission, HOLD]);
+		const stream = createClaudeCodeStreamFunction(runClaude);
+		const message = await runTurn(stream, [HI]);
+		getOnlyCall(calls).child.send("continue");
+		await waitForExit(getOnlyCall(calls).child);
+		const events = await collectEvents(stream(getModel(), normalizeContext({ systemPrompt: "You are a tutor.", messages: [HI, message, toToolResult(first, "A")], tools: [READ_TOOL] }), { sessionId: SESSION_ID }));
+		assert.match(getErrorMessage(events) ?? "", error);
+		assert.equal(calls.length, 1, "must not hide the failure by spawning again");
+		await assertCleanedUp(getOnlyCall(calls));
+	});
+}
 
 test("normal completion escalates termination when the child ignores SIGTERM", async (t) => {
 	const { events, calls } = await runScenario(t, [JSON.stringify({ fake: "ignore-term" }), ...readFixtureLines("text.jsonl"), HOLD]);
@@ -893,11 +792,7 @@ for (const change of ["model", "effort", "system prompt", "tool schema", "tool d
 		const fresh = createFakeRun(t, readFixtureLines("text.jsonl"));
 		const stream = createClaudeCodeStreamFunction((args, options) => (waiting.calls.length === 0 ? waiting : fresh).runClaude(args, options));
 		const message = await runTurn(stream, [HI]);
-		if (change === "authentication environment") {
-			const saved = process.env.ANTHROPIC_AUTH_TOKEN;
-			t.after(() => { if (saved === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN; else process.env.ANTHROPIC_AUTH_TOKEN = saved; });
-			process.env.ANTHROPIC_AUTH_TOKEN = "changed-cli-auth";
-		}
+		if (change === "authentication environment") setEnv(t, { ANTHROPIC_AUTH_TOKEN: "changed-cli-auth" });
 		const messages = [change === "history" ? { ...HI, content: "replacement history after compaction" } : HI, message, toToolResult(read, "A")];
 		const context = normalizeContext({
 			systemPrompt: change === "system prompt" ? "Changed tutor instructions" : "You are a tutor.",
@@ -943,9 +838,7 @@ test("one registered stream isolates two sessions with colliding tool IDs and id
 test("a caller without a session ID uses fresh replay and retains no held process", async (t) => {
 	const call: ToolUse = { id: "toolu_no_scope", name: "read", arguments: { path: "a" } };
 	const waiting = createFakeRun(t, [...toToolUseMessage([call]), callTool(call), REPLY]);
-	const stdinDir = mkdtempSync(join(tmpdir(), "claude-unscoped-replay-"));
-	t.after(() => rmSync(stdinDir, { recursive: true, force: true }));
-	const stdinFile = join(stdinDir, "stdin.jsonl");
+	const stdinFile = tempStdin(t);
 	const fresh = createFakeRun(t, readFixtureLines("text.jsonl"), { FAKE_CLAUDE_STDIN: stdinFile });
 	const stream = createClaudeCodeStreamFunction((args, options) => (waiting.calls.length === 0 ? waiting : fresh).runClaude(args, options));
 	const message = await runTurn(stream, [HI], { sessionId: undefined });

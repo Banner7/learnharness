@@ -130,7 +130,7 @@ type RenderSettings = GraphRenderSettings;
  * query is empty or matches its name or statement (case-insensitive).
  * Exported for tests; the visibility feed just consumes its verdict.
  */
-export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query: string): boolean {
+function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query: string): boolean {
 	const q = query.trim().toLowerCase();
 	if (!q) return true;
 	return node.name.toLowerCase().includes(q) || node.statement.toLowerCase().includes(q);
@@ -147,7 +147,7 @@ export function isNodeVisible(node: Pick<GraphNode, "name" | "statement">, query
  *  label itself goes through the renderer's label-only channel
  *  (setClusterLabels). Exported for tests; pure display state only —
  *  the server derives the same join on its next read. */
-export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, id: string, title: string): void {
+function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, id: string, title: string): void {
 	snapshot.sessions[id] = title;
 }
 
@@ -158,7 +158,7 @@ export function renameSessionsPatch(snapshot: Pick<GraphSnapshot, "sessions">, i
  *  spiral offset so even hash collisions spread. Stable across
  *  remounts, far enough off the mass to see, and they relax with the
  *  pack on the next drag. In-place on the provided map; pure otherwise. */
-export function seedMissingNodePositions(
+function seedMissingNodePositions(
 	nodes: readonly { id: string }[],
 	positions: Map<string, { x: number; y: number }>,
 ): Map<string, { x: number; y: number }> {
@@ -667,7 +667,7 @@ function GraphSettingsControl({
 
 /** Import Notes stays available for an empty graph; search and settings
  * appear once there are nodes to inspect (desktop restoration, 2026-10-31). */
-export function GraphChromeRow({
+function GraphChromeRow({
 	isEmpty,
 	query,
 	onQuery,
@@ -869,12 +869,6 @@ export function GraphView({
 	// The chain table overlay (chains-overlay plan, 2026-09-29) —
 	// component-local: a browsing surface, not graph state.
 	const [chainsOpen, setChainsOpen] = useState(false);
-	useEffect(() => {
-		if (chainsOpen) return;
-		const onFind = () => searchInputRef.current?.focus();
-		window.addEventListener("lh:kbd-find", onFind);
-		return () => window.removeEventListener("lh:kbd-find", onFind);
-	}, [chainsOpen]);
 	// PRACTICE SELECT (2026-10-04): the parent's chip drives the select
 	// mode; closing (either the picker's confirm or its X) reports back so
 	// the chip's open state and the table's never disagree.

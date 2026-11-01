@@ -328,7 +328,7 @@ export function CoverageRing({ chatId, refreshKey = 0, initialCoverage, rail = f
 /** The donut itself (exported for static-render tests): a hairline track
  *  plus the fill arc — uncovered/chunk of the circumference, starting at
  *  12 o'clock. The whole ring pulses while a run is in flight. */
-export function CoverageRingGlyph({ fill, running, hideEmptyArc = false }: { fill: number; running: boolean; hideEmptyArc?: boolean }) {
+function CoverageRingGlyph({ fill, running, hideEmptyArc = false }: { fill: number; running: boolean; hideEmptyArc?: boolean }) {
 	const C = 2 * Math.PI * 6; // r=6 in the 16px viewBox
 	return (
 		<svg

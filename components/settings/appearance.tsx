@@ -18,7 +18,7 @@ export function resolveAppearance(delta: AppearanceSettings | undefined) {
 
 
 /** Map resolved appearance to the reading-size and heading-weight CSS tokens. */
-export function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
+function appearanceVars(a: ReturnType<typeof resolveAppearance>): Record<string, string> {
 	const vars: Record<string, string> = {};
 	// Reading size and heading weight are the only runtime typography knobs.
 	vars["--lh-prose-size"] = `${a.proseFontSize}px`;

@@ -222,7 +222,7 @@ function MermaidInline({ chart }: { chart: string }) {
  *  hover-copy wrapper, with NO children so its sticky button row never
  *  mounts. The container/look is CSS-melted in globals.css
  *  (data-streamdown="code-block"…). */
-export function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
+function MarkdownCode(props: ComponentProps<"code"> & ExtraProps) {
 	const incomplete = useIsCodeFenceIncomplete();
 	const { children, className, node, ...rest } = props;
 

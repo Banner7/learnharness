@@ -78,10 +78,6 @@ export function useChainNavigation(rootRef: RefObject<HTMLDivElement | null>, se
 	useEffect(() => {
 		if (!enabled) return;
 		const root = rootRef.current;
-		const onFind = () => {
-			if (sessionFindHasForegroundLayer(document)) return;
-			searchRef.current?.focus({ preventScroll: true }); searchRef.current?.select();
-		};
 		const onPointerDown = (event: PointerEvent) => {
 			const row = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-chain-nav-row]") : null;
 			if (row) highlight(row.dataset.chainNavRow!);
@@ -116,10 +112,9 @@ export function useChainNavigation(rootRef: RefObject<HTMLDivElement | null>, se
 				readRows().find((row) => row.key === result.toggle)?.element.querySelector<HTMLButtonElement>("button[aria-expanded]")?.click();
 			}
 		};
-		window.addEventListener("lh:kbd-find", onFind);
 		document.addEventListener("keydown", onKeyDown);
 		root?.addEventListener("pointerdown", onPointerDown);
-		return () => { window.removeEventListener("lh:kbd-find", onFind); document.removeEventListener("keydown", onKeyDown); root?.removeEventListener("pointerdown", onPointerDown); };
+		return () => { document.removeEventListener("keydown", onKeyDown); root?.removeEventListener("pointerdown", onPointerDown); };
 	});
 	useEffect(() => { if (enabled && !sessionFindHasForegroundLayer(document)) rootRef.current?.focus({ preventScroll: true }); }, [enabled, rootRef]);
 	return { focusRow(parts: string[]) {

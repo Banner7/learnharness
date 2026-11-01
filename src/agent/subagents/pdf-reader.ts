@@ -83,7 +83,7 @@ export interface PdfReaderInput extends PdfToolInput {}
  *  image-in-the-loop message) — so the declarations carry no execute.
  *  dpi/context_lines/literal carry the old zod `.default()`s as schema
  *  descriptions + loop-side ??-fills (the loop reads them via numOr). */
-export function createPdfTools(_pdfPath: string): Record<string, Tool> {
+function createPdfTools(_pdfPath: string): Record<string, Tool> {
 	return {
 		pdf_info: {
 			name: "pdf_info",

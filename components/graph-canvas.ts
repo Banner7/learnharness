@@ -101,7 +101,7 @@ export interface CanvasEdge {
  *  On the canvas an imp node is PURE GEOMETRY (owner, rendering arc
  *  2026-09-30): invisible — no disc, no label — and UNPICKABLE,
  *  excluded from every hit-test path. Exported for the test pin. */
-export const isImpNodeId = (id: string): boolean => id.startsWith("arg_");
+const isImpNodeId = (id: string): boolean => id.startsWith("arg_");
 
 /** One cluster region: member node ids + the LLM-coined label (or null). */
 export interface CanvasCluster {
@@ -174,7 +174,7 @@ const REGION_LABEL_LINE_HEIGHT = 1.3;
  *  node-label discipline), capped at maxLines. Overflow folds into the
  *  last line, ellipsized to fit. measure is the canvas measureText (or a
  *  fake in tests) — pure otherwise. */
-export function wrapRegionLabel(
+function wrapRegionLabel(
 	text: string,
 	maxWidth: number,
 	maxLines: number,
@@ -242,7 +242,7 @@ export function wrapRegionLabel(
  *  null is a gone record — no rename can reach it. Pure, in-place on the
  *  provided arrays; returns whether anything changed (the caller only
  *  redraws when it did). Exported for tests. */
-export function applyClusterLabels(
+function applyClusterLabels(
 	clusters: { id: string; label: string | null }[],
 	regionMeta: { id: string; label: string | null; lines: string[] | null }[],
 	labels: ReadonlyMap<string, string | null>,
@@ -282,7 +282,7 @@ const LABEL_LINE_HEIGHT = 1.3;
  *  abrupt" — the user's exact observation. Proportional keeps ONE
  *  transitionary feel at any gate; at the 8x default the handoff fades
  *  across a full stop (8x → 12x). */
-export const LABELS_FADE_RATIO = 0.5;
+const LABELS_FADE_RATIO = 0.5;
 
 const GLOW_SCALE = 1.7; // halo outer radius = node radius x this (proportional, like blurring a copy of the disc)
 const GLOW_ALPHA = 0.3; // halo opacity at the disc edge, fading outward
@@ -318,7 +318,7 @@ const REGION_EVERY = 3; // live-sim frames: rebuild every Nth, blit the rest
  *  (Float32, stride 4, length w*h*4). Premultiplying first is what keeps
  *  the blur halo-free: blurring non-premultiplied RGB over varying alpha
  *  bleeds solid color into transparent space. Pure: DOM-free, tested. */
-export function boxBlurRound(
+function boxBlurRound(
 	src: Float32Array,
 	tmp: Float32Array,
 	dst: Float32Array,
@@ -401,7 +401,7 @@ const clamp01 = (v: number) => Math.min(Math.max(v, 0), 1);
  * in (ratio = kFit / k). The persisted labelZoom setting is denominated in
  * these units, so the gate semantics survive the renderer swap unchanged.
  */
-export function zoomRatioOf(kFit: number, k: number): number {
+function zoomRatioOf(kFit: number, k: number): number {
 	return kFit / k;
 }
 
@@ -411,7 +411,7 @@ export function zoomRatioOf(kFit: number, k: number): number {
  * (see there). Cluster labels use `1 - this` over the same span — the
  * two cross-fade and never coexist at full opacity.
  */
-export function labelAlpha(
+function labelAlpha(
 	ratio: number,
 	labelZoom: number,
 	span = labelZoom * LABELS_FADE_RATIO,
@@ -420,7 +420,7 @@ export function labelAlpha(
 }
 
 /** The camera transform that frames `bbox` in a w×h viewport with padding. */
-export function fitTransform(
+function fitTransform(
 	bbox: { minX: number; maxX: number; minY: number; maxY: number },
 	w: number,
 	h: number,
@@ -446,7 +446,7 @@ export interface ArrowGeom {
 	right: Pt;
 }
 
-export function arrowGeometry(
+function arrowGeometry(
 	a: Pt,
 	b: Pt,
 	fromRadius: number,
@@ -474,7 +474,7 @@ export function arrowGeometry(
 
 /** Nearest node within maxDist of a screen point (linear scan — µs at
  *  our scale; a spatial grid only earns its keep past ~10k nodes). */
-export function pickNearest<T extends { id: string; x: number; y: number }>(
+function pickNearest<T extends { id: string; x: number; y: number }>(
 	nodes: T[],
 	px: number,
 	py: number,

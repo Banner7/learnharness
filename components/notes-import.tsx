@@ -6,7 +6,6 @@ import { Hint } from "@/components/ui/hint";
 import { createNotesImportQueue, EMPTY_IMPORT_QUEUE, notesPath } from "./notes-import-queue";
 
 export { MAX_IMPORT_BYTES } from "@/lib/notes-import-limits.ts";
-export { notesPath } from "./notes-import-queue";
 
 // Transport-only types: never import the server's extraction/agent module here.
 export interface NotesImportResult {

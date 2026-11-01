@@ -57,7 +57,7 @@ import { Hint } from "@/components/ui/hint";
  * should be the same as the vertical one"): (44 − 11) / 2 ≈ 16 (the
  * prose font renders text-xs at 11px). */
 const PAD_X = 16;
-export const NODE_W_MIN = 96;
+const NODE_W_MIN = 96;
 export const NODE_H = 44;
 
 // The width classes approximate node titles in bundled Computer Modern
@@ -68,7 +68,7 @@ const WIDE_CHARS = new Set("mwMW@");
 const CAP_DIGIT = /[A-Z0-9]/;
 
 /** Estimated rendered width (px) of one line at text-xs. Pure. */
-export function estimateLineWidth(line: string): number {
+function estimateLineWidth(line: string): number {
 	let w = 0;
 	for (const ch of line) {
 		if (NARROW_CHARS.has(ch)) w += 3.1;
@@ -363,7 +363,7 @@ function faceNormal(
  *  the 40° cone edge instead of breaking the head's silhouette. Without
  *  a target box the unclamped geometry applies. Straight collinear
  *  routes render identically. Pure, exported for tests. */
-export function edgePathD(
+function edgePathD(
 	points: Array<{ x: number; y: number }>,
 	target?: { x: number; y: number; w: number; h: number },
 ): string {

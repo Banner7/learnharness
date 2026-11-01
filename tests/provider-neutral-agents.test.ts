@@ -1,9 +1,5 @@
-/**
- * Raw-stream credential regression: the Sept 26 Agent getApiKey-hook tests
- * do not exercise these two hand-rolled loops. All credentials here are
- * synthetic; fetch is CLOSED (never delegates), including Google's global
- * fetch-only adapter. The transport cases test SDK serialization, not accounts.
- */
+// Raw-stream credential regression for the two hand-rolled loops. Credentials
+// are synthetic; fetch is CLOSED (never delegates).
 import assert from "node:assert/strict";
 import path from "node:path";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -187,56 +183,50 @@ describe("provider-neutral raw agent loops", { concurrency: false }, () => {
 		});
 	}
 
+	// Transport serialization is loop-independent (fork, 2026-11-01): the loops'
+	// own credential property is the faux test above, so one loop per transport.
 	for (const transport of TRANSPORTS) {
-		for (const loop of LOOPS) {
-			it(`${loop}: native ${transport.provider}/${transport.api} endpoint, payload and live per-request auth`, async () => {
-				await isolated({ OPENROUTER_API_KEY: OR_KEY, ...(transport.provider === "openrouter" ? {} : { [transport.envVar]: "dummy-selected-key-first" }) }, async () => {
-					const engine = piEngineForSpec({ provider: transport.provider, id: transport.id, thinkingLevel: "off" });
-					assert.equal(engine.model.api, transport.api);
-					const requests: RecordedRequest[] = [];
-					globalThis.fetch = closedFetch(transport, loop, requests);
-					const run = await runLoop(loop, engine);
-					assertSuccess(loop, run);
-					assert.equal(requests.length, 3);
-					for (const [round, request] of requests.entries()) {
-						assert.equal(request.headers.get("user-agent"), APP_IDENTITY.userAgent.custom);
-						if (transport.provider === "opencode-go") {
-							assert.match(request.headers.get("x-opencode-session") ?? "", /^[0-9a-f-]{36}$/);
-							assert.equal(request.headers.get("x-opencode-session"), requests[0]!.headers.get("x-opencode-session"));
-							assert.equal(request.headers.get("x-opencode-client"), "learnharness");
-						}
-						const url = new URL(request.url);
-						assert.equal(url.origin, transport.origin);
-						assert.equal(url.pathname, transport.path);
-						assert.equal(request.method, "POST");
-						const expected = transport.provider === "openrouter" ? OR_KEY : round === 0 ? "dummy-selected-key-first" : "dummy-selected-key-rotated";
-						assert.equal(request.headers.get(transport.authHeader), transport.authHeader === "authorization" ? `Bearer ${expected}` : expected);
-						if (transport.provider !== "openrouter") assert.ok(!JSON.stringify({ ...request, headers: Object.fromEntries(request.headers) }).includes(OR_KEY));
-						assertPayload(transport, loop, round, request.body);
+		const loop: Loop = "visual";
+		it(`native ${transport.provider}/${transport.api} endpoint, payload and live per-request auth`, async () => {
+			await isolated({ OPENROUTER_API_KEY: OR_KEY, ...(transport.provider === "openrouter" ? {} : { [transport.envVar]: "dummy-selected-key-first" }) }, async () => {
+				const engine = piEngineForSpec({ provider: transport.provider, id: transport.id, thinkingLevel: "off" });
+				assert.equal(engine.model.api, transport.api);
+				const requests: RecordedRequest[] = [];
+				globalThis.fetch = closedFetch(transport, loop, requests);
+				const run = await runLoop(loop, engine);
+				assertSuccess(loop, run);
+				assert.equal(requests.length, 3);
+				for (const [round, request] of requests.entries()) {
+					assert.equal(request.headers.get("user-agent"), APP_IDENTITY.userAgent.custom);
+					if (transport.provider === "opencode-go") {
+						assert.equal(request.headers.get("x-opencode-session"), requests[0]!.headers.get("x-opencode-session"));
 					}
-				});
+					const url = new URL(request.url);
+					assert.equal(url.origin + url.pathname, transport.origin + transport.path);
+					const expected = transport.provider === "openrouter" ? OR_KEY : round === 0 ? "dummy-selected-key-first" : "dummy-selected-key-rotated";
+					assert.equal(request.headers.get(transport.authHeader), transport.authHeader === "authorization" ? `Bearer ${expected}` : expected);
+					if (transport.provider !== "openrouter") assert.ok(!JSON.stringify({ ...request, headers: Object.fromEntries(request.headers) }).includes(OR_KEY));
+					assertPayload(transport, loop, round, request.body);
+				}
 			});
-			if (transport.provider !== "openrouter") {
-				it(`${loop}: ${transport.provider} missing selected key does not fall back to configured OpenRouter`, async () => {
-					await isolated({ OPENROUTER_API_KEY: OR_KEY }, async () => {
-						let fetches = 0;
-						globalThis.fetch = async () => { fetches++; throw new Error("CLOSED: no fetch allowed"); };
-						const engine = piEngineForSpec({ provider: transport.provider, id: transport.id, thinkingLevel: "off" });
-						const run = await runLoop(loop, engine);
-						const failure = "svg" in run.result ? run.result.notes : run.result.brief;
-						assert.match(failure ?? "", new RegExp(`Provider is not configured: ${transport.provider}`));
-						assert.equal(fetches, 0, "SDK Models guard rejects missing selected-provider auth before transport");
-						assert.equal(run.usages.length, 0);
-						assert.deepEqual(run.renders, []);
-					});
-				});
-			}
-		}
+		});
+	}
+
+	for (const loop of LOOPS) {
+		it(`${loop}: a missing selected key does not fall back to configured OpenRouter`, async () => {
+			await isolated({ OPENROUTER_API_KEY: OR_KEY }, async () => {
+				let fetches = 0;
+				globalThis.fetch = async () => { fetches++; throw new Error("CLOSED: no fetch allowed"); };
+				const engine = piEngineForSpec({ provider: "opencode-go", id: "glm-5.3", thinkingLevel: "off" });
+				const run = await runLoop(loop, engine);
+				const failure = "svg" in run.result ? run.result.notes : run.result.brief;
+				assert.match(failure ?? "", /Provider is not configured: opencode-go/);
+				assert.equal(fetches, 0);
+			});
+		});
 	}
 
 	it("all AUTH_PROVIDER_KEYS resolve their own plain-key env values in a fresh in-memory Models collection", async () => {
-		// No production singleton, credential files, process.env, OAuth refresh,
-		// or model refresh: this is a broad resolver contract, not wire coverage.
 		await isolated({}, async () => {
 			const env = Object.fromEntries(AUTH_PROVIDER_KEYS.map(({ envVar }) => [envVar, `dummy-resolver-${envVar}`]));
 			const models = createModels({ authContext: { env: async (name) => env[name], fileExists: async () => false } });
@@ -274,15 +264,8 @@ function closedFetch(transport: Transport, loop: Loop, requests: RecordedRequest
 
 function assertPayload(transport: Transport, loop: Loop, round: number, body: Record<string, unknown>) {
 	if (transport.api !== "google-generative-ai") assert.equal(body.model, transport.id);
-	// Native Responses models may declare tools in additional_tools input
-	// items rather than top-level tools; assert the SDK's complete payload.
-	const tools = JSON.stringify(body);
-	assert.match(tools, new RegExp(loop === "visual" ? "write_svg" : "pdf_extract"));
-	assert.match(tools, new RegExp(loop === "visual" ? "render_svg" : "pdf_render"));
-	if (transport.api === "google-generative-ai") assert.ok(Array.isArray(body.contents));
-	else if (transport.api === "openai-responses") assert.ok(Array.isArray(body.input));
-	else assert.ok(Array.isArray(body.messages));
 	const json = JSON.stringify(body);
+	assert.match(json, new RegExp(loop === "visual" ? "render_svg" : "pdf_render"));
 	assert.match(json, new RegExp(loop === "visual" ? "white square" : "Read page 1"));
 	if (round === 2) {
 		const supportsImages = piEngineForSpec({ provider: transport.provider, id: transport.id }).model.input.includes("image");

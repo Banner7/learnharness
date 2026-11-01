@@ -73,7 +73,7 @@ export function birthSessionPartition(nodes: readonly GraphNode[]): BirthSession
 
 /** Derived implication nodes inherit the majority birth-session among
  * their premises, with the chain's own birth resolving a tie. */
-export function impClusterKey(
+function impClusterKey(
 	chain: Pick<GraphChain, "premises" | "provenance">,
 	birthOf: (nodeId: string) => string | null,
 ): string | null {

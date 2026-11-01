@@ -28,7 +28,7 @@ import type { ArtifactPartProps, DemoResult } from "@/src/core";
 
 // ─── bridge injection + message handling (pure, testable) ───────────────────
 
-export const DEMO_BRIDGE_SCRIPT = `<script>(function(){
+const DEMO_BRIDGE_SCRIPT = `<script>(function(){
 var send=function(m){try{parent.postMessage(m,"*")}catch(e){}};
 var post=function(){
 var b=document.body;
@@ -231,7 +231,7 @@ function DemoFrame({
 	);
 }
 
-export function DemoErrorChip({
+function DemoErrorChip({
 	title,
 	message,
 	onSend,

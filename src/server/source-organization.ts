@@ -11,7 +11,7 @@ import { libraryPreferences, vaultExtracting } from "./vault.ts";
 
 export class SourceOrganizationInputError extends Error {}
 
-export function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: GraphStore; sourceOrganizationStore: SourceOrganizationStore }) {
+function createSourceDirectory(deps: { chatStore: ChatStore; graphStore: GraphStore; sourceOrganizationStore: SourceOrganizationStore }) {
 	const freshFolder = () => ({ id: `folder_${randomUUID()}`, createdAt: new Date().toISOString() });
 	function read(): SourceDirectory {
 		const organization = deps.sourceOrganizationStore.read();

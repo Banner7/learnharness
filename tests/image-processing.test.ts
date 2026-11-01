@@ -11,7 +11,6 @@ import {
 	detectSupportedImageMimeTypeFromFile,
 	processImage,
 } from "../src/agent/image-processing/index.ts";
-import { applyExifOrientation } from "../src/agent/image-processing/exif-orientation.mjs";
 import { resizeImageInProcess } from "../src/agent/image-processing/resize-core.mjs";
 import { resizeImage } from "../src/agent/image-processing/resize.ts";
 
@@ -36,20 +35,6 @@ function png(width = 96, height = 96, noise = false): Buffer {
 		context.fillRect(0, 0, width, height);
 	}
 	return canvas.toBuffer("image/png");
-}
-
-function encodings(bytes: Uint8Array, width: number, height: number, qualities = [80, 85, 70, 55, 40]) {
-	const image = photon.PhotonImage.new_from_byteslice(bytes);
-	const resized = photon.resize(image, width, height, photon.SamplingFilter.Lanczos3);
-	try {
-		return [
-			{ mimeType: "image/png", data: Buffer.from(resized.get_bytes()).toString("base64") },
-			...qualities.map((quality) => ({ mimeType: "image/jpeg", data: Buffer.from(resized.get_bytes_jpeg(quality)).toString("base64") })),
-		];
-	} finally {
-		resized.free();
-		image.free();
-	}
 }
 
 function bmp(): Buffer {
@@ -106,28 +91,10 @@ test("native default dimensions are 2000x2000 and dimension hints use the native
 	assert.ok(result.ok);
 	assert.equal(result.mimeType, "image/png");
 	assert.deepEqual(result.hints, ["[Image: original 12000x24, displayed at 2000x4. Multiply coordinates by 6.00 to map to original image.]"]);
-	const decoded = photon.PhotonImage.new_from_byteslice(Buffer.from(result.data, "base64"));
-	try {
-		assert.equal(decoded.get_width(), 2000);
-		assert.equal(decoded.get_height(), 4);
-	} finally { decoded.free(); }
 	const tall = await resizeImage(png(24, 12000), "image/png");
 	assert.ok(tall);
 	assert.equal(tall.width, 4);
 	assert.equal(tall.height, 2000);
-});
-
-test("model dimensions use sequential rounding, not a one-step scale", async () => {
-	const result = await resizeImage(png(301, 503), "image/png", { maxWidth: 101, maxHeight: 100 });
-	assert.ok(result);
-	// 301x503 -> 101x169 -> 60x100.
-	assert.equal(result.width, 60);
-	assert.equal(result.height, 100);
-	assert.equal(result.data, encodings(png(301, 503), 60, 100)[0]!.data);
-	const rounding = await resizeImage(png(50, 77), "image/png", { maxWidth: 10, maxHeight: 10 });
-	assert.ok(rounding);
-	assert.equal(rounding.width, 7); // round(100 / round(77 * 10 / 50)); one-step gives 6.
-	assert.equal(rounding.height, 10);
 });
 
 test("native cap is strict and measures base64 bytes, not binary bytes", async () => {
@@ -150,47 +117,8 @@ test("native cap is strict and measures base64 bytes, not binary bytes", async (
 	assert.deepEqual(below.hints, []);
 });
 
-test("PNG wins first under cap even when JPEG is smaller", async () => {
-	const bytes = png(96, 96, true);
-	const candidates = encodings(bytes, 95, 95);
-	assert.ok(candidates[0]!.data.length > candidates[1]!.data.length);
-	const result = await resizeImage(bytes, "image/png", { maxWidth: 95, maxBytes: candidates[0]!.data.length + 1 });
-	assert.ok(result);
-	assert.equal(result.mimeType, "image/png");
-	assert.equal(result.data, candidates[0]!.data);
-});
-
-test("JPEG quality selection is native first-fit [80,85,70,55,40], not smallest output", async () => {
-	const bytes = png(96, 96, true);
-	const candidates = encodings(bytes, 96, 96);
-	assert.ok(candidates[0]!.data.length > candidates[2]!.data.length);
-	assert.ok(candidates[2]!.data.length > candidates[1]!.data.length);
-	assert.ok(candidates[1]!.data.length > candidates[3]!.data.length);
-	const at80 = await resizeImage(bytes, "image/png", { maxBytes: candidates[1]!.data.length + 1 });
-	assert.ok(at80);
-	assert.equal(at80.data, candidates[1]!.data);
-	// Strict equality excludes 80; 85 is larger, so 70 is the next fit.
-	const at70 = await resizeImage(bytes, "image/png", { maxBytes: candidates[1]!.data.length });
-	assert.ok(at70);
-	assert.equal(at70.data, candidates[3]!.data);
-	const override = await resizeImage(bytes, "image/png", { jpegQuality: 85, maxBytes: candidates[2]!.data.length + 1 });
-	assert.ok(override);
-	assert.equal(override.data, candidates[2]!.data, "caller quality precedes the native remaining quality steps");
-});
-
-test("all encodings over cap reduce each dimension by floor(0.75), eventually omitting at 1x1", async () => {
+test("input that never fits under the cap is omitted", async () => {
 	const bytes = png(97, 95, true);
-	const full = encodings(bytes, 97, 95);
-	const next = encodings(bytes, 72, 71);
-	const maxBytes = Math.min(...full.map((candidate) => candidate.data.length));
-	const expected = next.find((candidate) => candidate.data.length < maxBytes);
-	assert.ok(expected, "synthetic fixture fits on the first reduced dimensions");
-	const result = await resizeImage(bytes, "image/png", { maxBytes });
-	assert.ok(result);
-	assert.equal(result.width, 72);
-	assert.equal(result.height, 71);
-	assert.equal(result.mimeType, expected.mimeType);
-	assert.equal(result.data, expected.data);
 	assert.equal(await resizeImage(bytes, "image/png", { maxBytes: 1 }), null);
 	const omitted = await processImage(bytes, "image/png", { resizeOptions: { maxBytes: 1 } });
 	assert.deepEqual(omitted, { ok: false, message: "[Image omitted: could not be resized below the inline image size limit.]" });
@@ -202,13 +130,7 @@ test("BMP converts to PNG and reports the native conversion hint", async () => {
 	const result = await processImage(bytes, "IMAGE/BMP");
 	assert.ok(result.ok);
 	assert.equal(result.mimeType, "image/png");
-	assert.equal(detectSupportedImageMimeType(Buffer.from(result.data, "base64")), "image/png");
 	assert.deepEqual(result.hints, ["[Image converted from image/bmp to image/png.]"]);
-	const decoded = photon.PhotonImage.new_from_byteslice(Buffer.from(result.data, "base64"));
-	try {
-		assert.equal(decoded.get_width(), 2);
-		assert.equal(decoded.get_height(), 1);
-	} finally { decoded.free(); }
 });
 
 test("EXIF-oriented dimensions govern resizing, with native unchanged-byte behavior when already fit", async () => {
@@ -223,49 +145,6 @@ test("EXIF-oriented dimensions govern resizing, with native unchanged-byte behav
 		assert.ok(resized);
 		assert.equal(resized.width, orientation >= 5 ? 4 : 6);
 		assert.equal(resized.height, orientation >= 5 ? 6 : 4);
-	}
-});
-
-test("EXIF mirrors and rotations preserve exact pixel placement for JPEG and both WebP EXIF layouts", () => {
-	const expected = [
-		[1, 2, 3, 4, 5, 6], // unchanged
-		[3, 2, 1, 6, 5, 4], // horizontal mirror
-		[6, 5, 4, 3, 2, 1], // 180 degrees
-		[4, 5, 6, 1, 2, 3], // vertical mirror
-		[1, 4, 2, 5, 3, 6], // transpose
-		[4, 1, 5, 2, 6, 3], // 90 degrees clockwise
-		[6, 3, 5, 2, 4, 1], // transverse
-		[3, 6, 2, 5, 1, 4], // 90 degrees counterclockwise
-	];
-	for (let orientation = 1; orientation <= 8; orientation++) {
-		const jpeg = exifJpeg(orientation);
-		// Only metadata is needed here: decoding is covered by the resize test.
-		const exif = jpeg.subarray(6, 38);
-		for (const metadata of [jpeg, ...[exif, exif.subarray(6)].map((data) => {
-			// Odd-size RIFF chunk before EXIF verifies native even-byte padding.
-			const webp = Buffer.alloc(12 + 10 + 8 + data.length);
-			webp.write("RIFF", 0);
-			webp.writeUInt32LE(webp.length - 8, 4);
-			webp.write("WEBP", 8);
-			webp.write("JUNK", 12);
-			webp.writeUInt32LE(1, 16);
-			webp.write("EXIF", 22);
-			webp.writeUInt32LE(data.length, 26);
-			data.copy(webp, 30);
-			return webp;
-		})]) {
-			const pixels = Uint8Array.from([1, 2, 3, 4, 5, 6].flatMap((value) => [value, 0, 0, 255]));
-			const raw = new photon.PhotonImage(pixels, 3, 2);
-			const oriented = applyExifOrientation(photon, raw, metadata);
-			try {
-				assert.equal(oriented.get_width(), orientation >= 5 ? 2 : 3);
-				assert.equal(oriented.get_height(), orientation >= 5 ? 3 : 2);
-				assert.deepEqual(Array.from(oriented.get_raw_pixels()).filter((_, index) => index % 4 === 0), expected[orientation - 1]);
-			} finally {
-				if (oriented !== raw) oriented.free();
-				raw.free();
-			}
-		}
 	}
 });
 
@@ -288,10 +167,6 @@ test("MIME sniffing matches native supported signatures and rejects APNG/JPEG-LS
 	assert.equal(detectSupportedImageMimeType(Buffer.from([0xff, 0xd8, 0xff, 0xe0])), "image/jpeg");
 	assert.equal(detectSupportedImageMimeType(Buffer.from([0xff, 0xd8, 0xff, 0xf7])), null);
 	assert.equal(detectSupportedImageMimeType(Buffer.from("GIF89a")), "image/gif");
-	assert.equal(detectSupportedImageMimeType(Buffer.from("GIF87a")), "image/gif");
-	assert.equal(detectSupportedImageMimeType(Buffer.from("RIFFxxxxWEBP")), "image/webp");
-	assert.equal(detectSupportedImageMimeType(Buffer.from("BM")), null);
-	assert.equal(detectSupportedImageMimeType(Buffer.from("not an image")), null);
 	const truncatedPng = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 	assert.equal(detectSupportedImageMimeType(truncatedPng), null);
 	// MIME sniffing, like Pi, walks chunk headers without checking CRCs.

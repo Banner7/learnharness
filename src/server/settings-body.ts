@@ -18,13 +18,12 @@ import type {
 	AppearanceSettings,
 	BackgroundModelRole,
 	CompactionSettings,
-	CustomModelOverride,
 	GraphSettings,
 	LibrarySettings,
 	ModelsSettings,
 	RoleModelOverride,
 } from "../core/settings.ts";
-import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, CUSTOM_MODEL_PIN_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
+import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
@@ -321,49 +320,10 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 	return { ok: true, settings };
 }
 
-/** The custom endpoint's per-model pins (PATCH /api/custom-provider): the
- *  whole desired map, replace-whole like every section. Strict write side — a
- *  token count must be a whole number at or above the floor (the read side
- *  clamps, this rejects — the compaction discipline). `reasoning` is the
- *  tri-state capability pin, not a backend execution toggle. */
-export function parseCustomModelOverridesBody(
-	body: unknown,
-): SettingsBodyResult<Record<string, CustomModelOverride>> {
-	const raw = asRecord(body);
-	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	const map = asRecord(raw.overrides);
-	if (!map) return { ok: false, error: "overrides must be a { modelId: { context?, maxTokens?, reasoning? } } map" };
-	const out: Record<string, CustomModelOverride> = {};
-	for (const [key, value] of Object.entries(map)) {
-		const id = key.trim();
-		if (!id) return { ok: false, error: "override keys must be non-empty model ids" };
-		const entry = asRecord(value);
-		if (!entry) return { ok: false, error: `override for ${id} must be an object` };
-		const pin: CustomModelOverride = {};
-		for (const field of ["context", "maxTokens"] as const) {
-			const v = entry[field];
-			if (v === undefined) continue;
-			if (typeof v !== "number" || !Number.isInteger(v) || v < CUSTOM_MODEL_PIN_FLOOR) {
-				return {
-					ok: false,
-					error: `${field} for ${id} must be a whole number of tokens at least ${CUSTOM_MODEL_PIN_FLOOR}`,
-				};
-			}
-			pin[field] = v;
-		}
-		if (entry.reasoning !== undefined) {
-			if (typeof entry.reasoning !== "boolean") return { ok: false, error: `reasoning for ${id} must be true or false` };
-			pin.reasoning = entry.reasoning;
-		}
-		Object.defineProperty(out, id, { value: pin, enumerable: true, configurable: true, writable: true });
-	}
-	return { ok: true, settings: out };
-}
-
 /** library (fork, 2026-11-01): auto-extract switch + vault skip list.
  *  Replace-whole like every section; patterns are vault-relative, at most
  *  200, each at most 300 characters, and never climb out of the vault. */
-export function parseLibrarySettingsBody(body: unknown): SettingsBodyResult<LibrarySettings> {
+function parseLibrarySettingsBody(body: unknown): SettingsBodyResult<LibrarySettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
 	const settings: LibrarySettings = {};

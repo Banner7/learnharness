@@ -113,7 +113,7 @@ export function rolePinsFor(
  *  override → tier slot → nothing — the same resolution the agent wiring
  *  uses (src/server/stores.ts effectiveSettings), so the caption can
  *  never drift from what actually runs. */
-export function catalogRolePins(): RolePins {
+function catalogRolePins(): RolePins {
 	return rolePinsFor(effectiveSettings().agent.models);
 }
 

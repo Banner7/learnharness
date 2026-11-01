@@ -10,7 +10,7 @@ export class SourceDeletionError extends Error {
 	constructor(message: string, public status = 400, public code = "invalid_source_deletion") { super(message); }
 }
 export interface SourceDeletionRequest { sourceIds: string[]; folderIds: string[]; deleteSessions: boolean }
-export function parseSourceDeletion(raw: unknown): SourceDeletionRequest {
+function parseSourceDeletion(raw: unknown): SourceDeletionRequest {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new SourceDeletionError("Invalid source deletion request.");
 	const r = raw as Record<string, unknown>;
 	const ids = (value: unknown) => {

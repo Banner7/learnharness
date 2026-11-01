@@ -48,7 +48,7 @@ const COPY: Record<AbortMode, { title: string; line: string; action: string }> =
 
 /** The dialog's pure body — exported for SSR pins (the delete-node
  * pattern). The wrapper owns effects + the portal. */
-export function AbortTurnBody({
+function AbortTurnBody({
 	mode,
 	onClose,
 	onConfirm,

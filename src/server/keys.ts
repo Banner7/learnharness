@@ -12,7 +12,7 @@ import { authEnvRecord as boot } from "../core/auth-env.ts";
 /** The fresh-user switch (owner, interlude 2026-09-22): env keys are
  *  invisible app-wide — deleted from the process at boot, file keys only.
  *  Read live per call (the launcher exports it before boot). */
-export function envKeysIgnored(): boolean {
+function envKeysIgnored(): boolean {
 	return process.env.LH_IGNORE_ENV_KEYS === "1";
 }
 

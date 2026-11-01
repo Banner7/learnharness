@@ -117,7 +117,7 @@ async function* sseEvents(reader: ReadableStreamDefaultReader<Uint8Array>): Asyn
 
 /** The dangling question call's tool name (the optimistic answer result's
  *  toolName — the server stamps the same from its own record scan). */
-export function pendingCallTool(messages: readonly LhMessage[], toolCallId: string): string | null {
+function pendingCallTool(messages: readonly LhMessage[], toolCallId: string): string | null {
 	// Match projection's newest-occurrence pairing for pre-uniquifier records.
 	for (let mi = messages.length - 1; mi >= 0; mi--) {
 		const m = messages[mi]!;

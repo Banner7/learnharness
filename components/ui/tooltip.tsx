@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
  */
 
 /** The rest delay (ms): shared by hover and focus opens. */
-export const TOOLTIP_DELAY_MS = 500
+const TOOLTIP_DELAY_MS = 500
 
 function TooltipProvider({
   delayDuration = TOOLTIP_DELAY_MS,

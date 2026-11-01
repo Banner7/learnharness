@@ -169,7 +169,7 @@ function GraphCostPanel({ costs }: { costs: GraphCostSummary }) {
 
 /** Redesign (owner, 2026-10-27): the map is one quiet sentence below
  * recent lessons so starting or continuing a lesson stays primary. */
-export function KnowledgeSummary({
+function KnowledgeSummary({
 	propositions,
 	chains,
 }: {

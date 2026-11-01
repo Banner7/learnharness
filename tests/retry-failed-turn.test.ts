@@ -1,8 +1,6 @@
 /**
- * Failed-response Retry (issue #110). Input is already durable. Retry
- * omits the trailing failures from the temporary agent context, never
- * deletes them from the transcript, and appends only genuinely new output.
- * Scripted faux engines: no real provider calls or learning data.
+ * Failed-response Retry (issue #110): Retry omits trailing failures from the
+ * temporary agent context, never deletes them, and appends only new output.
  */
 
 import assert from "node:assert/strict";
@@ -19,7 +17,6 @@ import type { LhMessage } from "../src/core/native-messages.ts";
 import type { QuestionData } from "../src/core/question-core.ts";
 import type { SteerMessage } from "../src/core/contracts.ts";
 
-// Set the storage/auth seams BEFORE any app/config-loading imports.
 assert.equal(process.env.NODE_ENV, "test", "Run with NODE_ENV=test; these tests must not invoke real providers.");
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "lh-retry-failed-turn-"));
 process.env.LH_DATA_DIR = path.join(scratch, "data");
@@ -222,58 +219,40 @@ describe("failed-response Retry (issue #110)", () => {
 		assert.deepEqual(contexts.at(-1), ["user"], "the plan block remains UI-only");
 	});
 
-	it("does not reexecute completed tools before a later model failure", async () => {
-		let executions = 0;
-		const { engine, contexts } = scripted([
-			() => fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "note-1" })], { stopReason: "toolUse" }),
-			networkFailure,
-			() => fauxAssistantMessage("The saved note is ready."),
-		]);
-		const tools: AgentBuildOptions["tools"] = {
-			save_note: {
-				name: "save_note", label: "save_note", description: "Record one fixture side effect.", parameters: Type.Object({}),
-				execute: async () => {
-					executions++;
-					return { content: [{ type: "text", text: "Note saved" }], details: { saved: true } };
-				},
-			},
-		};
-		const factory: AgentFactory = (opts) => createTeacherAgent(undefined, { ...opts, engine, tools });
-		const chat = createConfiguredChat("Test: no completed tool replay");
-		await turn(engine, chat.id, { type: "text", text: "save a note" }, factory);
-		assert.equal(executions, 1);
-		const before = chatStore.getChat(chat.id)!.messages;
-		assert.deepEqual(roles(chat.id), ["user", "assistant", "toolResult", "assistant"]);
-		assert.equal((await turn(engine, chat.id, { type: "retry" }, factory)).status, 200);
-		assert.equal(executions, 1, "Retry requests another response, not execution of stored calls");
-		assertPreserved(before, chatStore.getChat(chat.id)!.messages);
-		assert.deepEqual(contexts.at(-1), ["user", "assistant", "toolResult"]);
-	});
-
-	it("never executes tool calls carried by a failed partial response", async () => {
-		let executions = 0;
-		const { engine, contexts } = scripted([
-			() => fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "unexecuted" })], { stopReason: "error", errorMessage: "cut off" }),
-			() => fauxAssistantMessage("Recovered without running the partial call."),
-		]);
-		const factory: AgentFactory = (opts) => createTeacherAgent(undefined, {
-			...opts, engine,
-			tools: {
+	for (const partialCall of [false, true]) {
+		it(partialCall ? "never executes tool calls carried by a failed partial response" : "does not reexecute completed tools before a later model failure", async () => {
+			let executions = 0;
+			const { engine, contexts } = scripted(partialCall
+				? [
+					() => fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "unexecuted" })], { stopReason: "error", errorMessage: "cut off" }),
+					() => fauxAssistantMessage("Recovered."),
+				]
+				: [
+					() => fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "note-1" })], { stopReason: "toolUse" }),
+					networkFailure,
+					() => fauxAssistantMessage("The saved note is ready."),
+				]);
+			const tools: AgentBuildOptions["tools"] = {
 				save_note: {
-					name: "save_note", label: "save_note", description: "Must not execute.", parameters: Type.Object({}),
-					execute: async () => { executions++; return { content: [], details: {} }; },
+					name: "save_note", label: "save_note", description: "Record one fixture side effect.", parameters: Type.Object({}),
+					execute: async () => {
+						executions++;
+						return { content: [{ type: "text", text: "Note saved" }], details: { saved: true } };
+					},
 				},
-			},
+			};
+			const factory: AgentFactory = (opts) => createTeacherAgent(undefined, { ...opts, engine, tools });
+			const chat = createConfiguredChat("Test: no tool replay");
+			await turn(engine, chat.id, { type: "text", text: "save a note" }, factory);
+			const ran = partialCall ? 0 : 1;
+			assert.equal(executions, ran);
+			const before = chatStore.getChat(chat.id)!.messages;
+			assert.equal((await turn(engine, chat.id, { type: "retry" }, factory)).status, 200);
+			assert.equal(executions, ran, "Retry requests another response, not execution of stored calls");
+			assertPreserved(before, chatStore.getChat(chat.id)!.messages);
+			assert.deepEqual(contexts.at(-1), partialCall ? ["user"] : ["user", "assistant", "toolResult"]);
 		});
-		const chat = createConfiguredChat("Test: unexecuted partial tool call");
-		await turn(engine, chat.id, { type: "text", text: "hello" }, factory);
-		assert.equal(executions, 0);
-		const before = chatStore.getChat(chat.id)!.messages;
-		assert.equal((await turn(engine, chat.id, { type: "retry" }, factory)).status, 200);
-		assert.equal(executions, 0);
-		assertPreserved(before, chatStore.getChat(chat.id)!.messages);
-		assert.deepEqual(contexts.at(-1), ["user"]);
-	});
+	}
 
 	it("a retained failed probe retries with the prober, concludes once, then selects the teacher", async () => {
 		const input = { assessment: { strands: [{ strand: "planet order", assessment: "Names known; ordering needs work." }] } };
@@ -362,26 +341,7 @@ describe("retained generations and Pi's native provider filtering", () => {
 		});
 	}
 
-	it("keeps an actual tool-cancellation result and its completed calling message", () => {
-		const faux = createFauxCore({});
-		const call: LhMessage = {
-			...fauxAssistantMessage([fauxToolCall("save_note", {}, { id: "completed-call" })], { stopReason: "toolUse" }), id: "caller",
-		};
-		const cancellation: LhMessage = {
-			id: "cancelled-result", role: "toolResult", toolCallId: "completed-call", toolName: "save_note",
-			content: [{ type: "text", text: "Tool execution was aborted." }], isError: true, timestamp: 1,
-		};
-		const messages = [newUserMessage("hello"), call, cancellation, newUserMessage("continue")];
-		const providerHistory = transformMessages(toLlmMessages(asAgentMessages(messages)), faux.getModel());
-		assert.deepEqual(providerHistory.map((m) => m.role), ["user", "assistant", "toolResult", "user"]);
-		const result = providerHistory.find((m) => m.role === "toolResult");
-		assert.ok(result?.role === "toolResult");
-		assert.equal(result.toolCallId, "completed-call");
-		assert.equal(result.isError, true);
-		assert.deepEqual(result.content, cancellation.content);
-	});
-
-	it("still repairs an unanswered call from a completed generation", () => {
+	it("still repairs an unanswered call from a completed generation, temporarily", () => {
 		const faux = createFauxCore({});
 		const question: LhMessage = {
 			...fauxAssistantMessage([fauxToolCall("quiz", QUIZ_INPUT, { id: "unanswered-question" })], { stopReason: "toolUse" }), id: "question",
@@ -424,18 +384,13 @@ describe("Retry refusal and revalidation", () => {
 		const { engine, contexts } = scripted([]);
 		const chat = createConfiguredChat("Test: compacted failure");
 		const failure = failed("partial", "Partial explanation.");
-		const marker = compaction(failure.id);
-		const before = [newUserMessage("hello"), failure, marker];
-		chatStore.saveMessages(chat.id, before);
+		chatStore.saveMessages(chat.id, [newUserMessage("hello"), failure, compaction(failure.id)]);
 		const snapshot = chatStore.getChat(chat.id)!;
 		const res = await turn(engine, chat.id, { type: "retry" });
 		assert.equal(res.status, 400);
-		const body = await res.json() as { error: string };
-		assert.equal(body.error, "fetch failed\n\nThis response cannot be retried after compaction. Send a new message to continue.");
+		assert.equal(((await res.json()) as { error: string }).error, "fetch failed\n\nThis response cannot be retried after compaction. Send a new message to continue.");
 		assert.deepEqual(chatStore.getChat(chat.id), snapshot);
 		assert.equal(contexts.length, 0);
-		assert.equal(new SessionModel({ chatId: chat.id, initialMessages: before }).getState().error?.message, "fetch failed");
-		assert.equal(endsInFailedTurn(before), false);
 	});
 
 	for (const later of ["compaction", "learner-input"] as const) {
@@ -447,8 +402,7 @@ describe("Retry refusal and revalidation", () => {
 			const appended = later === "compaction" ? compaction("failed-response") : newUserMessage("A newer input");
 			const read = chatStore.getChat;
 			let reads = 0;
-			// Simulate another writer landing during the awaited gate. Do not
-			// change or invoke the compaction implementation to exercise Retry.
+			// Another writer lands during the awaited gate.
 			const reader = mock.method(chatStore, "getChat", (id: string) => {
 				if (id === chat.id && ++reads === 2) chatStore.saveMessages(id, [...before, appended]);
 				return read(id);

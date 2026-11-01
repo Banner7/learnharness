@@ -16,7 +16,7 @@ const SESSION_FIND_ACTIVE_HIGHLIGHT = "lh-session-find-active";
  *  parse error, which downed the whole stylesheet. A tiny <style> element,
  *  injected once on first client mount, ships them verbatim. */
 const FIND_STYLE_ID = "lh-session-find-style";
-export function injectFindStyles(): void {
+function injectFindStyles(): void {
 	if (document.getElementById(FIND_STYLE_ID)) return;
 	const style = document.createElement("style");
 	style.id = FIND_STYLE_ID;
@@ -26,7 +26,7 @@ export function injectFindStyles(): void {
 	document.head.appendChild(style);
 }
 
-export function clearSessionFindHighlights(): void {
+function clearSessionFindHighlights(): void {
 	if (typeof CSS === "undefined") return;
 	CSS.highlights?.delete(SESSION_FIND_HIGHLIGHT);
 	CSS.highlights?.delete(SESSION_FIND_ACTIVE_HIGHLIGHT);

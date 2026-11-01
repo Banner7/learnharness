@@ -114,7 +114,7 @@ interface ModelsBody {
 
 /** Compose: one tool toggled, the rest of the section carried verbatim.
  *  Pure — exported for tests. */
-export function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
+function composeTool(agent: AgentSettings | undefined, id: string, on: boolean): AgentSettings {
 	return { ...agent, tools: { ...agent?.tools, [id]: on } };
 }
 
@@ -180,7 +180,7 @@ export function composeSearchEngine(
  *  when the default composes, even if a saved override sits on disk
  *  unused. The switch's meaning becomes legible: it visibly controls
  *  this line). Exported for the pin. */
-export const PROMPT_IN_USE_HINT = "Your version is in use";
+const PROMPT_IN_USE_HINT = "Your version is in use";
 
 /** One section of the prompt view — the owner's ruled order: Teacher,
  *  Prober, then Shared last. */

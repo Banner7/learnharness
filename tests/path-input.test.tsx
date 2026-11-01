@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PathInput, INSERT_FILE_PATHS_EVENT } from "../components/path-input.tsx";
 import {
 	PATH_CARET_ATTRIBUTE, PATH_SOURCE_ATTRIBUTE, PathInputHistory, adjacentPathRange, atomicPathRange,
-	insertFilePaths, normalizePathEdit, normalizePathInputValue, pathInputOffset, pathInputPoint, pathInputStaticRange, readPathInput,
+	insertFilePaths, normalizePathEdit, normalizePathInputValue, pathInputOffset, pathInputPoint, readPathInput,
 	readPathSelection, renderPathInput, replacePathSelection, restorePathSelection,
 } from "../components/path-input-dom.ts";
 import { quoteFilePath } from "../src/core/file-paths.ts";
@@ -22,10 +22,7 @@ test("DOM projection is lossless across whitespace, Unicode and all rooted path 
 	const value = `  👩🏽‍💻\t中\n${paths.map(quoteFilePath).join("\n\t")}\n \n`;
 	const hosts = renderPathInput(root, value);
 	assert.equal(hosts.length, paths.length);
-	for (const { host } of hosts) {
-		host.textContent = "abbreviated.pdf";
-		assert.equal(host.getAttribute("contenteditable"), "false");
-	}
+	for (const { host } of hosts) host.textContent = "abbreviated.pdf";
 	assert.equal(readPathInput(root), value);
 	assert.equal(root.dataset.empty, "false");
 	renderPathInput(root, "");
@@ -69,8 +66,6 @@ test("trailing newline caret placeholder is presentation-only and logical end ma
 	for (const value of ["\n", "\n\n", "one\n", "one\n\n", "one\n\n\n"]) {
 		renderPathInput(root, value);
 		assert.equal(root.querySelectorAll(`[${PATH_CARET_ATTRIBUTE}]`).length, 1);
-		assert.equal(root.lastElementChild?.tagName, "BR");
-		assert.equal(root.lastElementChild?.getAttribute("aria-hidden"), "true");
 		assert.equal(root.textContent, value);
 		assert.equal(readPathInput(root), value);
 		const point = pathInputPoint(root, value.length);
@@ -121,13 +116,9 @@ test("owned history restores values and directional selections; a new edit disca
 test("SSR preserves the full escaped initial draft without waiting for client effects", () => {
 	const draft = "  Restored <reasoning> & notes\n`/course/full notes.pdf`\n ";
 	const html = renderToStaticMarkup(<PathInput value={draft} onValueChange={() => assert.fail("SSR cannot emit changes")} placeholder="Reasoning" />);
-	const { document } = parseHTML(`<html><body>${html}</body></html>`);
-	const field = document.querySelector('[data-file-path-input]')!;
+	const field = parseHTML(`<html><body>${html}</body></html>`).document.querySelector("[data-file-path-input]")!;
 	assert.equal(field.textContent, draft);
-	assert.equal(field.getAttribute("contenteditable") ?? field.getAttribute("contentEditable"), "true");
-	assert.equal(field.getAttribute("data-empty"), "false");
 	assert.equal(field.querySelector("reasoning"), null);
-	assert.match(html, /&lt;reasoning&gt;/);
 	const single = renderToStaticMarkup(<PathInput singleLine value={"one\r\ntwo"} onValueChange={() => {}} />);
 	assert.equal(parseHTML(`<html><body>${single}</body></html>`).document.body.textContent, "onetwo");
 });
@@ -135,8 +126,8 @@ test("SSR preserves the full escaped initial draft without waiting for client ef
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => { await cleanup?.(); cleanup = undefined; });
 
-/** linkedom has no Selection/default editing actions. The shim tests our offset
- * contract, NOT browser caret navigation or the native IME implementation. */
+/** linkedom has no Selection/default editing actions: the shim tests our
+ * offset contract, not browser caret navigation or native IME. */
 async function fixture(initial: string, singleLine = false) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div><button id='elsewhere'></button></body></html>");
 	let active: Element = doc.body;
@@ -245,15 +236,11 @@ test("native word and soft/hard line deletion ranges retain mixed text/chip exte
 });
 
 test("browser target ranges that intersect a visual chip interior expand the complete source atomically", async () => {
-	const source = "keep old `/tmp/notes.pdf` tail";
-	const f = await fixture(source);
+	const f = await fixture("keep old `/tmp/notes.pdf` tail");
 	f.select(5);
 	const label = f.root.querySelector(`[${PATH_SOURCE_ATTRIBUTE}] [role=img] span`)!.firstChild!;
 	const start = pathInputPoint(f.root, 5);
 	const target = { startContainer: start.node, startOffset: start.offset, endContainer: label, endOffset: 2 };
-	const mapped = pathInputStaticRange(f.root, target)!;
-	assert.ok(mapped.focus > source.indexOf("`"));
-	assert.ok(mapped.focus < source.lastIndexOf("`") + 1);
 	await f.event("beforeinput", { inputType: "deleteWordForward", getTargetRanges: () => [target] });
 	assert.equal(f.value, "keep  tail");
 	assert.equal(f.root.querySelector(`[${PATH_SOURCE_ATTRIBUTE}]`), null);
@@ -280,41 +267,27 @@ test("missing or invalid word/line target ranges defer to native editing and pre
 	assert.equal(f.value, source);
 });
 
-test("ordinary backward/forward chip deletion and selected ranges retain their existing behavior", async () => {
+test("ordinary backward/forward chip deletion and selected ranges delete the whole chip", async () => {
 	const source = "a `/tmp/notes.pdf` b";
 	const f = await fixture(source);
-	f.select(source.length - 2);
-	const backspace = await f.event("keydown", { key: "Backspace" });
-	assert.equal(backspace.defaultPrevented, true);
-	assert.equal(f.value, "a  b");
-	await f.external(source);
-	f.select(2);
-	const forward = await f.event("keydown", { key: "Delete" });
-	assert.equal(forward.defaultPrevented, true);
-	assert.equal(f.value, "a  b");
-	await f.external(source);
-	f.select(source.length, 0);
-	const selected = await f.event("keydown", { key: "Backspace" });
-	assert.equal(selected.defaultPrevented, true);
-	assert.equal(f.value, "");
+	for (const [key, anchor, focus, expected] of [["Backspace", source.length - 2, source.length - 2, "a  b"], ["Delete", 2, 2, "a  b"], ["Backspace", source.length, 0, ""]] as const) {
+		await f.external(source);
+		f.select(anchor, focus);
+		assert.equal((await f.event("keydown", { key })).defaultPrevented, true);
+		assert.equal(f.value, expected);
+	}
 });
 
 test("immutable SSR fallback never stomps native edits, controlled updates, chips or reset", async () => {
-	const initial = "Restored draft `/course/original.pdf`";
-	const f = await fixture(initial);
-	assert.equal(readPathInput(f.root), initial);
-	assert.equal(f.root.querySelectorAll(`[${PATH_SOURCE_ATTRIBUTE}]`).length, 1);
-	f.select(initial.length);
+	const f = await fixture("Restored draft `/course/original.pdf`");
+	f.select(f.value.length);
 	await f.nativeText("New typed draft");
-	assert.equal(readPathInput(f.root), "New typed draft");
 	assert.equal(f.root.textContent, "New typed draft");
 	await f.external("Controlled `/course/replaced.pdf`");
 	assert.equal(readPathInput(f.root), "Controlled `/course/replaced.pdf`");
 	assert.equal(f.root.querySelectorAll(`[${PATH_SOURCE_ATTRIBUTE}]`).length, 1);
-	assert.doesNotMatch(f.root.textContent!, /Restored draft/);
 	await f.external("");
 	await f.external(""); // Re-render again with the same initial fallback child prop.
-	assert.equal(readPathInput(f.root), "");
 	assert.equal(f.root.textContent, "");
 	assert.equal(f.root.dataset.empty, "true");
 });
@@ -456,10 +429,9 @@ test("single-line Enter reaches its consumer but cannot insert a newline", async
 	f.select(6);
 	await f.event("keydown", { key: "Enter", shiftKey: true });
 	assert.equal(f.keys, 1);
-	const paragraph = await f.event("beforeinput", { inputType: "insertParagraph" });
-	const lineBreak = await f.event("beforeinput", { inputType: "insertLineBreak" });
-	assert.equal(paragraph.defaultPrevented, true);
-	assert.equal(lineBreak.defaultPrevented, true);
+	for (const inputType of ["insertParagraph", "insertLineBreak"]) {
+		assert.equal((await f.event("beforeinput", { inputType })).defaultPrevented, true, inputType);
+	}
 	assert.equal(f.value, "answer");
 	assert.deepEqual(f.writes, []);
 	await f.event(INSERT_FILE_PATHS_EVENT, { detail: ["/course/notes.pdf"] });

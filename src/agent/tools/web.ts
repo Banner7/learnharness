@@ -191,4 +191,3 @@ export function createWebTools(search: () => SearchProvider | null): Record<stri
 /** The provider-less backstop (tests pin the shape with it; the runner
  *  always injects the real seam — an absent seam reads as unavailable,
  *  never a crash and never a silent alternative engine). */
-export const webTools = createWebTools(() => null);

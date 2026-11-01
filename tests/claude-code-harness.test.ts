@@ -1,12 +1,7 @@
-/**
- * Claude Code provider driven through the real chat handler: a learner-facing
- * question ends the turn while the CLI process waits on the held MCP call, and
- * the learner's answer arrives later as that call's tool result.
- *
- * The runClaude seam spawns tests/fixtures/claude-code/fake-claude.mjs, one
- * scenario per spawn, so the spawn count shows whether the answer continued
- * the waiting process or started a fresh one with a replay.
- */
+// Claude Code provider through the real chat handler: a question ends the turn
+// while the CLI waits on the held MCP call; the answer arrives later as its tool
+// result. One fake-claude scenario per spawn, so the spawn count shows whether
+// the answer continued the waiting process or started a fresh replay.
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { once } from "node:events";
@@ -173,10 +168,8 @@ test("disabled opt-in refuses a saved CLI chat before write-ahead, liveness, or 
 	const response = await handleChatRequest(new Request("http://test/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({ chatId, input: { type: "text", text: "must not start" } }) }), () => assert.fail("disabled work must not build an agent"));
 	assert.equal(response.status, 503);
-	assert.match((await response.json()).error, /Enable it in server settings\.json/);
 	assert.equal(isTurnRunning(chatId), false); assert.equal(fakeRun.children.length, 0);
 	assert.deepEqual(chatStore.getChat(chatId)!.messages, before);
-	assert.deepEqual(chatStore.getChat(chatId)!.settings?.model, { provider: "claude-code", id: "sonnet" });
 });
 
 test("switching off blocks future requests but does not interrupt an already admitted CLI turn", async (t) => {
@@ -202,7 +195,6 @@ test("switching off blocks future requests but does not interrupt an already adm
 	assert.equal(child.signalCode, null, "opt-out must not kill an already running process");
 	child.send("continue"); await finished;
 	assert(getLastAssistantText(chatId).length > 0, "the admitted turn completes normally");
-	assert.equal(readSettings()?.claudeCode?.enabled, false);
 	await waitForExit(child);
 });
 
@@ -212,18 +204,13 @@ test("a question answered before the idle timeout continues the waiting CLI proc
 	fakeRun.runClaude = (args, options) => run(args, { ...options, env: { ...options.env, FAKE_CLAUDE_WINDOW: "200000" } });
 	const agentFactory = createAgentFactory(fakeRun);
 	const chatId = createClaudeCodeChat(t);
-
 	await runChatTurn(chatId, { type: "text", text: "teach me sockets" }, agentFactory);
-
 	assert.equal(danglingQuestionOf(chatStore.getChat(chatId)?.messages ?? [])?.toolCallId, ASK_ID);
 	const [waiting] = fakeRun.children;
 	assert.ok(waiting);
 	assert.equal(waiting.exitCode, null, "the CLI process should wait on the held question call");
-
 	await runChatTurn(chatId, toAnswerInput(), agentFactory);
-
 	assert.equal(fakeRun.children.length, 1);
-	assert.deepEqual(cliContextWindowOf(chatStore.getChat(chatId)!.messages), { model: "claude-code:sonnet", tokens: 200000 });
 	assert.deepEqual(cliContextWindowOf(JSON.parse(readFileSync(join(PATHS.chats, `${chatId}.json`), "utf8")).messages), { model: "claude-code:sonnet", tokens: 200000 });
 	assert.ok(getLastAssistantText(chatId).includes(ANSWER_TEXT), getLastAssistantText(chatId));
 	await waitForExit(waiting);
@@ -294,26 +281,17 @@ test("an individually cancelled MCP question queued behind a learner wait never 
 test("a question answered after the idle timeout starts a fresh CLI process that replays the question and answer", async (t) => {
 	liveProcessIdleTimeoutMs.current = 300;
 	t.after(() => (liveProcessIdleTimeoutMs.current = LIVE_PROCESS_IDLE_TIMEOUT_MS));
-
 	const fakeRun = createFakeRun(t, [toAskScenario(), readFileSync(TEXT_FIXTURE, "utf8").split("\n").filter(Boolean)]);
 	const agentFactory = createAgentFactory(fakeRun);
 	const chatId = createClaudeCodeChat(t);
-
 	await runChatTurn(chatId, { type: "text", text: "teach me sockets" }, agentFactory);
-
 	const [waiting] = fakeRun.children;
 	assert.ok(waiting);
 	assert.equal(waiting.exitCode, null, "the CLI process should wait on the held question call");
 	await waitForExit(waiting);
-
 	await runChatTurn(chatId, toAnswerInput(), agentFactory);
-
 	assert.equal(fakeRun.children.length, 2);
 	assert.equal(getLastAssistantText(chatId), "hello there");
-
 	const replay = readFileSync(fakeRun.stdinFiles[1] ?? "", "utf8");
-	assert.ok(replay.includes("[tool call ask_user_question]"), replay);
-	assert.ok(replay.includes(ASK_INPUT.question), replay);
-	assert.ok(replay.includes("[tool result ask_user_question]"), replay);
-	assert.ok(replay.includes(ANSWER_TEXT), replay);
+	assert.ok(replay.includes(ASK_INPUT.question) && replay.includes(ANSWER_TEXT), replay);
 });

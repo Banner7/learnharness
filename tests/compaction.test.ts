@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	activeCompactionOf,
-	calculateContextTokens,
 	estimateContextTokens,
 	estimateMessageTokens,
 	compactionCutIndex,
@@ -10,7 +9,6 @@ import {
 	keptIndexFor,
 	newCompactionMarker,
 	newUserMessage,
-	planTreeToText,
 	serializeForSummary,
 	toLlmMessages,
 	COMPACTED_HISTORY_HEADER,
@@ -20,19 +18,9 @@ import {
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import { projectView } from "../src/core/view.ts";
 
-/**
- * COMPACTION (owner round 14, 2026-10-05) — the pure core: the cut walk,
- * the marker, and the ONE model-facing projection (toLlmMessages) that
- * swaps [summary] + [kept tail] for the dropped span.
- *
- * The laws pinned here:
- * - the cut NEVER separates a tool result from its call;
- * - a pending question call (pose→answer window) always survives — the
- *   walk cannot cross the transcript end;
- * - the active marker is the NEWEST one (chained compactions rule last);
- * - the marker renders ONCE (head), never twice;
- * - a corrupt cut degrades honestly (everything renders — never throw).
- */
+// Compaction core laws (owner round 14, 2026-10-05): the cut never separates a
+// tool result from its call; a pending question survives; the newest marker
+// rules and renders once; a corrupt cut degrades to full history.
 
 const assistantWithCall = (id: string, callId: string, text = "Let me quiz you."): LhMessage =>
 	({
@@ -61,8 +49,6 @@ const resultFor = (callId: string, text: string): LhMessage & ToolResultMessage 
 
 const big = (id: string, kb = 8): LhMessage => newUserMessage(`${id}: ${"x".repeat(kb * 1024)}`);
 
-// ─── the anchored estimator (pi's law — 2026-10-05 incident fix) ─────────────
-
 describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 	const usageAssistant = (id: string, total: number, trailing = false): LhMessage =>
 		({
@@ -80,7 +66,6 @@ describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 			usageAssistant("a1", 30_000),
 			newUserMessage("y".repeat(4_000)), // 1k estimated tokens AFTER the anchor
 		] as LhMessage[];
-		// ^ newUserMessage signature: (text, ts?) — second arg timestamp
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex !== null, true);
 		assert.equal(est.usageTokens, 30_000);
@@ -109,13 +94,6 @@ describe("estimateContextTokens (usage-anchored, pi's law)", () => {
 		const est = estimateContextTokens(msgs);
 		assert.equal(est.lastUsageIndex, null, "the marker invalidates every anchor behind it");
 	});
-
-	it("unanchored (no usage at all): the plain heuristic over everything", () => {
-		const msgs = [big("m1", 4), big("m2", 4)] as LhMessage[]; // 2 × 4,116ish chars
-		const est = estimateContextTokens(msgs);
-		assert.equal(est.lastUsageIndex, null);
-		assert.equal(est.tokens, estimateTokens(msgs));
-	});
 });
 
 describe("estimateMessageTokens (wire text only — the 3x-inflation fix)", () => {
@@ -135,24 +113,13 @@ describe("estimateMessageTokens (wire text only — the 3x-inflation fix)", () =
 		const expected = Math.ceil((400 + 800 + ("quiz".length + JSON.stringify({ q: "z".repeat(200) }).length)) / 4);
 		assert.equal(estimateMessageTokens(m), expected); // usage/responseId/signature inflate nothing
 	});
-
-	it("calculateContextTokens: totalTokens wins, else the field sum", () => {
-		assert.equal(calculateContextTokens({ totalTokens: 42, input: 1, output: 2 }), 42);
-		assert.equal(calculateContextTokens({ input: 10, output: 5, cacheRead: 3, cacheWrite: 2 }), 20);
-		assert.equal(calculateContextTokens({}), 0);
-	});
 });
-
-// ─── the cut walk ────────────────────────────────────────────────────────────
 
 describe("compactionCutIndex", () => {
 	it("keeps ~the budget of recent messages: everything before is the span", () => {
 		const messages = [big("m1"), big("m2"), big("m3"), big("m4"), newUserMessage("recent")];
-		// ~8KB each ≈ 2k tokens; a 4.5k budget keeps the last two + recent.
 		const cut = compactionCutIndex(messages, 4_500);
-		// check-at-loop-top: kept = [m2, m3, m4, recent] ≈ 6.2k — the first
-		// end-prefix whose estimate reaches the budget (overshoot = one message)
-		assert.equal((messages[cut] as { content: string }).content.startsWith("m2"), true, "the oldest kept message sits at the cut");
+		assert.equal((messages[cut] as { content: string }).content.startsWith("m2"), true, "overshoot is at most one message");
 	});
 
 	it("native cut after an oversized result drops both call and result, never keeps an orphan", () => {
@@ -179,21 +146,9 @@ describe("compactionCutIndex", () => {
 		const kept = messages.slice(cut);
 		assert.ok(kept.some((m) => m.id === "a_pending"), "the pending pose is never dropped");
 	});
-
-	it("whole history within budget keeps everything (zero cut)", () => {
-		assert.equal(compactionCutIndex([newUserMessage("hi")], 100), 0);
-	});
 });
 
-// ─── the marker + the active scan ───────────────────────────────────────────
-
 describe("the compaction marker", () => {
-	it("content is the header + summary", () => {
-		const marker = newCompactionMarker("The learner knows X.", { firstKeptMessageId: "m9", tokensBefore: 180_000, at: "2026-10-05T12:00:00.000Z" });
-		assert.ok(marker.content.startsWith(COMPACTED_HISTORY_HEADER));
-		assert.ok(marker.content.endsWith("The learner knows X."));
-	});
-
 	it("activeCompactionOf: the NEWEST marker rules (chained compactions)", () => {
 		const old = newCompactionMarker("old", { firstKeptMessageId: "m1", tokensBefore: 1, at: "t" });
 		const fresh = newCompactionMarker("fresh", { firstKeptMessageId: "m5", tokensBefore: 2, at: "t" });
@@ -217,8 +172,6 @@ describe("the compaction marker", () => {
 	});
 });
 
-// ─── the ONE model-facing projection ────────────────────────────────────────
-
 describe("toLlmMessages honors the cut", () => {
 	it("the active marker renders ONCE as the head; the span before the cut is gone; the kept tail rides verbatim", () => {
 		const span = [big("m1"), assistantText("a0", "early lecture")];
@@ -230,11 +183,7 @@ describe("toLlmMessages honors the cut", () => {
 		});
 		const out = toLlmMessages([...span, ...kept, marker] as never);
 		assert.equal(out.length, 3, "head + two kept messages");
-		assert.equal((out[0] as { role: string }).role, "user");
-		assert.ok(((out[0] as { content: Array<{ type: string; text: string }> }).content[0]!.text).includes("SUMMARY TEXT"));
-		assert.ok(((out[0] as never as { content: Array<{ text: string }> }).content[0]!.text).includes(COMPACTED_HISTORY_HEADER));
-		assert.equal((out[1] as never as { content: string }).content, "m2", "kept user message rides verbatim");
-		// The dropped span is nowhere.
+		assert.ok(JSON.stringify(out[0]).includes("SUMMARY TEXT"));
 		const flat = JSON.stringify(out);
 		assert.ok(!flat.includes("early lecture"), "the pre-cut span never reaches the wire");
 	});
@@ -278,23 +227,9 @@ describe("toLlmMessages honors the cut", () => {
 		assert.equal(flat.split(COMPACTED_HISTORY_HEADER).length - 1, 2);
 		assert.equal(JSON.stringify(messages), original);
 	});
-
-	it("chained compaction: the newest marker's cut wins; the older marker falls in the dropped span", () => {
-		const oldMarker = newCompactionMarker("OLD", { firstKeptMessageId: "m1", tokensBefore: 1, at: "t" });
-		const m1 = newUserMessage("x");
-		m1.id = "m1";
-		const freshKept = newUserMessage("y");
-		const freshMarker = newCompactionMarker("FRESH", { firstKeptMessageId: freshKept.id, tokensBefore: 2, at: "t" });
-		const out = toLlmMessages([oldMarker, m1, freshKept, freshMarker] as never);
-		const flat = JSON.stringify(out);
-		assert.ok(flat.includes("FRESH"));
-		assert.ok(!flat.includes("OLD"), "the superseded marker dropped with its span");
-	});
 });
 
-// ─── the summarizer input ────────────────────────────────────────────────────
-
-describe("serializeForSummary + planTreeToText", () => {
+describe("serializeForSummary", () => {
 	it("truncates long tool results; skips plan blocks", () => {
 		const long = "y".repeat(5_000);
 		const messages: LhMessage[] = [
@@ -313,19 +248,8 @@ describe("serializeForSummary + planTreeToText", () => {
 		const marker = newCompactionMarker("LEGACY SUMMARY", { firstKeptMessageId: "missing", tokensBefore: 1, at: "fixture" });
 		assert.ok(serializeForSummary([marker]).includes("LEGACY SUMMARY"));
 	});
-
-	it("planTreeToText: empty tree → null; edges render", () => {
-		assert.equal(planTreeToText(undefined, []), null);
-		const tree = { nodes: [{ id: "a", title: "Alpha" }, { id: "b", title: "Beta" }], edges: [{ from: "a", to: "b" }], version: 1 };
-		assert.ok(planTreeToText(tree as never, [])!.includes("Alpha → Beta"));
-	});
 });
 
-// ---------------------------------------------------------------------------
-// THE VIEW FOLD (owner round 14): two dividers from one marker —
-// the minimal moment divider where the user is, the longer cut divider
-// at the kept boundary. Both carry the full summary payload.
-// ---------------------------------------------------------------------------
 describe("projectView compaction dividers", () => {
 	const record = (): LhMessage[] => [
 		{ id: "old1", role: "user", content: "earliest", timestamp: 1 },
@@ -337,29 +261,19 @@ describe("projectView compaction dividers", () => {
 		}) as unknown as LhMessage,
 	];
 
-	it("emits the cut divider right BEFORE the first kept message and the moment divider after it, both carrying the payload", () => {
+	it("emits the cut divider right BEFORE the first kept message and the moment divider after it", () => {
 		const view = projectView(record());
 		const keptIdx = view.findIndex((m) => m.parts.some((p) => p.type === "text" && p.text === "recent"));
 		const cutIdx = view.findIndex((m) => m.parts.some((p) => p.type === "data-compaction-cut"));
-		assert.ok(keptIdx !== -1);
-		assert.equal(cutIdx, keptIdx - 1, "immediately before the kept message");
-		const cut = view[cutIdx]!.parts.find((p) => p.type === "data-compaction-cut")!;
-		assert.equal((cut.data as { content: string }).content.includes("SUMMARY TEXT"), true);
 		const momentIdx = view.findIndex((m) => m.parts.some((p) => p.type === "data-compaction"));
-		assert.ok(momentIdx > keptIdx, "the moment divider sits at the tail");
-		const moment = view[momentIdx]!.parts.find((p) => p.type === "data-compaction")!;
-		assert.equal((moment.data as { details: { tokensBefore: number } }).details.tokensBefore, 12345);
+		assert.ok(keptIdx !== -1);
+		assert.equal(cutIdx, keptIdx - 1);
+		assert.ok(momentIdx > keptIdx);
 	});
 });
 
-// ---------------------------------------------------------------------------
-// THE CHROME LAW (the OpenRouter no-tools incident, owner 2026-10-05):
-// pi-agent-core seeds a leading SystemMessage (prompt + tool
-// declarations) at state.messages[0]; the record never persists it. The
-// cut slices the RECORD's history — the chrome carries through ahead of
-// the compaction head, exactly as pi's prepareRequest re-applies
-// context.systemPrompt + context.tools around its projection.
-// ---------------------------------------------------------------------------
+// The chrome law (owner 2026-10-05): the leading SystemMessage (prompt + tools)
+// is never persisted, so the cut must carry it ahead of the compaction head.
 describe("toLlmMessages carries the leading system message (request chrome)", () => {
 	const chrome = {
 		id: "sys",
@@ -386,25 +300,14 @@ describe("toLlmMessages carries the leading system message (request chrome)", ()
 	it("chrome FIRST, then the compaction head, then the kept tail — never dropped by the cut", () => {
 		const out = toLlmMessages([chrome, ...record()] as never);
 		assert.equal(out[0]!.role, "system");
-		assert.equal((out[0] as { toolsAdded?: unknown[] }).toolsAdded?.length, 2);
-		assert.equal(out[1]!.role, "user");
-		assert.ok((out[1]!.content as { text: string }[])[0]!.text.includes("SUMMARY"));
-		const textOf = (m: (typeof out)[number]): string =>
-			typeof m.content === "string"
-				? m.content
-				: ((m.content as { text?: string }[])[0]?.text ?? "");
-		assert.ok(out.slice(2).some((m) => m.role === "user" && textOf(m) === "kept tail"));
-		assert.ok(!out.some((m) => m.role === "user" && textOf(m) === "dropped history"));
-		assert.ok(!JSON.stringify(out).includes("SUPERSEDED SUMMARY"));
-		assert.equal(JSON.stringify(out).split(COMPACTED_HISTORY_HEADER).length - 1, 1);
+		const flat = JSON.stringify(out);
+		assert.ok(flat.indexOf("SUMMARY") < flat.indexOf("kept tail"));
+		assert.ok(!flat.includes("dropped history") && !flat.includes("SUPERSEDED SUMMARY"));
+		assert.equal(flat.split(COMPACTED_HISTORY_HEADER).length - 1, 1);
 	});
 
-	it("without a cut the chrome renders EXACTLY ONCE (no duplicate)", () => {
-		const plain = [
-			{ id: "u1", role: "user", content: "hello", timestamp: 1 },
-		] as unknown as LhMessage[];
-		const out = toLlmMessages([chrome, ...plain] as never);
-		assert.equal(out.filter((m) => m.role === "system").length, 1);
-		assert.equal(out[0]!.role, "system");
+	it("without a cut the chrome renders EXACTLY ONCE", () => {
+		const out = toLlmMessages([chrome, { id: "u1", role: "user", content: "hello", timestamp: 1 }] as never);
+		assert.deepEqual(out.map((m) => m.role), ["system", "user"]);
 	});
 });

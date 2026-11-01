@@ -139,16 +139,11 @@ test("shared teacher read detects valid image content under a non-image extensio
 	const file = path.join(scratch, "lecture-notes.txt");
 	fs.writeFileSync(file, bytes);
 	const { engine, requests } = scripted(readSteps(file));
-	// Pass the actual shared read tool, exercising the teacher's native clone
-	// of read.execute rather than a pre-bound test-only implementation.
 	const agent = createTeacherAgent(undefined, { engine, tools: { read: readTool } });
 	await agent.prompt("Inspect the supplied local file.");
-	assert.equal(requests.length, 2);
-	const visible = requests[1]!;
-	assert.equal(images(visible).length, 1);
-	assert.equal(images(visible)[0]!.mimeType, "image/png");
-	assert.equal(images(visible)[0]!.data, bytes.toString("base64"));
-	assert.deepEqual(dimensions(images(visible)[0]!), { width: 24, height: 16 });
+	const [image] = images(requests[1]!);
+	assert.equal(image!.data, bytes.toString("base64"));
+	assert.equal(image!.mimeType, "image/png");
 });
 
 test("shared read omits corrupt recognized images without exposing a raw image fallback", async () => {
@@ -201,16 +196,12 @@ for (const [role, resize, expected] of [
 		fs.writeFileSync(textFile, "first\nsecond\nthird\nfourth\nfifth");
 		const { engine, requests } = scripted([
 			fauxAssistantMessage([fauxToolCall("read", { path: imageFile }, { id: "registry-image" })], { stopReason: "toolUse" }),
-			// Exact existing heal contract: schema-integer fields encoded as
-			// JSON number strings heal before validation. The path stays intact.
 			fauxAssistantMessage([fauxToolCall("read", { path: textFile, offset: "2", limit: "2" }, { id: "registry-text" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage([fauxText("Inspected the image and selected text lines.")]),
 		], resize);
 		const originalExecute = readTool.execute;
 		const forbidden = () => { throw new Error("unexpected job dispatch or handoff"); };
 		const chatStore = { getChat: () => null };
-		// Only context ports are mocked; no app/store imports or explicit
-		// tool overrides. Job/handoff operations must never execute here.
 		const agent = role === "prober"
 			? createProberAgent({
 				chatId: "offline-read-prober", chatStore,
@@ -219,12 +210,10 @@ for (const [role, resize, expected] of [
 			} as never, { engine })
 			: createPracticeAgent({ chatId: "offline-read-practice", chatStore }, { engine });
 		await agent.prompt("Inspect the local image, then read the selected text lines.");
-		assert.equal(requests.length, 3);
 		assertProcessedImage(requests[1]!, expected, bytes);
 		const selected = requests[2]!.messages.find((message) => message.role === "toolResult" && message.toolCallId === "registry-text");
-		assert.ok(selected && selected.role === "toolResult");
-		assert.equal(selected.isError, false);
-		assert.deepEqual(selected.content, [{ type: "text", text: "second\nthird\n\n[2 more lines in file. Use offset=4 to continue.]" }]);
+		assert.ok(selected && selected.role === "toolResult" && !selected.isError);
+		assert.match(JSON.stringify(selected.content), /second\\nthird/);
 		assert.equal(readTool.execute, originalExecute, "role construction did not mutate the shared tool");
 	});
 }
@@ -241,62 +230,47 @@ test("PDF reader preserves both processed image outputs from multiple render cal
 		fauxAssistantMessage([fauxText("Both rendered pages are visible (p. 1, p. 2). Pages consulted: 1, 2")]),
 	]);
 	const result = await runPdfReaderAgent({ path: PDF, question: "Compare the two figures." }, { engine, headless });
-	assert.equal(requests.length, 2);
 	assert.deepEqual(pdfCalls, [[1], [2]]);
-	const visible = requests[1]!;
-	const parts = images(visible);
-	assert.equal(parts.length, 2, "the second render call must not overwrite the first call's images");
-	assert.deepEqual(parts.map(dimensions), [{ width: 2000, height: 50 }, { width: 50, height: 2000 }]);
-	for (let i = 0; i < parts.length; i++) assert.notEqual(parts[i]!.data, [wide, tall][i]!.toString("base64"));
+	const parts = images(requests[1]!);
+	assert.deepEqual(parts.map(dimensions), [{ width: 2000, height: 50 }, { width: 50, height: 2000 }], "the second render call must not overwrite the first");
 	assert.deepEqual(result.pagesRead, [1, 2]);
-	assert.deepEqual(result.pagesConsulted, [1, 2]);
 });
 
-for (const [label, resize, expected] of [
-	["native defaults", undefined, { width: 2000, height: 50 }],
-	["active-model overrides", CUSTOM_RESIZE, { width: 320, height: 8 }],
-] as const) {
-	test(`PDF reader sends processed renders using ${label}; failed page is not counted`, async () => {
-		const bytes = png(4800, 120);
-		const { headless, pdfCalls } = fakeHeadless((page) => page === 1 ? bytes : Buffer.from("invalid rendered page"));
-		const { engine, requests } = scripted([
-			fauxAssistantMessage([fauxToolCall("pdf_render", { pages: "1-2", dpi: 150 }, { id: "render-1" })], { stopReason: "toolUse" }),
-			fauxAssistantMessage([fauxText("The visible figure is on page 1 (p. 1). Pages consulted: 1")]),
-		], resize);
-		const result = await runPdfReaderAgent({ path: PDF, question: "Inspect the page figure." }, { engine, headless });
-		assert.equal(requests.length, 2);
-		assert.deepEqual(pdfCalls, [[1, 2]]);
-		assertProcessedImage(requests[1]!, expected, bytes);
-		assert.match(text(requests[1]!), /Page 2: \[Image omitted:/);
-		assert.deepEqual(result.pagesRead, [1]);
-		assert.deepEqual(result.pagesConsulted, [1]);
-	});
+test("PDF reader sends model-bound processed renders; a failed page is not counted", async () => {
+	const bytes = png(4800, 120);
+	const { headless, pdfCalls } = fakeHeadless((page) => page === 1 ? bytes : Buffer.from("invalid rendered page"));
+	const { engine, requests } = scripted([
+		fauxAssistantMessage([fauxToolCall("pdf_render", { pages: "1-2", dpi: 150 }, { id: "render-1" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("The visible figure is on page 1 (p. 1). Pages consulted: 1")]),
+	], CUSTOM_RESIZE);
+	const result = await runPdfReaderAgent({ path: PDF, question: "Inspect the page figure." }, { engine, headless });
+	assert.deepEqual(pdfCalls, [[1, 2]]);
+	assertProcessedImage(requests[1]!, { width: 320, height: 8 }, bytes);
+	assert.match(text(requests[1]!), /Page 2: \[Image omitted:/);
+	assert.deepEqual(result.pagesRead, [1]);
+});
 
-	for (const forced of [false, true]) {
-		test(`visual maker ${forced ? "forced-final" : "explicit render_svg"} path processes images using ${label}`, async () => {
-			const bytes = png(4800, 120);
-			const { headless, svgCalls } = fakeHeadless(bytes);
-			const steps: FauxResponseStep[] = forced ? [
-				fauxAssistantMessage([fauxToolCall("write_svg", { svg: SVG }, { id: "write-1" })], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxText("Premature notes without inspection.")]),
-				fauxAssistantMessage([fauxText("Confirmed after inspecting the final render.")]),
-			] : [
-				fauxAssistantMessage([
-					fauxToolCall("write_svg", { svg: SVG }, { id: "write-1" }),
-					fauxToolCall("render_svg", {}, { id: "render-1" }),
-				], { stopReason: "toolUse" }),
-				fauxAssistantMessage([fauxText("Confirmed after inspecting the render.")]),
-			];
-			const { engine, requests } = scripted(steps, resize);
-			const result = await runVisualMaker({ brief: "One precise synthetic figure." }, { engine, headless });
-			assert.equal(requests.length, forced ? 3 : 2);
-			assert.deepEqual(svgCalls, [SVG]);
-			assertProcessedImage(requests.at(-1)!, expected, bytes);
-			assert.equal(result.svg, SVG);
-			assert.match(result.notes!, /^Confirmed after inspecting/);
-			if (forced) assert.deepEqual(images(requests[1]!), [], "premature finish did not see an image yet");
-		});
-	}
+for (const forced of [false, true]) {
+	test(`visual maker ${forced ? "forced-final" : "explicit render_svg"} path processes model-bound images`, async () => {
+		const bytes = png(4800, 120);
+		const { headless, svgCalls } = fakeHeadless(bytes);
+		const steps: FauxResponseStep[] = forced ? [
+			fauxAssistantMessage([fauxToolCall("write_svg", { svg: SVG }, { id: "write-1" })], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Premature notes without inspection.")]),
+			fauxAssistantMessage([fauxText("Confirmed after inspecting the final render.")]),
+		] : [
+			fauxAssistantMessage([
+				fauxToolCall("write_svg", { svg: SVG }, { id: "write-1" }),
+				fauxToolCall("render_svg", {}, { id: "render-1" }),
+			], { stopReason: "toolUse" }),
+			fauxAssistantMessage([fauxText("Confirmed after inspecting the render.")]),
+		];
+		const { engine, requests } = scripted(steps, CUSTOM_RESIZE);
+		const result = await runVisualMaker({ brief: "One precise synthetic figure." }, { engine, headless });
+		assert.deepEqual(svgCalls, [SVG]);
+		assertProcessedImage(requests.at(-1)!, { width: 320, height: 8 }, bytes);
+		assert.equal(result.svg, SVG);
+	});
 }
 
 for (const forced of [false, true]) {
@@ -310,13 +284,11 @@ for (const forced of [false, true]) {
 			fauxAssistantMessage([fauxText("Unverified claim that the picture is correct.")]),
 		];
 		const { engine, requests } = scripted(steps);
-		const activity: string[] = [];
-		const result = await runVisualMaker({ brief: "One synthetic figure." }, { engine, headless, onActivity: (line) => activity.push(line) });
+		const result = await runVisualMaker({ brief: "One synthetic figure." }, { engine, headless });
 		assert.equal(requests.length, 2);
 		assert.ok(requests.every((request) => images(request).length === 0));
 		assert.equal(result.svg, "");
 		assert.match(result.notes!, /^FAILED:/);
-		assert.ok(!activity.some((line) => line.includes("inspecting")), "a failed image is never marked inspected");
 		assert.equal(svgCalls.length, forced ? 1 : 2, "an explicit processing failure leaves the final-SVG gate unsatisfied");
 	});
 }

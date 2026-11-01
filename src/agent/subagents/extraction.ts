@@ -385,15 +385,15 @@ function fillAudit(raw: Static<typeof auditSchema>): AuditVerdicts {
  *  name the ONE passage it came from — the anchor the merger stamps
  *  into message-granular provenance. Notes have no passages: their
  *  contextualization stays untouched. */
-export const SESSION_MESSAGE_ID_RULE =
+const SESSION_MESSAGE_ID_RULE =
 	"For each new proposition, copy the message ID of the passage that most directly states or explains it into messageId.";
 
-export const SESSION_PREAMBLE =
+const SESSION_PREAMBLE =
 	"You are the extraction stage of a learning application. You read one stretch of a source — a teaching " +
 	"session, rendered as the teacher's prose in reading order — and report what it teaches as findings " +
 	"for the learner's global knowledge graph, building on everything already extracted from this source.";
 
-export const NOTES_PREAMBLE =
+const NOTES_PREAMBLE =
 	"You are the extraction stage of a learning application. You read one stretch of a source — the " +
 	"author's personal notes, rendered in reading order — and report what it teaches as findings for the " +
 	"learner's global knowledge graph, building on everything already extracted from this source.";
@@ -401,7 +401,7 @@ export const NOTES_PREAMBLE =
 // Source-agnostic graph/output contracts. Keep these as separate sections so
 // each front door can own its goal and selection criteria without changing the
 // order or wording of either assembled prompt.
-export const EXTRACTION_CORE = {
+const EXTRACTION_CORE = {
 	entailment: `Each chain is premises that JOINTLY entail a conclusion. Entailment is the only link that earns a
 chain — where the real connection is historical or narrative (who argued what, how a debate or
 exposition unfolds), there is no chain; keep the pieces as bare ideas or drop them. The direction of
@@ -919,13 +919,19 @@ export function createExtractionPipeline(deps: ExtractionPipelineDeps): Extracti
 			if (signal.aborted) onAbort();
 			else signal.addEventListener("abort", onAbort, { once: true });
 		});
+		let entered = false;
 		try {
 			await Promise.race([prev, aborted]);
 			signal?.throwIfAborted(); // aborted exactly at handoff
+			entered = true;
 			return await critical();
 		} finally {
 			if (onAbort && signal && !signal.aborted) signal.removeEventListener("abort", onAbort);
-			release();
+			// A waiter that aborts before entering (fork, 2026-11-01) passes the
+			// gate on only once the run ahead of it releases; releasing at once
+			// let its successor audit beside a still-running holder.
+			if (entered) release();
+			else void prev.then(release);
 		}
 	}
 

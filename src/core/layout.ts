@@ -73,7 +73,7 @@ export interface DepthAnchor {
  * acyclic) condensation, and every cycle member shares its component's
  * depth — mutual support reads as equal footing. Iterative Tarjan (no
  * recursion depth limits), O(V+E), deterministic. */
-export function inferenceDepths(
+function inferenceDepths(
 	nodes: ReadonlyArray<Pick<GraphNode, "id">>,
 	edges: ReadonlyArray<LayoutEdge>,
 ): Map<string, number> {
