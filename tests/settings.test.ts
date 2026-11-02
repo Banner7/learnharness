@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	COMPACTION_THRESHOLD_FLOOR,
 	CURRENT_SETTINGS_VERSION,
 	FACTORY_SETTINGS,
 	sanitizeUserSettings,
@@ -150,5 +151,12 @@ describe("sanitizeUserSettings", () => {
 		const out = sanitizeUserSettings({ agent: { tools: { quiz: false, demo: true, visual: "x" } } });
 		assert.ok(out);
 		assert.deepEqual(out.agent?.tools, { quiz: false, demo: true });
+	});
+
+	it("compaction clamps to the floor with or without a graph section (audit fix, 2026-11-03)", () => {
+		for (const extra of [{}, { graph: { enabled: true } }]) {
+			const out = sanitizeUserSettings({ version: 1, ...extra, compaction: { thresholdTokens: 5_000 } });
+			assert.deepEqual(out?.compaction, { thresholdTokens: COMPACTION_THRESHOLD_FLOOR });
+		}
 	});
 });

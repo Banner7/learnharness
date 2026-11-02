@@ -752,9 +752,13 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.graph !== null && typeof r.graph === "object" && !Array.isArray(r.graph)) {
 		out.graph = sanitizeGraph(r.graph as Record<string, unknown>);
-		if (r.compaction !== undefined && r.compaction !== null && typeof r.compaction === "object") {
-			out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
-		}
+	}
+	// The compaction section sits beside graph, not inside it (audit fix,
+	// 2026-11-03): nested under the graph check, a settings file with
+	// compaction but no graph section skipped the floor clamp and the
+	// unknown-keys loop below carried the raw value through.
+	if (r.compaction !== null && typeof r.compaction === "object" && !Array.isArray(r.compaction)) {
+		out.compaction = sanitizeCompaction(r.compaction as Record<string, unknown>);
 	}
 	if (r.library !== null && typeof r.library === "object" && !Array.isArray(r.library)) {
 		out.library = sanitizeLibrary(r.library as Record<string, unknown>);

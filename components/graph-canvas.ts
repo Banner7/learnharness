@@ -646,6 +646,7 @@ export class GraphCanvasRenderer {
 	private regionMeta: { id: string; label: string | null; lines: string[] | null; cx: number; cy: number; hue: number }[] = [];
 	private regionTuning: RegionTuning = DEFAULT_REGION_TUNING;
 	private physicsTuning: PhysicsTuning = DEFAULT_PHYSICS_TUNING;
+	private physicsTuningApplied = false;
 	/** Gravity center for the live sim (graph bbox centroid at setData). */
 	private simCenter: Pt = { x: 0, y: 0 };
 	private regionBuiltVersion = -1;
@@ -811,13 +812,25 @@ export class GraphCanvasRenderer {
 	 *  the new feel"). A mid-settle change re-anneals, which is the
 	 *  honest response to new physics. */
 	setPhysicsTuning(input: Partial<PhysicsTuning>): void {
-		this.physicsTuning = sanitizePhysicsTuning(input);
+		const next = sanitizePhysicsTuning(input);
+		// Mount drift fix (audit, 2026-11-03): GraphView re-feeds the tuning
+		// whenever the renderer is (re)created, so every graph open reheated
+		// the sim to alpha 1 and wrote a nudged layout back to
+		// positions.json (~3 units per open, measured). An unchanged tuning
+		// is a no-op; the first tuning a renderer receives rebuilds the sim
+		// at rest. Only a real change after that re-anneals.
+		const prev = this.physicsTuning;
+		const changed = (Object.keys(next) as (keyof PhysicsTuning)[]).some((k) => next[k] !== prev[k]);
+		const first = !this.physicsTuningApplied;
+		this.physicsTuningApplied = true;
+		if (!changed) return;
+		this.physicsTuning = next;
 		this.buildSim();
 		// Reheat: a tuning change re-anneals the layout from its current
 		// state, so mode toggles (off/vertical/radial) visibly RE-FORM the
 		// graph instead of waiting for the next drag. Mid-drag is safe —
 		// buildSim preserved the pinned node's fx/fy.
-		if (this.sim) {
+		if (this.sim && !first) {
 			this.sim.alpha(1);
 			this.simActive = true;
 		}

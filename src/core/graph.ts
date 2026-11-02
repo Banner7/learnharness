@@ -520,14 +520,18 @@ export function graphSnapshot(deps: GraphDeps, sourceNames: Readonly<Record<stri
 	}
 	const sessions: Record<string, string> = {};
 	const fileSources: Record<string, string> = {};
+	// One sources.json read per snapshot (audit fix, 2026-11-03): the lookup
+	// used to re-read and re-parse the source map for every file source id.
+	let sourcePaths: Map<string, string> | undefined;
 	for (const id of sourceIds) {
 		const chat = deps.chatStore.getChat(id);
 		if (chat) {
 			sessions[id] = chat.title;
 			continue;
 		}
-		const source = deps.graphStore.readSources().find((s) => s.id === id);
-		if (source) fileSources[id] = source.filePath;
+		sourcePaths ??= new Map(deps.graphStore.readSources().map((s) => [s.id, s.filePath]));
+		const filePath = sourcePaths.get(id);
+		if (filePath !== undefined) fileSources[id] = filePath;
 	}
 
 	const nodeSessions: Record<string, string[]> = {};
