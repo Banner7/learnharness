@@ -10,9 +10,14 @@ const server = serve({
 	console.log(`[server] listening on ${info.address}:${info.port}`);
 });
 
+// Unhandled rejection guard (audit fix, 2026-11-03): Node 22 exits the
+// process on an unhandled rejection; a missed fire-and-forget site should
+// log, not take the whole server down.
+process.on("unhandledRejection", (err) => console.error("[server] unhandled rejection:", err));
+
 // Fork (2026-10-29): read Claude Code's model names before the first picker
 // load asks for them; /api/models also waits (bounded) if this is still running.
-void loadClaudeCodeModelNames();
+void loadClaudeCodeModelNames().catch((err) => console.error("[server] Claude Code model names load failed:", err));
 // Fork (2026-11-01): follow LH_VAULT_DIR's notes as sources (no-op when unset).
 startVaultFollower();
 

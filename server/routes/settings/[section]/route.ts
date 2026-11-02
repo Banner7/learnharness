@@ -131,6 +131,6 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
 	// Vault library (fork, 2026-11-01): a changed skip list applies now.
-	if (section === "library") void syncVault();
+	if (section === "library") void syncVault().catch((err) => console.error("[vault] rescan after settings change failed:", err));
 	return Response.json({ settings: next });
 }

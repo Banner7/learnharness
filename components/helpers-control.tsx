@@ -35,13 +35,20 @@ const HELPERS: readonly { slot: HelperSlot; label: string; hint: string }[] = [
 export function HelpersControl() {
 	const { catalog, refresh } = useModelCatalog();
 	const [models, setModels] = useState<ModelsSettings | undefined>();
+	// Loaded guard (audit fix, 2026-11-03): PUT /api/settings/models replaces
+	// the whole section, so a pick composed over a not-yet-read (or failed)
+	// record would wipe the other slots. Only a successful read arms the panel.
+	const [modelsLoaded, setModelsLoaded] = useState(false);
 	const [view, setView] = useState<View | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	const readRecord = useCallback(() => {
 		readSettingsRecord()
-			.then((body) => setModels(body.settings?.models ?? undefined))
+			.then((body) => {
+				setModels(body.settings?.models ?? undefined);
+				setModelsLoaded(true);
+			})
 			.catch(() => {
 				/* read-only posture: triggers show "—", same as ModelControl */
 			});
@@ -63,6 +70,7 @@ export function HelpersControl() {
 	}, [view]);
 
 	const save = useCallback(async (next: ModelsSettings) => {
+		if (!modelsLoaded) return;
 		setError(null);
 		try {
 			const res = await fetch("/api/settings/models", {
@@ -83,7 +91,7 @@ export function HelpersControl() {
 		} catch {
 			setError("Could not reach the server — try again.");
 		}
-	}, []);
+	}, [modelsLoaded]);
 
 	const slotState = (slot: HelperSlot) => {
 		const stored = models?.[slot];
@@ -97,6 +105,7 @@ export function HelpersControl() {
 	};
 
 	const toggle = () => {
+		if (!modelsLoaded) return;
 		setError(null);
 		setView((v) => (v ? null : { kind: "summary" }));
 	};
@@ -110,6 +119,7 @@ export function HelpersControl() {
 					type="button"
 					data-testid="helpers-chip"
 					onClick={toggle}
+					disabled={!modelsLoaded}
 					aria-expanded={view !== null}
 					aria-haspopup="dialog"
 					className="group flex min-h-11 items-center text-xs"

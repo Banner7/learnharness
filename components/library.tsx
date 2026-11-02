@@ -98,8 +98,12 @@ export function LibrarySection({ library, onSectionChange }: {
 	return (
 		<>
 			<SettingsRow label="Auto-extract" hint="After 5 quiet minutes on a note" testid="library-row-auto">
+				{/* Exclude untouched (audit fix, 2026-11-03): the toggle used to write the
+				    displayed list back, freezing the LH_VAULT_EXCLUDE seed into the record
+				    (or [] before the status loaded). The spread keeps a saved list; an
+				    unsaved one stays absent so the server's env seed still applies. */}
 				<Toggle checked={library?.autoExtract ?? false} label="auto-extract vault notes"
-					onChange={(on) => onSectionChange({ ...library, exclude, autoExtract: on })} />
+					onChange={(on) => onSectionChange({ ...library, autoExtract: on })} />
 			</SettingsRow>
 			<SettingsRow label="Skip" hint="One per line: folder/, exact/path.md, or a glob (* in a folder, ** across folders)" testid="library-row-skip" stacked>
 				<textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={5} aria-label="vault paths to skip"

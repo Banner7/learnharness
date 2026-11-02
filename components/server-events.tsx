@@ -12,6 +12,8 @@
  * Auto-reconnect is EventSource's own — never fought, always exploited:
  * every (re)open fires the resync callbacks, so a reconnect heals with
  * one ordinary fetch per consumer (a dev-server restart self-heals here).
+ * Only a CLOSED source (a non-200 reconnect) is reopened by hand — see
+ * openEventsChannel.
  *
  * Shape: the provider holds a hub (window-local fan-out — the client twin
  * of the server bus; per-window, NOT globalThis: each window's connection
@@ -35,15 +37,54 @@ export interface NotifySource {
 	onEvent(name: string, cb: (data: string) => void): void;
 }
 
+// Reopen-after-CLOSED (audit fix, 2026-11-03): EventSource's own retry only
+// covers network drops — a non-200 reconnect (a 502 while the container
+// redeploys) moves it to CLOSED for good, and the window went deaf until a
+// reload. On CLOSED we open a fresh source with backoff (1s doubling to 30s,
+// reset by a successful open) and re-attach every registered listener; each
+// reopen fires onOpen, so the hub's resync recovers what was missed.
+const REOPEN_MIN_MS = 1000;
+const REOPEN_MAX_MS = 30_000;
+
 function openEventsChannel(): NotifySource {
-	const es = new EventSource("/api/events");
+	const openCbs: Array<() => void> = [];
+	const eventCbs: Array<[string, (data: string) => void]> = [];
+	let delay = REOPEN_MIN_MS;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let closed = false;
+	let es: EventSource;
+	const attach = (name: string, cb: (data: string) => void) => {
+		es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
+	};
+	const connect = () => {
+		es = new EventSource("/api/events");
+		es.onopen = () => {
+			delay = REOPEN_MIN_MS;
+			for (const cb of openCbs) cb();
+		};
+		es.onerror = () => {
+			if (closed || es.readyState !== EventSource.CLOSED || timer !== undefined) return;
+			timer = setTimeout(() => {
+				timer = undefined;
+				if (!closed) connect();
+			}, delay);
+			delay = Math.min(delay * 2, REOPEN_MAX_MS);
+		};
+		for (const [name, cb] of eventCbs) attach(name, cb);
+	};
+	connect();
 	return {
-		close: () => es.close(),
+		close: () => {
+			closed = true;
+			clearTimeout(timer);
+			es.close();
+		},
 		onOpen: (cb) => {
-			es.onopen = () => cb();
+			openCbs.push(cb);
 		},
 		onEvent: (name, cb) => {
-			es.addEventListener(name, (ev) => cb((ev as MessageEvent).data));
+			eventCbs.push([name, cb]);
+			attach(name, cb);
 		},
 	};
 }

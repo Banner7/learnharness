@@ -1,11 +1,10 @@
 import fs from "node:fs";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { SOURCE_ORGANIZATION_FILE } from "../../config.ts";
 import { emptySourceOrganization, parseSourceOrganization } from "../core/source-organization.ts";
 import type { SourceOrganizationStore } from "../core/ports.ts";
 import { emit } from "../core/events.ts";
 import { assertGraphFormat, ensureGraphFormat } from "./graph-format.ts";
+import { writeAtomicFile } from "./atomic-file.ts";
 
 export const sourceOrganizationStore: SourceOrganizationStore = {
 	read() {
@@ -21,13 +20,11 @@ export const sourceOrganizationStore: SourceOrganizationStore = {
 	write(state) {
 		assertGraphFormat();
 		const valid = parseSourceOrganization(state);
-		fs.mkdirSync(path.dirname(SOURCE_ORGANIZATION_FILE), { recursive: true });
 		ensureGraphFormat();
-		const tmp = `${SOURCE_ORGANIZATION_FILE}.${randomUUID()}.tmp`;
-		try {
-			fs.writeFileSync(tmp, JSON.stringify(valid, null, "\t") + "\n", "utf8");
-			fs.renameSync(tmp, SOURCE_ORGANIZATION_FILE);
-		} finally { fs.rmSync(tmp, { force: true }); }
+		// The shared atomic writer (audit fix, 2026-11-03): the hand-rolled
+		// temp+rename never fsynced, so a power cut could leave an empty file
+		// that failed every /api/graph read until repaired by hand.
+		writeAtomicFile(SOURCE_ORGANIZATION_FILE, JSON.stringify(valid, null, "\t") + "\n");
 		emit("sources-changed", {});
 	},
 };

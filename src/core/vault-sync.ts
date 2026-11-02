@@ -34,13 +34,19 @@ export function reconcileVault(
 	files: readonly VaultFile[],
 	now: string,
 	newId: () => string,
+	exclude: readonly string[] = [],
 ): VaultReconcile {
 	const result: VaultReconcile = { upserts: [], created: 0, renamed: 0, changed: 0, missing: 0, restored: 0 };
 	const followed = sources.filter((s) => s.vault);
 	const byPath = new Map(followed.map((s) => [s.vault!.path, s]));
 	const present = new Set(files.map((f) => f.path));
-	// Rename candidates: followed sources whose path no longer exists.
+	// Rename candidates: followed sources whose path no longer exists. A
+	// skipped note is absent from `files` only because the scanner leaves it
+	// out — it is still on disk, so it is never a move source (audit fix,
+	// 2026-11-03): a new file with the same bytes used to take over its id
+	// and graph, and un-skipping the original then minted a bare source.
 	const vanished = followed.filter((s) => !present.has(s.vault!.path));
+	const movable = vanished.filter((s) => !vaultPathExcluded(s.vault!.path, exclude));
 	const claimed = new Set<string>();
 	const unmatched: VaultFile[] = [];
 
@@ -63,7 +69,7 @@ export function reconcileVault(
 	for (const file of unmatched) {
 		// Only an unambiguous byte-identical match counts as a move; two
 		// vanished copies of the same text leave the file a new source.
-		const matches = vanished.filter((s) => !claimed.has(s.id) && s.vault!.contentHash === file.hash);
+		const matches = movable.filter((s) => !claimed.has(s.id) && s.vault!.contentHash === file.hash);
 		if (matches.length === 1) {
 			const source = matches[0]!;
 			claimed.add(source.id);

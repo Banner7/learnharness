@@ -25,11 +25,34 @@ import type { ArtifactPartProps, VisualResult } from "@/src/core";
 
 /** Cheap SVG hygiene — not a full sanitizer, just removing the obvious exec vectors. */
 export function sanitizeSvg(svg: string): string {
+	// Hardened hygiene (audit fix, 2026-11-03): handlers after "/" (`<img/onerror=`),
+	// entity-encoded javascript: URLs, srcdoc, and foreignObject (an HTML island
+	// inside SVG) all slipped past the first pass.
 	return svg
 		.replace(/<script[\s\S]*?<\/script\s*>/gi, "")
 		.replace(/<script[^>]*\/?>/gi, "")
-		.replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-		.replace(/(href|xlink:href)\s*=\s*(?:"\s*(?:javascript|data:text\/html)[^"]*"|'\s*(?:javascript|data:text\/html)[^']*'|(?:javascript|data:text\/html)[^\s>]*)/gi, "");
+		.replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, "")
+		.replace(/<\/?foreignObject[^>]*>/gi, "")
+		.replace(/[\s/]on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, " ")
+		.replace(/[\s/]srcdoc\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, " ")
+		.replace(/([\s/])((?:xlink:)?href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (whole, lead: string, _name, raw: string) => {
+			const value = raw.startsWith('"') || raw.startsWith("'") ? raw.slice(1, -1) : raw;
+			return isDangerousUrl(value) ? lead : whole;
+		});
+}
+
+const NAMED_ENTITIES: Record<string, string> = { colon: ":", tab: "\t", newline: "\n", sol: "/", lpar: "(", rpar: ")", amp: "&", quot: '"', apos: "'", lt: "<", gt: ">" };
+
+/** Decode numeric/common named entities, drop whitespace/control chars, then
+ *  test for javascript:/data:text/html. */
+function isDangerousUrl(value: string): boolean {
+	const decoded = value
+		.replace(/&#x([0-9a-f]+);?/gi, (_, h: string) => String.fromCodePoint(Number.parseInt(h, 16) % 0x110000))
+		.replace(/&#(\d+);?/g, (_, d: string) => String.fromCodePoint(Number.parseInt(d, 10) % 0x110000))
+		.replace(/&([a-z]+);?/gi, (m, n: string) => NAMED_ENTITIES[n.toLowerCase()] ?? m)
+		.replace(/[\u0000-\u0020\u007f-\u009f]/g, "")
+		.toLowerCase();
+	return decoded.startsWith("javascript:") || decoded.startsWith("data:text/html");
 }
 
 /** The svg root's DECLARED width in px, when there is one — the natural
@@ -153,7 +176,7 @@ export function VisualOutputCard({
 							type="button"
 							aria-label="Open figure fullscreen"
 							title="Open fullscreen"
-							onClick={() => overlay.openFigure(result.svg, inverted)}
+							onClick={() => overlay.openFigure(sanitizeSvg(result.svg), inverted)}
 							data-testid="visual-open"
 							className="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
 						>

@@ -20,6 +20,14 @@ it("a moved file keeps its source id, usage and extracted state", () => {
 	assert.equal(r.upserts[0]!.vault!.extractedHash, "h1");
 });
 
+it("a skipped note is never a rename source for a new file with the same bytes (audit fix, 2026-11-03)", () => {
+	const skipped = followed("src_tpl", "Templates/Daily.md", "h1");
+	const r = reconcileVault([skipped], [{ path: "notes/Copy.md", hash: "h1" }], T1, ids, ["Templates/"]);
+	assert.equal(r.renamed, 0);
+	assert.equal(r.created, 1);
+	assert.notEqual(r.upserts.find((s) => s.filePath === "notes/Copy.md")!.id, "src_tpl");
+});
+
 it("a vanished file is marked missing once, never dropped", () => {
 	const first = reconcileVault([followed("src_a", "a.md", "h1")], [], T1, ids);
 	assert.equal(first.missing, 1);

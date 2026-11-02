@@ -15,6 +15,6 @@ export function GET() {
 export function POST() {
 	const status = libraryStatus();
 	if (!status.enabled) return Response.json({ error: "No vault folder is configured on the server." }, { status: 409 });
-	void drainLibrary("manual");
+	void drainLibrary("manual").catch((err) => console.error("[vault] manual sync failed:", err));
 	return Response.json({ ...libraryStatus(), draining: true });
 }

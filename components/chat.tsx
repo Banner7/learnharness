@@ -414,10 +414,12 @@ export function Chat({
 	// the dock stays mounted (the problem is still active until the agent
 	// concludes).
 	const submitThinking = useCallback(
-		(text: string) => {
+		// Returns send()'s verdict (audit fix, 2026-11-03): the dock keeps the
+		// learner's text unless the send was accepted.
+		(text: string, onAccepted: () => void): Promise<boolean> => {
 			const problem = activeProblemRef.current;
-			if (!problem) return;
-			void send({ type: "thinking", problemCallId: problem.toolCallId, text });
+			if (!problem) return Promise.resolve(false);
+			return send({ type: "thinking", problemCallId: problem.toolCallId, text }, onAccepted);
 		},
 		[send],
 	);
@@ -1440,6 +1442,7 @@ export function Chat({
 
 					practice={activeProblem}
 					compactionRunning={compacting}
+					turnBusy={busy}
 					onSubmitThinking={submitThinking}
 					chatId={chatId}
 					onRequestAbort={setAbortAsk}
@@ -1526,13 +1529,14 @@ export function initialPromptOwed(messages: readonly { role: string }[], prompt:
 
 
 function BottomControls({
-	pending, practice, compactionRunning, onSubmitThinking, turns, contextTokens, cliContextWindow,
+	pending, practice, compactionRunning, turnBusy, onSubmitThinking, turns, contextTokens, cliContextWindow,
 	pricing, initialSession, composer, onRequestAbort, chatId, queuedSteers, rail,
 }: {
 	pending: PendingQuestion | null;
 	practice: { toolCallId: string; input: unknown } | null;
 	compactionRunning: boolean;
-	onSubmitThinking: (text: string) => void;
+	turnBusy: boolean;
+	onSubmitThinking: (text: string, onAccepted: () => void) => Promise<boolean>;
 	turns: TurnUsage[];
 	contextTokens: number | null;
 	cliContextWindow: CliContextWindow | null;
@@ -1572,6 +1576,7 @@ function BottomControls({
 								input={practice.input as { statement: string }}
 								onSubmit={onSubmitThinking}
 								compactionRunning={compactionRunning}
+								busy={turnBusy}
 							/>
 							<div className="border-t px-4 py-2 text-right">
 								<button type="button" className="text-xs text-muted-foreground hover:text-foreground" onClick={() => onRequestAbort("problem")}>

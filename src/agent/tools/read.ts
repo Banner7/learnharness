@@ -59,10 +59,19 @@ function readTextSlice(text: string, offset: number | undefined, limit: number |
 		truncatedBy = "lines";
 	}
 	// then the 50KB ceiling
-	if (Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_BYTES) {
-		while (selected.length > 0 && Buffer.byteLength(selected.join("\n"), "utf-8") > MAX_BYTES) {
-			selected.pop();
-		}
+	// Linear byte cap (audit fix, 2026-11-03): the old pop-and-rejoin loop was
+	// quadratic; one forward pass keeps the same largest prefix whose joined
+	// byte length fits MAX_BYTES (each line after the first adds a "\n").
+	let total = -1;
+	let keep = 0;
+	for (const line of selected) {
+		const next = total + Buffer.byteLength(line, "utf-8") + 1;
+		if (next > MAX_BYTES) break;
+		total = next;
+		keep++;
+	}
+	if (keep < selected.length) {
+		selected = selected.slice(0, keep);
 		truncatedBy = "bytes";
 	}
 	if (truncatedBy === null) {

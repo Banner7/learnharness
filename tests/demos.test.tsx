@@ -153,6 +153,20 @@ describe("sanitizeSvg", () => {
 		assert.ok(!/<script|\sonload|\sonclick|javascript:/i.test(clean), "scripts, handlers and javascript: urls removed");
 		assert.ok(clean.includes("circle") && clean.includes("rect"), "geometry preserved");
 	});
+
+	it("strips the slash-handler, srcdoc, foreignObject and entity-encoded javascript: bypasses (audit fix, 2026-11-03)", () => {
+		for (const dirty of [
+			'<svg><img src="x"/onerror="alert(1)"></svg>',
+			'<svg><foreignObject><iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe></foreignObject></svg>',
+			'<svg><iframe srcdoc="x"></iframe></svg>',
+			'<svg><a href="&#106;avascript:alert(1)"><text>x</text></a></svg>',
+		]) {
+			const clean = sanitizeSvg(dirty);
+			assert.ok(!/onerror|srcdoc|foreignObject|&#106;avascript/i.test(clean), clean);
+		}
+		const benign = '<svg viewBox="0 0 10 10"><a href="https://example.com"><rect width="5" stroke-width="1"/></a></svg>';
+		assert.equal(sanitizeSvg(benign), benign);
+	});
 });
 
 const BROKEN_HTML = "<!doctype html><html><body>BROKEN<script>foo();</script></body></html>";

@@ -65,9 +65,10 @@ async function scanOnce(): Promise<VaultReconcile | null> {
 	try {
 		const root = VAULT_DIR!;
 		await fs.promises.access(root, fs.constants.R_OK);
-		const files = await scanVaultFiles(root, libraryPreferences().exclude);
+		const exclude = libraryPreferences().exclude;
+		const files = await scanVaultFiles(root, exclude);
 		const result = reconcileVault(stores.graphStore.readSources(), files, new Date().toISOString(),
-			() => `src_${randomBytes(6).toString("hex")}`);
+			() => `src_${randomBytes(6).toString("hex")}`, exclude);
 		for (const source of result.upserts) stores.graphStore.upsertSource(source);
 		if (result.upserts.length > 0) {
 			console.info(`[vault] ${result.created} new, ${result.renamed} moved, ${result.changed} edited, ${result.missing} missing, ${result.restored} back`);

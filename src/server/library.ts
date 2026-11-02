@@ -151,9 +151,15 @@ export function drainLibrary(mode: "manual" | "auto"): Promise<void> {
 export function startVaultFollower(): void {
 	if (!VAULT_DIR) return;
 	console.info(`[vault] following ${VAULT_DIR}`);
+	// Tick guard (audit fix, 2026-11-03): a failed scan/drain must log, not
+	// reject unhandled and kill the server.
 	const tick = async () => {
-		await syncVault();
-		if (libraryPreferences().autoExtract) await drainLibrary("auto");
+		try {
+			await syncVault();
+			if (libraryPreferences().autoExtract) await drainLibrary("auto");
+		} catch (err) {
+			console.error("[vault] follower tick failed:", err);
+		}
 	};
 	void tick();
 	setInterval(() => { void tick(); }, POLL_MS).unref();

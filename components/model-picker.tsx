@@ -78,6 +78,11 @@ export function catalogLimits(catalog: Pick<ModelCatalogResponse, "models">): Ma
 export function ModelControl({ chatId, initialSession, onModelChange }: { chatId?: string; initialSession?: { settings?: ChatSettings }; onModelChange?: (model: string | undefined) => void }) {
 	const { catalog, refresh } = useModelCatalog();
 	const [models, setModels] = useState<ModelsSettings | undefined>();
+	// Loaded guard (audit fix, 2026-11-03): PUT /api/settings/models replaces
+	// the whole section, so a draft-mode pick composed over a not-yet-read (or
+	// failed) record would wipe every other slot. Only a successful read arms
+	// the draft-mode menus.
+	const [modelsLoaded, setModelsLoaded] = useState(false);
 	// A successful read with no settings is a legacy session; undefined
 	// means no session record is known yet, not permission to inherit Strong.
 	const [session, setSession] = useState<{ settings?: ChatSettings } | undefined>(initialSession);
@@ -108,7 +113,10 @@ export function ModelControl({ chatId, initialSession, onModelChange }: { chatId
 			}
 		}
 		readSettingsRecord()
-			.then((body) => setModels(body.settings?.models ?? undefined))
+			.then((body) => {
+				setModels(body.settings?.models ?? undefined);
+				setModelsLoaded(true);
+			})
 			.catch(() => {
 				/* the record fetch failing leaves the control read-only
 				   ("—" triggers, closed menus) — same posture as a
@@ -241,10 +249,11 @@ export function ModelControl({ chatId, initialSession, onModelChange }: { chatId
 				void saveChat({ model: { provider, id }, thinkingLevel: level });
 			} else {
 				// composeSlotModel's empty-string convention: no level = unset.
+				if (!modelsLoaded) return;
 				void save(composeSlotModel(models, "strong", provider, id, level ?? ""));
 			}
 		},
-		[chatId, models, save, saveChat],
+		[chatId, models, modelsLoaded, save, saveChat],
 	);
 
 
@@ -264,6 +273,7 @@ export function ModelControl({ chatId, initialSession, onModelChange }: { chatId
 
 	// Refresh the cached list on manual open.
 	const openMenu = (kind: "model" | "thinking") => {
+		if (!chatId && !modelsLoaded) return;
 		setOpen((o) => (o === kind ? null : kind));
 		setError(null);
 		if (kind === "model") refresh();
@@ -279,6 +289,7 @@ export function ModelControl({ chatId, initialSession, onModelChange }: { chatId
 				type="button"
 				data-testid="stats-model"
 				onClick={() => openMenu("model")}
+				disabled={!chatId && !modelsLoaded}
 				aria-expanded={open === "model"}
 				className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
 			>
@@ -300,6 +311,7 @@ export function ModelControl({ chatId, initialSession, onModelChange }: { chatId
 					openMenu("thinking");
 				}}
 				aria-expanded={open === "thinking"}
+				disabled={!chatId && !modelsLoaded}
 				className="flex min-h-11 items-center gap-1 rounded-md px-1 text-xs transition-colors hover:text-foreground"
 			>
 				{/* Just the level — the button reads like the model button reads

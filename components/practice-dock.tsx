@@ -14,24 +14,43 @@ export interface PracticeDockProps {
 	/** The pose's arguments — only the statement is the learner's (the
 	 *  mode badge would edge toward announcing the target; dropped). */
 	input: { statement: string };
-	/** text — POST {type:"thinking"} (one lane; the register is read from the text). */
-	onSubmit: (text: string) => void;
+	/** text — POST {type:"thinking"} (one lane; the register is read from the text).
+	 *  onAccepted fires at the server's ack; the result is send()'s (false =
+	 *  refused or failed, the text stays). */
+	onSubmit: (text: string, onAccepted: () => void) => boolean | Promise<boolean>;
 	/** Compaction is running for this chat (owner round 14): the thinking
 	 *  POST would block on the server's compaction gate — disable submit
 	 *  and say so in the hint row. The server registry is the real gate;
 	 *  this is the affordance. */
 	compactionRunning?: boolean;
+	/** A turn is running (audit fix, 2026-11-03): send() refuses while the
+	 *  session isn't ready, so submit is disabled rather than silently
+	 *  dropping the learner's thinking. */
+	busy?: boolean;
 }
 
-export function PracticeDock({ problemCallId, input, onSubmit, compactionRunning = false }: PracticeDockProps) {
+export function PracticeDock({ problemCallId, input, onSubmit, compactionRunning = false, busy = false }: PracticeDockProps) {
 	const [thinking, setThinking] = useState("");
+	const [submitting, setSubmitting] = useState(false);
+	const blocked = compactionRunning || busy || submitting;
 
+	// Keep-until-accepted (audit fix, 2026-11-03): the field used to clear
+	// before the send, so a refused send (a turn still running) lost the
+	// text. Clear at the server's ack (send() itself resolves only after the
+	// turn's stream), or on a true result — and only if the learner hasn't
+	// typed on since. A false result leaves the text in place.
 	const submit = () => {
-		if (compactionRunning) return;
+		if (blocked) return;
 		const text = thinking.trim();
 		if (text.length === 0) return;
-		setThinking("");
-		onSubmit(text);
+		const clear = () => setThinking((cur) => (cur.trim() === text ? "" : cur));
+		setSubmitting(true);
+		void Promise.resolve(onSubmit(text, clear))
+			.then((accepted) => {
+				if (accepted) clear();
+			})
+			.catch(() => {})
+			.finally(() => setSubmitting(false));
 	};
 
 
@@ -76,7 +95,7 @@ export function PracticeDock({ problemCallId, input, onSubmit, compactionRunning
 					<Button
 						type="button"
 						data-testid="practice-send"
-						disabled={thinking.trim().length === 0 || compactionRunning}
+						disabled={thinking.trim().length === 0 || blocked}
 						onClick={() => submit()}
 						className="ml-auto min-h-11 rounded-md px-3.5 text-sm font-semibold"
 					>
