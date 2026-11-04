@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { serverExecute } from "../tool-execute.ts";
+import { safeFetch } from "./safe-fetch.ts";
 // The search-hit shape lives in the core port since the search wave
 // (2026-09-20); this alias keeps callers churn-free.
 import type { SearchHit as WebSearchResult, SearchProvider } from "../../core/search.ts";
@@ -81,7 +82,7 @@ function htmlToMarkdown(html: string): { title: string; content: string } | null
 }
 
 async function fetchAndExtract(url: string): Promise<string> {
-	const resp = await fetch(url, {
+	const { response: resp, url: finalUrl } = await safeFetch(url, {
 		headers: {
 			"User-Agent": USER_AGENT,
 			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -94,7 +95,7 @@ async function fetchAndExtract(url: string): Promise<string> {
 	// Final URL after redirects + status — the researcher's only way to
 	// tell a real page from a 200-served error body (owner-reported
 	// "ill-formed request" case: the SITE answered, we just relayed it).
-	const sourceLine = `Source: ${resp.url || url} (HTTP ${resp.status})`;
+	const sourceLine = `Source: ${finalUrl} (HTTP ${resp.status})`;
 
 	const contentType = resp.headers.get("content-type") ?? "";
 	if (contentType.includes("application/pdf")) {

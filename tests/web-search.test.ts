@@ -73,6 +73,35 @@ describe("web_search on the injected port (web.ts)", () => {
 			globalThis.fetch = realFetch;
 		}
 	});
+
+	it("web_fetch refuses private destinations, including via redirect (SSRF)", async () => {
+		const { web_fetch } = createWebTools(() => null);
+		const realFetch = globalThis.fetch;
+		const fetched: string[] = [];
+		globalThis.fetch = (async (input) => {
+			fetched.push(String(input));
+			return new Response(null, { status: 302, headers: { location: "http://127.0.0.1:8384/rest/config" } });
+		}) as typeof fetch;
+		try {
+			for (const url of [
+				"http://127.0.0.1:8222/admin",
+				"http://localhost:7318/",
+				"http://[::1]/",
+				"http://[::ffff:10.0.0.1]/",
+				"http://100.101.102.103/",
+				"http://169.254.169.254/latest/meta-data/",
+				"http://172.18.0.2/",
+			]) {
+				assert.match(String((await web_fetch!.execute!("c-priv", { url })).details), /private address/, url);
+			}
+			assert.deepEqual(fetched, [], "no private URL reaches fetch");
+			const out = String((await web_fetch!.execute!("c-redir", { url: "http://93.184.215.14/" })).details);
+			assert.match(out, /private address/);
+			assert.deepEqual(fetched, ["http://93.184.215.14/"], "the redirect target is never fetched");
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+	});
 });
 
 describe("keyless researcher loop", () => {
